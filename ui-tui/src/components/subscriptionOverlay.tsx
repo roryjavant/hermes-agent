@@ -5,7 +5,7 @@ import type { SubscriptionOverlayState } from '../app/interfaces.js'
 import type { SubscriptionStateResponse } from '../gatewayTypes.js'
 import type { Theme } from '../theme.js'
 
-import { ActionRow, barCells, footer, MenuRow } from './overlayPrimitives.js'
+import { ActionRow, footer, MenuRow, UsageBars } from './overlayPrimitives.js'
 
 interface SubscriptionOverlayProps {
   /** Replace the overlay slot (screen transitions + pending data). */
@@ -65,34 +65,35 @@ interface ScreenProps {
   t: Theme
 }
 
-/** Usage bar from subscription allowance (monthly_credits vs credits_remaining). */
-function usageBar(s: SubscriptionStateResponse): null | string {
-  const c = s.current
+/** Status line — dollars-only, state-matched. The allowance detail ($X of $Y ·
+ *  % used) lives on the bar line, so this line shows only the spendable total +
+ *  renewal — no duplicated "of $Y left". */
+function statusLine(s: SubscriptionStateResponse): string {
+  const u = s.usage
+  const plan = s.current?.tier_name ?? u?.plan_name ?? null
+  const renewsRaw = u?.renews_display ?? null
+  const renews = renewsRaw ? ` · renews ${renewsRaw}` : ''
+  const viewOnly = !(s.can_change_plan && s.is_admin)
 
-  if (!c || !c.monthly_credits || !c.credits_remaining) {
-    return null
+  if (!plan) {
+    return 'Plan: Free · free models only'
   }
 
-  const monthly = Number(c.monthly_credits)
-  const remaining = Number(c.credits_remaining)
-
-  if (!(monthly > 0) || Number.isNaN(remaining)) {
-    return null
+  if (u?.status === 'low' && u.total_spendable_display) {
+    return `Plan: ${plan} · ${u.total_spendable_display} left`
   }
 
-  const spent = Math.max(0, monthly - remaining)
-  const { bar, pct } = barCells(spent / monthly)
+  // Healthy/top: show the spendable total once; the bar carries the breakdown.
+  const left = u?.total_spendable_display ? ` · ${u.total_spendable_display} left` : ''
 
-  return `${remaining} of ${c.monthly_credits} remaining   ${bar} ${100 - pct}% left`
+  return `Plan: ${plan}${left}${viewOnly ? ' · view only' : renews}`
 }
 
-function OverviewScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
-  // (d) not-admin: read-only + note + Manage/portal only.
-  const canChange = s.can_change_plan && s.is_admin
+function OverviewScreen({ ctx, onClose, s, t }: ScreenProps) {
   const c = s.current
   const isFree = !c?.tier_id
-  const hasPendingDowngrade = !!c?.pending_downgrade_tier_name
   const isCancelScheduled = !!c?.cancel_at_period_end
+  const hasPendingDowngrade = !!c?.pending_downgrade_tier_name
 
   // Headline precedence: cancel-scheduled > downgrade-pending > active.
   // (Past-due/dunning was removed from the NAS read — a card-failing
@@ -107,53 +108,32 @@ function OverviewScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
     ? `Scheduled to switch to ${c?.pending_downgrade_tier_name} on ${c?.pending_downgrade_at}.`
     : null
 
-  const notAdminNote = !canChange ? 'Plan changes need an org admin/owner.' : null
+  // State-matched upsell/alert nudge (dollars-only; healthy stays silent).
+  const u = s.usage
+  const freeNudge = isFree ? 'Paid models need a subscription. Start one to reach them.' : null
 
-  // Build the tier list (only enabled tiers for the menu; current marked).
-  const enabledTiers = s.tiers.filter(tier => tier.is_enabled)
-  const currentTierOrder = c?.tier_id ? s.tiers.find(tier => tier.tier_id === c.tier_id)?.tier_order : undefined
-  const isTopTier = currentTierOrder != null && enabledTiers.every(tier => tier.tier_order <= currentTierOrder)
-  const topTierNote = isTopTier ? "You're on the top plan." : null
+  const lowNudge =
+    u?.status === 'low'
+      ? `Low balance · ${u.total_spendable_display ?? 'under $5'} left. Top up or upgrade before a mid-run cutoff.`
+      : null
 
-  // Menu items: tiers (selectable) + Manage on portal + Close.
-  // For not-admin: just Manage on portal + Close.
-  const tierItems: { label: string; tierId?: string }[] = canChange
-    ? [
-        ...enabledTiers.map(tier => ({
-          label: `${tier.is_current ? '✓ ' : ''}${tier.name} — ${tier.dollars_per_month_display}/mo (${tier.monthly_credits} credits)`,
-          tierId: tier.tier_id
-        })),
-        { label: 'Manage on portal' },
-        { label: 'Close' }
-      ]
-    : [{ label: 'Manage on portal' }, { label: 'Close' }]
-
+  // No in-terminal plan picker (decided with the user): just show usage + the
+  // current plan, then hand off to the portal to manage it. Members (non-admin)
+  // get the same two actions — the portal enforces who can actually change it.
+  // Free users have nothing to "manage" yet, so the verb matches their job.
+  const manageLabel = isFree ? 'Start a subscription' : 'Manage on portal'
+  const items = [manageLabel, 'Close']
   const [sel, setSel] = useState(0)
 
   const choose = (i: number) => {
-    const item = tierItems[i]
-
-    if (!item) {
-      return
-    }
-
-    if (item.label === 'Close') {
-      return onClose()
-    }
-
-    if (item.label === 'Manage on portal') {
+    if (i === 0) {
       if (s.portal_url) {
-        ctx.sys('Opening portal in your browser…')
+        ctx.sys('Opening your subscription page in the browser…')
         void ctx.openManageLink()
       }
-
-      return onClose()
     }
 
-    // A tier was selected — go to confirm (deep-link, no in-terminal charge).
-    if (item.tierId && item.tierId !== c?.tier_id) {
-      onPatch({ screen: 'confirm', pendingTargetTierId: item.tierId })
-    }
+    return onClose()
   }
 
   useInput((ch, key) => {
@@ -165,7 +145,7 @@ function OverviewScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
       setSel(v => v - 1)
     }
 
-    if (key.downArrow && sel < tierItems.length - 1) {
+    if (key.downArrow && sel < items.length - 1) {
       setSel(v => v + 1)
     }
 
@@ -175,22 +155,26 @@ function OverviewScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
 
     const n = parseInt(ch, 10)
 
-    if (n >= 1 && n <= tierItems.length) {
+    if (n >= 1 && n <= items.length) {
       return choose(n - 1)
     }
   })
 
-  const header = isFree ? 'Subscribe to a plan' : c?.tier_name ? `Your plan: ${c.tier_name}` : 'Subscription'
-  const bar = usageBar(s)
-
   return (
     <Box flexDirection="column">
       <Text bold color={t.color.accent}>
-        {header}
+        {statusLine(s)}
       </Text>
-      {bar && <Text color={t.color.text}>{bar}</Text>}
-      {c?.credits_remaining && !bar && (
-        <Text color={t.color.text}>Credits remaining: {c.credits_remaining}</Text>
+      <UsageBars model={s.usage} t={t} />
+      {freeNudge && (
+        <Box marginTop={1}>
+          <Text color={t.color.warn}>{'> '}{freeNudge}</Text>
+        </Box>
+      )}
+      {lowNudge && (
+        <Box marginTop={1}>
+          <Text color={t.color.warn}>{'! '}{lowNudge}</Text>
+        </Box>
       )}
       {s.org_name && (
         <Text color={t.color.muted}>
@@ -208,24 +192,14 @@ function OverviewScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
           <Text color={t.color.warn}>{downgradeNote}</Text>
         </Box>
       )}
-      {notAdminNote && (
-        <Box marginTop={1}>
-          <Text color={t.color.warn}>{notAdminNote}</Text>
-        </Box>
-      )}
-      {topTierNote && (
-        <Box marginTop={1}>
-          <Text color={t.color.muted}>{topTierNote}</Text>
-        </Box>
-      )}
 
       <Text />
-      {tierItems.map((item, i) => (
-        <MenuRow active={sel === i} index={i + 1} key={item.label} label={item.label} t={t} />
+      {items.map((label, i) => (
+        <MenuRow active={sel === i} index={i + 1} key={label} label={label} t={t} />
       ))}
 
       <Text />
-      {footer(`↑/↓ select · 1-${tierItems.length} quick pick · Enter confirm · Esc close`, t)}
+      {footer('↑/↓ select · Enter confirm · Esc close', t)}
     </Box>
   )
 }
@@ -258,8 +232,8 @@ function TeamContextScreen({ onClose, s, t }: TeamContextScreenProps) {
       )}
       <Text />
       <Text color={t.color.text}>
-        This terminal is connected to {s.org_name ?? 'a team org'}. Teams run on shared credits
-        — use /topup to add funds.
+        This terminal is connected to {s.org_name ?? 'a team org'}. Teams run on a shared
+        balance · use /topup to add funds.
       </Text>
       <Text color={t.color.muted}>
         Personal subscriptions live on your personal account.
@@ -346,7 +320,7 @@ function ConfirmScreen({ ctx, onBack, onClose, onPatch, overlay, s, t }: Confirm
       </Text>
       {targetTier && (
         <Text color={t.color.text}>
-          {targetTier.name} — {targetTier.dollars_per_month_display}/mo ({targetTier.monthly_credits} credits)
+          {targetTier.name} · {targetTier.dollars_per_month_display}/mo
         </Text>
       )}
       <Text color={t.color.muted}>You'll finish this change securely on your subscription page in your browser.</Text>

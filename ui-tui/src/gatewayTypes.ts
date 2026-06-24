@@ -181,6 +181,9 @@ export interface SubscriptionStateResponse {
   tiers: SubscriptionTierOption[]
   portal_url: string | null
   error?: string | null
+  // Shared dollar usage model (two-bar view), embedded by the gateway so the
+  // overlay renders the same bars as /usage from this single fetch.
+  usage?: UsageModelData
 }
 
 export type CommandDispatchResponse =
@@ -365,6 +368,34 @@ export interface SessionUsageResponse {
   model?: string
   output?: number
   total?: number
+  // Shared dollar usage model (two-bar view) so /usage renders the same bars
+  // as /subscription. Dollars only — never "credits".
+  usage?: UsageModelData
+}
+
+/** One serialized usage bar (mirrors server `_serialize_usage_bar`). */
+export interface UsageBarData {
+  kind: 'plan' | 'topup'
+  remaining_display: string
+  total_display: string
+  spent_display: string
+  pct_used: null | number
+  fill_fraction: number
+}
+
+/** The shared dollar usage model (mirrors server `_serialize_usage_model`). */
+export interface UsageModelData {
+  available: boolean
+  status?: string
+  plan_name?: null | string
+  renews_at?: null | string
+  renews_display?: null | string
+  subscription_remaining_display?: null | string
+  topup_remaining_display?: null | string
+  total_spendable_display?: null | string
+  has_topup?: boolean
+  plan_bar?: null | UsageBarData
+  topup_bar?: null | UsageBarData
 }
 
 export interface SessionStatusResponse {
