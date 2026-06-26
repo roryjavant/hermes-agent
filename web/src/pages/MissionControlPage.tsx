@@ -25,6 +25,7 @@ import {
   Sparkles,
   Terminal,
   Users,
+  X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -49,6 +50,7 @@ import type {
   PaginatedSessions,
   ProfileInfo,
   SessionInfo,
+  SkillInfo,
   StatusResponse,
 } from "@/lib/api";
 import { PluginSlot } from "@/plugins";
@@ -110,6 +112,22 @@ type OperationsItem = {
   icon: LucideIcon;
   popoverTitle?: string;
   popoverSubtitle?: string;
+  profileName?: string;
+  roleName?: string;
+  teamName?: string;
+  projectPath?: string;
+};
+
+type LightAgentModalState = {
+  item: OperationsItem;
+  profile: ProfileInfo | null;
+};
+
+type LightAgentProfileDetails = {
+  loading: boolean;
+  soul: { content: string; exists: boolean } | null;
+  skills: SkillInfo[];
+  error: string | null;
 };
 
 const MISSION_CONTROL_ACTIVITY_REFRESH_MS = 1000;
@@ -467,6 +485,142 @@ function ActivityLightPopover({ item, rowLabel }: { item: OperationsItem; rowLab
   );
 }
 
+function LightAgentModal({
+  details,
+  modal,
+  onClose,
+}: {
+  details: LightAgentProfileDetails;
+  modal: LightAgentModalState;
+  onClose: () => void;
+}) {
+  const { item, profile } = modal;
+  const enabledSkills = details.skills.filter((skill) => skill.enabled);
+  const disabledSkills = details.skills.filter((skill) => !skill.enabled);
+  const soulText = details.soul?.content.trim();
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-background-base/80 p-4 backdrop-blur-md"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="light-agent-modal-title"
+      onClick={onClose}
+    >
+      <div
+        className="relative max-h-[86vh] w-full max-w-4xl overflow-hidden border border-midground/30 bg-card shadow-[0_0_60px_rgba(0,0,0,0.45)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-midground/70 to-transparent" />
+        <div className="flex items-start justify-between gap-4 border-b border-border bg-background-base/35 p-4">
+          <div className="min-w-0">
+            <p className="font-mondwest text-display text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              Light agent dossier
+            </p>
+            <h2 id="light-agent-modal-title" className="mt-1 truncate text-2xl font-semibold text-foreground">
+              {item.roleName || item.popoverTitle || item.title}
+            </h2>
+            <p className="mt-1 truncate font-mono-ui text-sm text-midground">
+              {item.profileName || profile?.name || item.popoverSubtitle || item.kind}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background-base/60 text-muted-foreground transition-colors hover:border-current/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Close agent details"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(86vh-5rem)] overflow-y-auto p-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="border border-border bg-background-base/35 p-3">
+              <p className="text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground">Team</p>
+              <p className="mt-1 truncate text-sm text-foreground">{item.teamName || "Profile team"}</p>
+            </div>
+            <div className="border border-border bg-background-base/35 p-3">
+              <p className="text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground">Status</p>
+              <p className="mt-1 text-sm text-foreground">{readinessLabel(item.tone)} · {item.meta}</p>
+            </div>
+            <div className="border border-border bg-background-base/35 p-3">
+              <p className="text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground">Model</p>
+              <p className="mt-1 truncate text-sm text-foreground">
+                {[profile?.provider, profile?.model].filter(Boolean).join(" · ") || "default model"}
+              </p>
+            </div>
+            <div className="border border-border bg-background-base/35 p-3">
+              <p className="text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground">Skills</p>
+              <p className="mt-1 text-sm text-foreground">
+                {details.loading ? "Loading…" : `${enabledSkills.length}/${details.skills.length || profile?.skill_count || 0} enabled`}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+            <section className="border border-border bg-background-base/25 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="font-mondwest text-display text-sm uppercase tracking-[0.16em] text-foreground">SOUL.md</h3>
+                {details.soul?.exists ? <Badge tone="success">loaded</Badge> : <Badge tone="outline">missing</Badge>}
+              </div>
+              {details.loading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Loading profile identity…</div>
+              ) : details.error ? (
+                <p className="text-sm text-destructive">{details.error}</p>
+              ) : soulText ? (
+                <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-words rounded border border-border/70 bg-background-base/70 p-3 font-mono text-xs leading-5 text-foreground/90">
+                  {soulText}
+                </pre>
+              ) : (
+                <p className="text-sm text-muted-foreground">No SOUL.md is set for this profile yet.</p>
+              )}
+            </section>
+
+            <aside className="space-y-4">
+              <section className="border border-border bg-background-base/25 p-4">
+                <h3 className="font-mondwest text-display text-sm uppercase tracking-[0.16em] text-foreground">Profile details</h3>
+                <dl className="mt-3 space-y-2 text-sm">
+                  <div><dt className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Path</dt><dd className="mt-0.5 break-words font-mono-ui text-xs text-foreground">{profile?.path || item.projectPath || "Profile not installed"}</dd></div>
+                  <div><dt className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Role</dt><dd className="mt-0.5 text-foreground">{item.roleName || item.title}</dd></div>
+                  <div><dt className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Current signal</dt><dd className="mt-0.5 text-foreground">{item.detail}</dd></div>
+                  {profile?.description && <div><dt className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Description</dt><dd className="mt-0.5 text-muted-foreground">{profile.description}</dd></div>}
+                </dl>
+              </section>
+
+              <section className="border border-border bg-background-base/25 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="font-mondwest text-display text-sm uppercase tracking-[0.16em] text-foreground">Skills</h3>
+                  <Badge tone="outline">{details.skills.length || profile?.skill_count || 0}</Badge>
+                </div>
+                {details.loading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Loading skills…</div>
+                ) : details.skills.length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="flex max-h-48 flex-wrap gap-2 overflow-y-auto pr-1">
+                      {enabledSkills.map((skill) => <Badge key={skill.name} tone="success">{skill.name}</Badge>)}
+                    </div>
+                    {disabledSkills.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground">Disabled</p>
+                        <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
+                          {disabledSkills.map((skill) => <Badge key={skill.name} tone="outline">{skill.name}</Badge>)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No skill list was available for this profile.</p>
+                )}
+              </section>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function runtimeSourceLabel(source: string): string {
   if (source === "cli") return "Local Hermes CLI";
   if (source === "tui") return "Local Hermes TUI";
@@ -560,6 +714,10 @@ function teamRowsFromProfileTeams(profileTeams: MissionControlProfileTeam[]) {
       icon: Users,
       popoverTitle: agent.role,
       popoverSubtitle: agent.profile,
+      profileName: agent.profile,
+      roleName: agent.role,
+      teamName: team.label,
+      projectPath: team.project_path,
     })),
   }));
 }
@@ -972,7 +1130,22 @@ function MissionQueue({
   );
 }
 
-function ActiveOperationsBoard({ items, profileTeams }: { items: OperationsItem[]; profileTeams: MissionControlProfileTeam[] }) {
+function ActiveOperationsBoard({
+  items,
+  profiles,
+  profileTeams,
+}: {
+  items: OperationsItem[];
+  profiles: ProfileInfo[];
+  profileTeams: MissionControlProfileTeam[];
+}) {
+  const [selectedLightAgent, setSelectedLightAgent] = useState<LightAgentModalState | null>(null);
+  const [selectedLightAgentDetails, setSelectedLightAgentDetails] = useState<LightAgentProfileDetails>({
+    loading: false,
+    soul: null,
+    skills: [],
+    error: null,
+  });
   const sortedItems = [...items].sort((a, b) => {
     const order: Record<ReadinessTone, number> = { review: 0, working: 1, ready: 2 };
     return order[a.tone] - order[b.tone] || a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title);
@@ -995,6 +1168,51 @@ function ActiveOperationsBoard({ items, profileTeams }: { items: OperationsItem[
     { id: "agents", label: "Agents", helper: "Live profile-backed Hermes agents" },
     { id: "subagents", label: "Subagents", helper: "Ephemeral delegate children spawned by an agent" },
   ];
+
+  const openLightAgent = (item: OperationsItem) => {
+    const profileName = item.profileName;
+    if (!profileName) return;
+    const profile = profiles.find((candidate) => candidate.name === profileName) ?? null;
+    setSelectedLightAgent({ item, profile });
+  };
+
+  useEffect(() => {
+    const profileName = selectedLightAgent?.item.profileName;
+    if (!profileName) return undefined;
+
+    let cancelled = false;
+    setSelectedLightAgentDetails({ loading: true, soul: null, skills: [], error: null });
+    void Promise.all([
+      api.getProfileSoul(profileName),
+      api.getSkills(profileName),
+    ])
+      .then(([soul, skills]) => {
+        if (cancelled) return;
+        setSelectedLightAgentDetails({ loading: false, soul, skills, error: null });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setSelectedLightAgentDetails({
+          loading: false,
+          soul: null,
+          skills: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLightAgent?.item.profileName]);
+
+  useEffect(() => {
+    if (!selectedLightAgent) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedLightAgent(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedLightAgent]);
 
   return (
     <Card className="overflow-hidden">
@@ -1081,20 +1299,17 @@ function ActiveOperationsBoard({ items, profileTeams }: { items: OperationsItem[
                               <div className="flex flex-wrap gap-2.5">
                                 {row.items.map((item) => {
                                   const Icon = item.icon;
-                                  return (
-                                    <Link
-                                      key={item.id}
-                                      to={item.href}
-                                      title={`${row.label} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}`}
-                                      aria-label={`${row.label} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}`}
-                                      className={cn(
-                                        "group relative flex h-10 w-10 items-center justify-center rounded-full border transition-all duration-200",
-                                        "hover:-translate-y-0.5 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                        item.tone === "ready" && "border-success/50 bg-success/10 text-success shadow-[0_0_16px_color-mix(in_srgb,var(--color-success)_22%,transparent)]",
-                                        item.tone === "working" && "border-warning/50 bg-warning/10 text-warning shadow-[0_0_16px_color-mix(in_srgb,var(--color-warning)_24%,transparent)]",
-                                        item.tone === "review" && "border-destructive/55 bg-destructive/10 text-destructive shadow-[0_0_16px_color-mix(in_srgb,var(--color-destructive)_24%,transparent)]",
-                                      )}
-                                    >
+                                  const title = `${row.label} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}`;
+                                  const ariaLabel = `${row.label} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}`;
+                                  const lightClassName = cn(
+                                    "group relative flex h-10 w-10 items-center justify-center rounded-full border transition-all duration-200",
+                                    "hover:-translate-y-0.5 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    item.tone === "ready" && "border-success/50 bg-success/10 text-success shadow-[0_0_16px_color-mix(in_srgb,var(--color-success)_22%,transparent)]",
+                                    item.tone === "working" && "border-warning/50 bg-warning/10 text-warning shadow-[0_0_16px_color-mix(in_srgb,var(--color-warning)_24%,transparent)]",
+                                    item.tone === "review" && "border-destructive/55 bg-destructive/10 text-destructive shadow-[0_0_16px_color-mix(in_srgb,var(--color-destructive)_24%,transparent)]",
+                                  );
+                                  const lightContents = (
+                                    <>
                                       <ActivityLightPopover item={item} rowLabel={row.label} />
                                       <span className={cn(
                                         "absolute inset-1 rounded-full border border-current/20 opacity-60",
@@ -1102,6 +1317,28 @@ function ActiveOperationsBoard({ items, profileTeams }: { items: OperationsItem[
                                         item.tone === "review" && "animate-pulse",
                                       )} />
                                       <Icon className="relative h-3.5 w-3.5" />
+                                    </>
+                                  );
+                                  return item.profileName ? (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      onClick={() => openLightAgent(item)}
+                                      title={title}
+                                      aria-label={ariaLabel}
+                                      className={lightClassName}
+                                    >
+                                      {lightContents}
+                                    </button>
+                                  ) : (
+                                    <Link
+                                      key={item.id}
+                                      to={item.href}
+                                      title={title}
+                                      aria-label={ariaLabel}
+                                      className={lightClassName}
+                                    >
+                                      {lightContents}
                                     </Link>
                                   );
                                 })}
@@ -1160,6 +1397,13 @@ function ActiveOperationsBoard({ items, profileTeams }: { items: OperationsItem[
           </div>
         )}
       </CardContent>
+      {selectedLightAgent && (
+        <LightAgentModal
+          details={selectedLightAgentDetails}
+          modal={selectedLightAgent}
+          onClose={() => setSelectedLightAgent(null)}
+        />
+      )}
     </Card>
   );
 }
@@ -1626,7 +1870,7 @@ export default function MissionControlPage() {
         ))}
       </div>
 
-      <ActiveOperationsBoard items={operations} profileTeams={data.activity?.profile_teams ?? []} />
+      <ActiveOperationsBoard items={operations} profiles={data.profiles} profileTeams={data.activity?.profile_teams ?? []} />
 
       {view === "overview" && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">

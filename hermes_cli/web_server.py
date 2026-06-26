@@ -10430,6 +10430,27 @@ def _pty_activity_rows(terminals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return rows
 
 
+def _filter_dashboard_idle_pty_rows(
+    rows: List[Dict[str, Any]],
+    process_table: Dict[int, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Drop idle embedded-dashboard PTYs while preserving active/review PTY signals."""
+    filtered: List[Dict[str, Any]] = []
+    for row in rows:
+        try:
+            pid = int(row.get("pid") or -1)
+        except (TypeError, ValueError):
+            pid = -1
+        if (
+            str(row.get("activity_id") or "").startswith("pty:")
+            and str(row.get("status") or "") == "ready"
+            and _has_dashboard_ancestor(pid, process_table)
+        ):
+            continue
+        filtered.append(row)
+    return filtered
+
+
 def _local_process_cwd(pid: int) -> str:
     try:
         result = subprocess.run(
@@ -10489,6 +10510,26 @@ def _is_dashboard_process_command(command: str) -> bool:
     return any(token in command for token in [" dashboard", " gateway run"])
 
 
+def _has_dashboard_ancestor(pid: int, process_table: Dict[int, Dict[str, Any]]) -> bool:
+    """Return True when a process belongs to the dashboard process tree."""
+    seen: set[int] = set()
+    current = pid
+    while current not in seen:
+        seen.add(current)
+        process = process_table.get(current)
+        if not process:
+            return False
+        if _is_dashboard_process_command(str(process.get("command") or "")):
+            return True
+        try:
+            current = int(process.get("ppid") or -1)
+        except (TypeError, ValueError):
+            return False
+        if current <= 0:
+            return False
+    return False
+
+
 def _snapshot_local_agent_processes(process_table: Optional[Dict[int, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Best-effort local Hermes CLI/TUI presence with stable per-process rows."""
     process_table = process_table if process_table is not None else _local_process_table()
@@ -10503,7 +10544,11 @@ def _snapshot_local_agent_processes(process_table: Optional[Dict[int, Dict[str, 
         is_tui = "ui-tui/dist/entry.js" in command
         if not is_cli and not is_tui:
             continue
-        if _is_dashboard_process_command(command) or any(token in command for token in ["slash_worker", "tools_mcp_server"]):
+        if (
+            _is_dashboard_process_command(command)
+            or _has_dashboard_ancestor(pid, process_table)
+            or any(token in command for token in ["slash_worker", "tools_mcp_server"])
+        ):
             continue
         candidates.append((pid, process, is_cli, is_tui))
     cwds = _local_process_cwds([pid for pid, _, _, _ in candidates])
@@ -10801,7 +10846,7 @@ async def get_mission_control_activity():
         _log.debug("Mission Control runtime activity snapshot failed", exc_info=True)
     process_table = _local_process_table()
     terminals = _snapshot_pty_sessions()
-    activities.extend(_pty_activity_rows(terminals))
+    activities.extend(_filter_dashboard_idle_pty_rows(_pty_activity_rows(terminals), process_table))
     synthetic_agents = _snapshot_local_agent_processes(process_table)
     existing_keys = {
         (int(record.get("pid") or -1), str(record.get("source") or ""))

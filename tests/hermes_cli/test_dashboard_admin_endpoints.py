@@ -1201,6 +1201,28 @@ class TestMissionControlActivityEndpoint:
         assert len(rows) == 1
         assert rows[0]["pid"] == 5252
 
+    def test_local_agent_process_scan_skips_dashboard_embedded_tui_child(self, monkeypatch):
+        from hermes_cli import web_server
+
+        process_table = {
+            100: {"ppid": 1, "stat": "S", "command": "python -m hermes_cli.main -p default dashboard --port 9119"},
+            101: {"ppid": 100, "stat": "S", "command": "node /Users/roryavant/Dev/hermes-team-ui/ui-tui/dist/entry.js"},
+            202: {"ppid": 1, "stat": "S", "command": "/Users/roryavant/.hermes/hermes-agent/venv/bin/hermes"},
+        }
+        monkeypatch.setattr(
+            web_server,
+            "_local_process_cwds",
+            lambda pids: {
+                101: "/Users/roryavant/Dev/hermes-team-ui/ui-tui",
+                202: "/Users/roryavant/Dev/hermes-team-ui",
+            },
+        )
+
+        rows = web_server._snapshot_local_agent_processes(process_table)
+
+        assert [row["pid"] for row in rows] == [202]
+        assert rows[0]["activity_id"] == "local-process:202"
+
     def test_activity_dedupe_real_heartbeat_beats_newer_process_scan(self, monkeypatch):
         from hermes_cli import web_server
 
@@ -1463,6 +1485,24 @@ class TestMissionControlActivityEndpoint:
         assert len(rows) == 1
         assert rows[0]["status"] == "working"
         assert rows[0]["detail"] == "agent turn submitted · 2 records for this terminal"
+
+    def test_dashboard_idle_pty_rows_are_hidden_but_working_rows_remain(self):
+        from hermes_cli import web_server
+
+        process_table = {
+            100: {"ppid": 1, "stat": "S", "command": "python -m hermes_cli.main dashboard --port 9119"},
+            101: {"ppid": 100, "stat": "S", "command": "node /Users/roryavant/Dev/hermes-team-ui/ui-tui/dist/entry.js"},
+            102: {"ppid": 100, "stat": "S", "command": "node /Users/roryavant/Dev/hermes-team-ui/ui-tui/dist/entry.js"},
+        }
+        rows = web_server._filter_dashboard_idle_pty_rows(
+            [
+                {"activity_id": "pty:idle", "pid": 101, "source": "tui", "status": "ready"},
+                {"activity_id": "pty:working", "pid": 102, "source": "tui", "status": "working"},
+            ],
+            process_table,
+        )
+
+        assert [row["activity_id"] for row in rows] == ["pty:working"]
 
     def test_pty_status_parser_marks_thinking_working_and_ready_idle(self):
         from hermes_cli import web_server
