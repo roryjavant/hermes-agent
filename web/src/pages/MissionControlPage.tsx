@@ -44,7 +44,11 @@ import type {
   CronJob,
   KanbanBoardResponse,
   KanbanBoardsResponse,
+  KanbanTaskDetailResponse,
+  KanbanTaskEvent,
+  KanbanTaskRun,
   KanbanTaskSummary,
+  KanbanTaskUpdate,
   MissionControlActivityResponse,
   MissionControlProfileTeam,
   PaginatedSessions,
@@ -1038,24 +1042,331 @@ function Timeline({
   );
 }
 
+const EDITABLE_KANBAN_STATUSES = ["triage", "todo", "scheduled", "ready", "blocked", "review", "done"] as const;
+
+function payloadPreview(payload: Record<string, unknown> | null): string {
+  if (!payload) return "";
+  try {
+    return JSON.stringify(payload).slice(0, 180);
+  } catch {
+    return "";
+  }
+}
+
+function TaskDetailModal({
+  assignees,
+  detail,
+  error,
+  loading,
+  onClose,
+  onRefresh,
+  task,
+}: {
+  assignees: string[];
+  detail: KanbanTaskDetailResponse | null;
+  error: string | null;
+  loading: boolean;
+  onClose: () => void;
+  onRefresh: () => Promise<void> | void;
+  task: MissionTask;
+}) {
+  const detailTask = detail?.task ?? task;
+  const [draftTitle, setDraftTitle] = useState(detailTask.title || "");
+  const [draftBody, setDraftBody] = useState(detailTask.body || "");
+  const [draftAssignee, setDraftAssignee] = useState(detailTask.assignee || "");
+  const [draftStatus, setDraftStatus] = useState(detailTask.status || "todo");
+  const [draftPriority, setDraftPriority] = useState(String(detailTask.priority ?? 0));
+  const [draftReason, setDraftReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftTitle(detailTask.title || "");
+    setDraftBody(detailTask.body || "");
+    setDraftAssignee(detailTask.assignee || "");
+    setDraftStatus(detailTask.status || "todo");
+    setDraftPriority(String(detailTask.priority ?? 0));
+    setDraftReason("");
+    setActionError(null);
+  }, [detailTask.id, detailTask.title, detailTask.body, detailTask.assignee, detailTask.status, detailTask.priority]);
+
+  const save = async (updates: KanbanTaskUpdate) => {
+    setSaving(true);
+    setActionError(null);
+    try {
+      await api.updateKanbanTask(task.id, updates, task.boardSlug);
+      await onRefresh();
+      onClose();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeTask = async () => {
+    const ok = window.confirm(`Remove ${task.id} from ${task.boardName} altogether? This deletes the Kanban card.`);
+    if (!ok) return;
+    setSaving(true);
+    setActionError(null);
+    try {
+      await api.deleteKanbanTask(task.id, task.boardSlug);
+      await onRefresh();
+      onClose();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveEdits = () => save({
+    title: draftTitle,
+    body: draftBody,
+    assignee: draftAssignee.trim() || null,
+    priority: Number.parseInt(draftPriority, 10) || 0,
+    status: draftStatus,
+    block_reason: draftStatus === "blocked" || draftStatus === "scheduled" ? draftReason || undefined : undefined,
+  });
+
+  const latestRuns = (detail?.runs ?? []).slice(0, 4);
+  const latestEvents = (detail?.events ?? []).slice(0, 6);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-background-base/80 p-4 backdrop-blur-md"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="mission-task-modal-title"
+      onClick={onClose}
+    >
+      <div
+        className="relative max-h-[88vh] w-full max-w-5xl overflow-hidden border border-midground/30 bg-card shadow-[0_0_60px_rgba(0,0,0,0.45)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-border bg-background-base/35 p-4">
+          <div className="min-w-0">
+            <p className="font-mondwest text-display text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              Mission queue task · {task.boardName}
+            </p>
+            <h2 id="mission-task-modal-title" className="mt-1 truncate text-2xl font-semibold text-foreground">
+              {detailTask.title || task.id}
+            </h2>
+            <p className="mt-1 font-mono-ui text-xs text-midground">
+              {task.id} · {detailTask.status} · {detailTask.assignee || "unassigned"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background-base/60 text-muted-foreground transition-colors hover:border-current/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Close task details"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(88vh-5rem)] overflow-y-auto p-4">
+          {loading && <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Loading task details…</div>}
+          {(error || actionError) && <div className="mb-3 border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error || actionError}</div>}
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(19rem,0.9fr)]">
+            <section className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-muted-foreground sm:col-span-2">
+                  Title
+                  <input
+                    value={draftTitle}
+                    onChange={(event) => setDraftTitle(event.target.value)}
+                    className="border border-border bg-background-base/50 px-3 py-2 text-sm normal-case tracking-normal text-foreground outline-none focus:border-midground"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                  Status
+                  <select
+                    value={draftStatus}
+                    onChange={(event) => setDraftStatus(event.target.value)}
+                    className="border border-border bg-background-base/50 px-3 py-2 text-sm normal-case tracking-normal text-foreground outline-none focus:border-midground"
+                  >
+                    {EDITABLE_KANBAN_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                  Assignee
+                  <input
+                    list="mission-task-assignees"
+                    value={draftAssignee}
+                    onChange={(event) => setDraftAssignee(event.target.value)}
+                    className="border border-border bg-background-base/50 px-3 py-2 text-sm normal-case tracking-normal text-foreground outline-none focus:border-midground"
+                    placeholder="unassigned"
+                  />
+                  <datalist id="mission-task-assignees">
+                    {assignees.map((assignee) => <option key={assignee} value={assignee} />)}
+                  </datalist>
+                </label>
+                <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                  Priority
+                  <input
+                    type="number"
+                    value={draftPriority}
+                    onChange={(event) => setDraftPriority(event.target.value)}
+                    className="border border-border bg-background-base/50 px-3 py-2 text-sm normal-case tracking-normal text-foreground outline-none focus:border-midground"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                  Block / schedule reason
+                  <input
+                    value={draftReason}
+                    onChange={(event) => setDraftReason(event.target.value)}
+                    className="border border-border bg-background-base/50 px-3 py-2 text-sm normal-case tracking-normal text-foreground outline-none focus:border-midground"
+                    placeholder="optional"
+                  />
+                </label>
+              </div>
+
+              <label className="grid gap-1 text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                Body
+                <textarea
+                  value={draftBody}
+                  onChange={(event) => setDraftBody(event.target.value)}
+                  className="min-h-48 border border-border bg-background-base/50 px-3 py-2 text-sm normal-case leading-6 tracking-normal text-foreground outline-none focus:border-midground"
+                />
+              </label>
+
+              {detailTask.latest_summary && (
+                <div className="border border-border bg-background-base/25 p-3">
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Latest worker summary</p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground/90">{detailTask.latest_summary}</p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={saveEdits} disabled={saving || !draftTitle.trim()} prefix={saving ? <Spinner /> : undefined}>Save changes</Button>
+                  {detailTask.status === "blocked" || detailTask.status === "scheduled" ? (
+                    <Button size="sm" ghost onClick={() => save({ status: "ready" })} disabled={saving}>Resolve to ready</Button>
+                  ) : null}
+                  {detailTask.status === "review" ? (
+                    <Button size="sm" ghost onClick={() => save({ status: "done", summary: "Accepted from Mission Control." })} disabled={saving}>Accept review</Button>
+                  ) : null}
+                  {detailTask.status !== "blocked" && (
+                    <Button size="sm" ghost onClick={() => save({ status: "blocked", block_reason: draftReason || "Blocked from Mission Control." })} disabled={saving}>Block</Button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void removeTask()}
+                  disabled={saving}
+                  className="border border-destructive/60 bg-destructive/10 px-3 py-2 font-mondwest text-display text-xs uppercase tracking-[0.16em] text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Remove altogether
+                </button>
+              </div>
+            </section>
+
+            <aside className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="border border-border bg-background-base/25 p-3"><p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Created</p><p className="mt-1 text-foreground">{formatTime(detailTask.created_at)}</p></div>
+                <div className="border border-border bg-background-base/25 p-3"><p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Started</p><p className="mt-1 text-foreground">{formatTime(detailTask.started_at)}</p></div>
+                <div className="border border-border bg-background-base/25 p-3"><p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Tenant</p><p className="mt-1 text-foreground">{detailTask.tenant || "—"}</p></div>
+                <div className="border border-border bg-background-base/25 p-3"><p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Column</p><p className="mt-1 text-foreground">{task.column}</p></div>
+              </div>
+
+              {detailTask.skills && detailTask.skills.length > 0 && (
+                <section className="border border-border bg-background-base/25 p-3">
+                  <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Skills</p>
+                  <div className="mt-2 flex flex-wrap gap-2">{detailTask.skills.map((skill) => <Badge key={skill} tone="outline">{skill}</Badge>)}</div>
+                </section>
+              )}
+
+              <section className="border border-border bg-background-base/25 p-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Recent runs</p>
+                <div className="mt-2 space-y-2">
+                  {latestRuns.length > 0 ? latestRuns.map((run: KanbanTaskRun) => (
+                    <div key={run.id} className="border border-border/60 bg-card/40 p-2 text-xs">
+                      <div className="flex items-center justify-between gap-2"><span className="font-mono-ui text-foreground">#{run.id} {run.profile || "worker"}</span><Badge tone={run.error ? "destructive" : run.outcome === "success" ? "success" : "outline"}>{run.outcome || run.status || "run"}</Badge></div>
+                      {(run.summary || run.error) && <p className="mt-1 line-clamp-3 text-muted-foreground">{run.error || run.summary}</p>}
+                    </div>
+                  )) : <p className="text-sm text-muted-foreground">No runs recorded yet.</p>}
+                </div>
+              </section>
+
+              <section className="border border-border bg-background-base/25 p-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Recent events</p>
+                <div className="mt-2 space-y-2">
+                  {latestEvents.length > 0 ? latestEvents.map((event: KanbanTaskEvent) => (
+                    <div key={event.id} className="border border-border/60 bg-card/40 p-2 text-xs">
+                      <div className="flex items-center justify-between gap-2"><span className="font-mono-ui text-foreground">{event.kind}</span><span className="text-muted-foreground">{formatTime(event.created_at)}</span></div>
+                      {event.payload && <p className="mt-1 line-clamp-2 text-muted-foreground">{payloadPreview(event.payload)}</p>}
+                    </div>
+                  )) : <p className="text-sm text-muted-foreground">No events recorded yet.</p>}
+                </div>
+              </section>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MissionQueue({
   data,
+  onRefresh,
   teamFilter,
   onTeamFilterChange,
 }: {
   data: LoadState;
+  onRefresh: () => Promise<void> | void;
   teamFilter: TeamFilter;
   onTeamFilterChange: (value: TeamFilter) => void;
 }) {
   const [filter, setFilter] = useState<"attention" | "all">("attention");
+  const [selectedTask, setSelectedTask] = useState<MissionTask | null>(null);
+  const [selectedTaskDetail, setSelectedTaskDetail] = useState<KanbanTaskDetailResponse | null>(null);
+  const [selectedTaskLoading, setSelectedTaskLoading] = useState(false);
+  const [selectedTaskError, setSelectedTaskError] = useState<string | null>(null);
   const tasks = allTasks(data, teamFilter);
   const visibleTasks = (filter === "attention"
     ? tasks.filter((task) => ["blocked", "review", "running", "ready"].includes(task.status))
     : tasks
   ).slice(0, 8);
 
+  useEffect(() => {
+    if (!selectedTask) return undefined;
+    let cancelled = false;
+    setSelectedTaskLoading(true);
+    setSelectedTaskError(null);
+    setSelectedTaskDetail(null);
+    void api.getKanbanTask(selectedTask.id, selectedTask.boardSlug)
+      .then((result) => {
+        if (cancelled) return;
+        setSelectedTaskDetail(result);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setSelectedTaskError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setSelectedTaskLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTask]);
+
+  useEffect(() => {
+    if (!selectedTask) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedTask(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedTask]);
+
   return (
-    <Card className="overflow-hidden">
+    <>
+      <Card className="overflow-hidden">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -1101,10 +1412,12 @@ function MissionQueue({
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {visibleTasks.map((task) => (
-              <Link
+              <button
                 key={task.id}
-                to="/team"
-                className="group border border-border bg-muted/10 p-4 transition-all hover:-translate-y-0.5 hover:border-current/30 hover:bg-muted/20"
+                type="button"
+                onClick={() => setSelectedTask(task)}
+                className="group border border-border bg-muted/10 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-current/30 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`Open ${task.id} details`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -1119,14 +1432,26 @@ function MissionQueue({
                   {task.latest_summary || task.body || "No worker summary captured yet."}
                 </p>
                 <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground group-hover:text-foreground">
-                  Open lane <ChevronRight className="h-3.5 w-3.5" />
+                  Open details <ChevronRight className="h-3.5 w-3.5" />
                 </div>
-              </Link>
+              </button>
             ))}
           </div>
         )}
       </CardContent>
     </Card>
+    {selectedTask ? (
+      <TaskDetailModal
+        assignees={data.kanbanByBoard[selectedTask.boardSlug]?.assignees ?? data.kanban?.assignees ?? []}
+        detail={selectedTaskDetail}
+        error={selectedTaskError}
+        loading={selectedTaskLoading}
+        onClose={() => setSelectedTask(null)}
+        onRefresh={onRefresh}
+        task={selectedTask}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -1874,12 +2199,12 @@ export default function MissionControlPage() {
 
       {view === "overview" && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-          <MissionQueue data={data} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />
+          <MissionQueue data={data} onRefresh={load} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />
           <Timeline items={timeline} data={data} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />
         </div>
       )}
 
-      {view === "work" && <MissionQueue data={data} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />}
+      {view === "work" && <MissionQueue data={data} onRefresh={load} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />}
 
       {view === "ops" && <OpsDeck data={data} />}
 

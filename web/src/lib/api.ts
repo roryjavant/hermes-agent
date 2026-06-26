@@ -522,6 +522,24 @@ export const api = {
       body: JSON.stringify({ status, summary }),
     });
   },
+  getKanbanTask: (taskId: string, board?: string) => {
+    const qs = board ? `?board=${encodeURIComponent(board)}` : "";
+    return fetchJSON<KanbanTaskDetailResponse>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}${qs}`);
+  },
+  updateKanbanTask: (taskId: string, updates: KanbanTaskUpdate, board?: string) => {
+    const qs = board ? `?board=${encodeURIComponent(board)}` : "";
+    return fetchJSON<{ task: KanbanTaskSummary }>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}${qs}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+  },
+  deleteKanbanTask: (taskId: string, board?: string) => {
+    const qs = board ? `?board=${encodeURIComponent(board)}` : "";
+    return fetchJSON<{ deleted: boolean; task_id: string }>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}${qs}`, {
+      method: "DELETE",
+    });
+  },
 
   getCronDeliveryTargets: () =>
     fetchJSON<{ targets: CronDeliveryTarget[] }>("/api/cron/delivery-targets"),
@@ -1982,6 +2000,57 @@ export interface KanbanTaskSummary {
   latest_summary?: string | null;
   skills?: string[] | null;
   current_run_id?: number | null;
+}
+
+export interface KanbanTaskComment {
+  id: number;
+  task_id: string;
+  author: string | null;
+  body: string;
+  created_at: number;
+}
+
+export interface KanbanTaskEvent {
+  id: number;
+  task_id: string;
+  kind: string;
+  payload: Record<string, unknown> | null;
+  created_at: number;
+  run_id: number | null;
+}
+
+export interface KanbanTaskRun {
+  id: number;
+  task_id: string;
+  profile: string | null;
+  status: string | null;
+  outcome: string | null;
+  summary: string | null;
+  error: string | null;
+  started_at: number | null;
+  ended_at: number | null;
+  last_heartbeat_at: number | null;
+}
+
+export interface KanbanTaskDetailResponse {
+  task: KanbanTaskSummary;
+  comments: KanbanTaskComment[];
+  events: KanbanTaskEvent[];
+  attachments: Array<Record<string, unknown>>;
+  links: Array<Record<string, unknown>>;
+  runs: KanbanTaskRun[];
+}
+
+export interface KanbanTaskUpdate {
+  status?: string;
+  assignee?: string | null;
+  priority?: number;
+  title?: string;
+  body?: string;
+  result?: string;
+  block_reason?: string;
+  summary?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface KanbanBoardColumn {
