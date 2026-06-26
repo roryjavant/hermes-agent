@@ -42,6 +42,7 @@ import { api } from "@/lib/api";
 import type {
   CronJob,
   KanbanBoardResponse,
+  KanbanBoardsResponse,
   KanbanTaskSummary,
   MissionControlActivityResponse,
   MissionControlProfileTeam,
@@ -59,12 +60,20 @@ type LoadState = {
   cronJobs: CronJob[];
   profiles: ProfileInfo[];
   kanban: KanbanBoardResponse | null;
+  kanbanBoards: KanbanBoardsResponse | null;
+  kanbanByBoard: Record<string, KanbanBoardResponse>;
   activity: MissionControlActivityResponse | null;
   kanbanUnavailable: boolean;
 };
 
 type BadgeTone = "success" | "warning" | "destructive" | "secondary" | "outline";
 type MissionView = "overview" | "work" | "ops";
+type TeamFilter = "all" | string;
+type MissionTask = KanbanTaskSummary & {
+  column: string;
+  boardSlug: string;
+  boardName: string;
+};
 
 type MissionMetric = {
   id: string;
@@ -79,6 +88,7 @@ type MissionMetric = {
 
 type TimelineItem = {
   id: string;
+  category: string;
   title: string;
   detail: string;
   meta: string;
@@ -102,9 +112,11 @@ type OperationsItem = {
 
 const MISSION_CONTROL_ACTIVITY_REFRESH_MS = 1000;
 const MISSION_CONTROL_FULL_REFRESH_MS = 15000;
-const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 3000;
+const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 2000;
 const MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS = 6000;
-const TERMINAL_RECENT_INPUT_WORKING_GRACE_MS = 3000;
+const MISSION_CONTROL_TEAM_FILTER_KEY = "missionControl.teamFilter";
+const ALL_TEAMS_FILTER = "all";
+const TEAM_FEED_RECENT_SESSION_SECONDS = 60 * 60;
 
 const emptyState: LoadState = {
   status: null,
@@ -112,9 +124,46 @@ const emptyState: LoadState = {
   cronJobs: [],
   profiles: [],
   kanban: null,
+  kanbanBoards: null,
+  kanbanByBoard: {},
   activity: null,
   kanbanUnavailable: false,
 };
+
+function readCachedTeamFilter(): TeamFilter {
+  if (typeof window === "undefined") return ALL_TEAMS_FILTER;
+  return window.localStorage.getItem(MISSION_CONTROL_TEAM_FILTER_KEY) || ALL_TEAMS_FILTER;
+}
+
+function cacheTeamFilter(value: TeamFilter): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MISSION_CONTROL_TEAM_FILTER_KEY, value);
+}
+
+function boardLabel(board: { slug: string; name?: string | null }): string {
+  return board.name?.trim() || board.slug;
+}
+
+function teamFilterLabel(data: LoadState, teamFilter: TeamFilter): string {
+  if (teamFilter === ALL_TEAMS_FILTER) return "All teams";
+  const board = data.kanbanBoards?.boards.find((item) => item.slug === teamFilter);
+  return board ? boardLabel(board) : teamFilter;
+}
+
+function matchesTeamFilter(text: string, data: LoadState, teamFilter: TeamFilter): boolean {
+  if (teamFilter === ALL_TEAMS_FILTER) return true;
+  const label = teamFilterLabel(data, teamFilter).toLowerCase();
+  const slug = teamFilter.toLowerCase();
+  const haystack = text.toLowerCase();
+  return haystack.includes(label) || haystack.includes(slug);
+}
+
+function secondsTime(value: number | string | null | undefined): number | null {
+  if (!value) return null;
+  if (typeof value === "number") return value;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? null : time / 1000;
+}
 
 function formatCount(value: number | null | undefined): string {
   return String(value ?? 0);
@@ -141,6 +190,16 @@ function getJobState(job: CronJob): string {
   return job.state || (job.enabled ? "scheduled" : "paused");
 }
 
+function cronSignalMeta(job: CronJob): string {
+  if (job.last_error) return `last error ${formatTime(job.last_run_at)}`;
+  if (job.next_run_at) {
+    const nextRun = secondsTime(job.next_run_at);
+    const prefix = nextRun && nextRun < Date.now() / 1000 ? "overdue" : "next";
+    return `${prefix} ${formatTime(job.next_run_at)}`;
+  }
+  return getJobState(job);
+}
+
 function jobTone(job: CronJob): BadgeTone {
   if (job.last_error) return "destructive";
   const state = getJobState(job).toLowerCase();
@@ -162,11 +221,33 @@ function gatewayTone(status: StatusResponse | null): BadgeTone {
   return status?.gateway_running ? "success" : "warning";
 }
 
-function allTasks(data: LoadState): Array<KanbanTaskSummary & { column: string }> {
+function boardTasks(board: KanbanBoardResponse | null | undefined, boardSlug: string, boardName: string): MissionTask[] {
   return (
-    data.kanban?.columns.flatMap((column) =>
-      column.tasks.map((task) => ({ ...task, column: column.name })),
+    board?.columns.flatMap((column) =>
+      column.tasks.map((task) => ({ ...task, column: column.name, boardSlug, boardName })),
     ) ?? []
+  );
+}
+
+function allTasks(data: LoadState, teamFilter: TeamFilter = ALL_TEAMS_FILTER): MissionTask[] {
+  if (teamFilter !== ALL_TEAMS_FILTER) {
+    const boardMeta = data.kanbanBoards?.boards.find((board) => board.slug === teamFilter);
+    const board = data.kanbanByBoard[teamFilter] ?? (data.kanbanBoards?.current === teamFilter ? data.kanban : null);
+    return boardTasks(board, teamFilter, boardMeta ? boardLabel(boardMeta) : teamFilter);
+  }
+
+  const boards = data.kanbanBoards?.boards ?? [];
+  if (boards.length === 0) {
+    const fallbackSlug = data.kanbanBoards?.current || "current";
+    return boardTasks(data.kanban, fallbackSlug, fallbackSlug);
+  }
+
+  return boards.flatMap((boardMeta) =>
+    boardTasks(
+      data.kanbanByBoard[boardMeta.slug] ?? (data.kanbanBoards?.current === boardMeta.slug ? data.kanban : null),
+      boardMeta.slug,
+      boardLabel(boardMeta),
+    ),
   );
 }
 
@@ -250,38 +331,89 @@ function buildMetrics(data: LoadState): MissionMetric[] {
   ];
 }
 
-function buildTimeline(data: LoadState): TimelineItem[] {
-  const taskItems = allTasks(data)
+function teamFilterOptions(data: LoadState): Array<{ value: TeamFilter; label: string }> {
+  const boardOptions = (data.kanbanBoards?.boards ?? []).map((board) => ({
+    value: board.slug,
+    label: boardLabel(board),
+  }));
+  return [{ value: ALL_TEAMS_FILTER, label: "All teams" }, ...boardOptions];
+}
+
+function TeamFilterSelect({
+  data,
+  value,
+  onChange,
+  label = "Team",
+}: {
+  data: LoadState;
+  value: TeamFilter;
+  onChange: (value: TeamFilter) => void;
+  label?: string;
+}) {
+  const options = teamFilterOptions(data);
+  return (
+    <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="uppercase tracking-[0.12em]">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="border border-border bg-background-base/70 px-2 py-1 text-xs text-foreground outline-none transition-colors hover:border-current/30 focus:border-midground"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function buildTimeline(data: LoadState, teamFilter: TeamFilter = ALL_TEAMS_FILTER): TimelineItem[] {
+  const taskItems: TimelineItem[] = allTasks(data, teamFilter)
     .filter((task) => ["blocked", "review", "running", "ready"].includes(task.status))
     .slice(0, 4)
     .map((task) => ({
       id: `task:${task.id}`,
+      category: "Task",
       title: task.title || task.id,
-      detail: task.latest_summary || task.body || `${task.column}${task.assignee ? ` · ${task.assignee}` : ""}`,
-      meta: task.status,
+      detail: task.latest_summary || task.body || `${task.boardName} · ${task.column}${task.assignee ? ` · ${task.assignee}` : ""}`,
+      meta: task.status === "running" ? "active now" : task.status,
       tone: taskTone(task),
       icon: task.status === "blocked" ? AlertTriangle : CircleDot,
       href: "/team",
     }));
 
-  const sessionItems = (data.sessions?.sessions ?? []).slice(0, 3).map((session: SessionInfo) => ({
-    id: `session:${session.id}`,
-    title: session.title || session.preview || "Untitled session",
-    detail: `${session.message_count} messages · ${session.tool_call_count} tools`,
-    meta: formatTime(session.last_active),
-    tone: session.is_active ? "success" : "secondary" as BadgeTone,
-    icon: MessageSquare,
-    href: "/sessions",
-  }));
+  const now = Date.now() / 1000;
+  const sessionItems: TimelineItem[] = (data.sessions?.sessions ?? [])
+    .filter((session: SessionInfo) => {
+      const lastActive = secondsTime(session.last_active);
+      const recent = Boolean(lastActive && now - lastActive <= TEAM_FEED_RECENT_SESSION_SECONDS);
+      const title = `${session.title ?? ""} ${session.preview ?? ""}`;
+      return (session.is_active || recent) && matchesTeamFilter(title, data, teamFilter);
+    })
+    .slice(0, 2)
+    .map((session: SessionInfo) => ({
+      id: `session:${session.id}`,
+      category: "Session",
+      title: session.title || session.preview || "Untitled session",
+      detail: `${session.is_active ? "Active conversation" : "Recent conversation"} · ${session.message_count} messages · ${session.tool_call_count} tools`,
+      meta: session.is_active ? "active now" : formatTime(session.last_active),
+      tone: session.is_active ? "success" : "secondary" as BadgeTone,
+      icon: MessageSquare,
+      href: "/sessions",
+    }));
 
-  const jobItems = data.cronJobs
+  const jobItems: TimelineItem[] = data.cronJobs
     .filter((job) => job.last_error || !job.enabled || job.next_run_at)
+    .filter((job) => matchesTeamFilter(`${getJobTitle(job)} ${job.prompt ?? ""} ${job.script ?? ""} ${job.schedule_display ?? ""} ${job.schedule?.display ?? ""}`, data, teamFilter))
     .slice(0, 3)
     .map((job) => ({
       id: `job:${job.profile ?? "default"}:${job.id}`,
+      category: job.last_error ? "Automation error" : "Automation",
       title: getJobTitle(job),
-      detail: job.last_error || job.schedule_display || job.schedule?.display || "Scheduled automation",
-      meta: job.next_run_at ? formatTime(job.next_run_at) : getJobState(job),
+      detail: job.last_error
+        ? `${job.schedule_display || job.schedule?.display || "Scheduled automation"} · ${job.last_error}`
+        : job.schedule_display || job.schedule?.display || "Scheduled automation",
+      meta: cronSignalMeta(job),
       tone: jobTone(job),
       icon: Zap,
       href: "/cron",
@@ -300,14 +432,6 @@ function readinessLabel(tone: ReadinessTone): string {
   if (tone === "ready") return "Ready";
   if (tone === "working") return "Working";
   return "Review";
-}
-
-function terminalTone(status: string, lastInputAt: number | null | undefined, checkedAt: number | null | undefined): ReadinessTone {
-  const now = checkedAt || Date.now() / 1000;
-  const recentlySubmitted = Boolean(lastInputAt && now - lastInputAt < TERMINAL_RECENT_INPUT_WORKING_GRACE_MS / 1000);
-  if (status === "working" || recentlySubmitted) return "working";
-  if (status === "running") return "ready";
-  return "review";
 }
 
 function runtimeSourceLabel(source: string): string {
@@ -357,7 +481,7 @@ function activityGroupLabel(segment: ActivitySegment, item: OperationsItem): str
 }
 
 function readinessToneRank(tone: ReadinessTone): number {
-  return { working: 0, review: 1, ready: 2 }[tone];
+  return { review: 0, working: 1, ready: 2 }[tone];
 }
 
 function groupedActivityRows(segment: ActivitySegment, items: OperationsItem[]) {
@@ -368,21 +492,10 @@ function groupedActivityRows(segment: ActivitySegment, items: OperationsItem[]) 
   }
   const sortedRows = [...rows.entries()].sort(([a], [b]) => a.localeCompare(b));
   if (segment === "terminals") {
-    return sortedRows.map(([label, rowItems]) => {
-      const ordered = [...rowItems].sort(
-        (a, b) => readinessToneRank(a.tone) - readinessToneRank(b.tone) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id),
-      );
-      const primary = ordered[0];
-      return {
-        label,
-        items: [{
-          ...primary,
-          id: `terminal-group:${label}`,
-          title: primary.title,
-          meta: rowItems.length > 1 ? `${primary.meta} · ${rowItems.length} records collapsed` : primary.meta,
-        }],
-      };
-    });
+    return sortedRows.map(([label, rowItems]) => ({
+      label,
+      items: [...rowItems].sort((a, b) => a.id.localeCompare(b.id) || a.title.localeCompare(b.title)),
+    }));
   }
   return sortedRows.map(([label, rowItems]) => ({
     label,
@@ -422,7 +535,7 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
     (activity?.profile_teams ?? []).flatMap((team) => team.agents.map((agent) => agent.profile)),
   );
   const runtimeItems: OperationsItem[] = (activity?.activities ?? [])
-    .filter((record) => record.source !== "dashboard")
+    .filter((record) => record.source !== "dashboard" && !record.activity_id.startsWith("pty:"))
     .map((record) => ({
       id: `activity:${record.activity_id}`,
       kind: profileTeamProfiles.has(record.profile) ? "Profile agent" : runtimeSourceLabel(record.source) === "Local Hermes CLI" || runtimeSourceLabel(record.source) === "Local Hermes TUI" ? "Hermes terminal" : runtimeSourceLabel(record.source),
@@ -434,21 +547,11 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
       icon: record.source === "kanban" || record.source === "delegate" ? Users : Activity,
     }));
 
-  const terminalItems: OperationsItem[] = (activity?.terminals ?? [])
-    .filter((terminal) => {
-      const marker = `${terminal.cwd ?? ""} ${terminal.command ?? ""}`.toLowerCase();
-      return !marker.includes("ui-tui") && !marker.includes("hermes_cli.main") && !marker.includes("/bin/hermes");
-    })
-    .map((terminal, index) => ({
-      id: `terminal:${terminal.id}`,
-      kind: "Terminal",
-      title: terminal.resume_session_id ? `Terminal ${index + 1} · resumed` : `Terminal ${index + 1}`,
-      detail: terminal.cwd || terminal.command || "Dashboard PTY session",
-      meta: terminal.pid ? `pid ${terminal.pid}` : terminal.status,
-      tone: terminalTone(terminal.status, terminal.last_input_at, activity?.checked_at),
-      href: "/chat",
-      icon: Terminal,
-    }));
+  // PTY sessions are already projected into activity rows by the backend so
+  // they can be deduped with runtime heartbeats and local process scans.  Do
+  // not also render raw `terminals` here; that creates a second light for the
+  // same dashboard terminal.
+  const terminalItems: OperationsItem[] = [];
 
   const processItems: OperationsItem[] = (activity?.background_processes ?? [])
     .filter((process) => {
@@ -669,23 +772,41 @@ function ViewSwitch({ view, onChange }: { view: MissionView; onChange: (view: Mi
   );
 }
 
-function Timeline({ items }: { items: TimelineItem[] }) {
+function Timeline({
+  items,
+  data,
+  teamFilter,
+  onTeamFilterChange,
+}: {
+  items: TimelineItem[];
+  data: LoadState;
+  teamFilter: TeamFilter;
+  onTeamFilterChange: (value: TeamFilter) => void;
+}) {
   return (
     <Card className="overflow-hidden">
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Live mission feed</CardTitle>
+            <div>
+              <CardTitle className="text-base">Team signals</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Active work, matching sessions, and automations for the selected team.
+              </p>
+            </div>
           </div>
-          <Badge tone="outline">{items.length} signals</Badge>
+          <div className="flex items-center gap-2">
+            <TeamFilterSelect data={data} value={teamFilter} onChange={onTeamFilterChange} />
+            <Badge tone="outline">{items.length} signals</Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
           <div className="flex items-center gap-3 border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
             <CheckCircle2 className="h-5 w-5 shrink-0 text-success" />
-            Quiet board. No urgent task, session, or automation activity is currently surfacing.
+            Quiet team. No active tasks, recent matching sessions, or automation signals are surfacing for this filter.
           </div>
         ) : (
           <div className="relative">
@@ -704,7 +825,10 @@ function Timeline({ items }: { items: TimelineItem[] }) {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-3">
-                        <span className="truncate text-sm font-medium text-foreground">{item.title}</span>
+                        <span className="flex min-w-0 items-center gap-2">
+                          <Badge tone="outline">{item.category}</Badge>
+                          <span className="truncate text-sm font-medium text-foreground">{item.title}</span>
+                        </span>
                         <Badge tone={item.tone}>{item.meta}</Badge>
                       </span>
                       <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.detail}</span>
@@ -720,9 +844,17 @@ function Timeline({ items }: { items: TimelineItem[] }) {
   );
 }
 
-function MissionQueue({ data }: { data: LoadState }) {
+function MissionQueue({
+  data,
+  teamFilter,
+  onTeamFilterChange,
+}: {
+  data: LoadState;
+  teamFilter: TeamFilter;
+  onTeamFilterChange: (value: TeamFilter) => void;
+}) {
   const [filter, setFilter] = useState<"attention" | "all">("attention");
-  const tasks = allTasks(data);
+  const tasks = allTasks(data, teamFilter);
   const visibleTasks = (filter === "attention"
     ? tasks.filter((task) => ["blocked", "review", "running", "ready"].includes(task.status))
     : tasks
@@ -737,6 +869,7 @@ function MissionQueue({ data }: { data: LoadState }) {
             <CardTitle className="text-base">Mission queue</CardTitle>
           </div>
           <div className="flex items-center gap-2">
+            <TeamFilterSelect data={data} value={teamFilter} onChange={onTeamFilterChange} />
             <div className="inline-flex border border-border bg-muted/10 p-0.5">
               {(["attention", "all"] as const).map((id) => (
                 <button
@@ -783,7 +916,7 @@ function MissionQueue({ data }: { data: LoadState }) {
                   <div className="min-w-0">
                     <p className="truncate font-mono-ui text-sm text-foreground">{task.title || task.id}</p>
                     <p className="mt-1 text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                      {task.column}{task.assignee ? ` · ${task.assignee}` : ""}
+                      {task.boardName} · {task.column}{task.assignee ? ` · ${task.assignee}` : ""}
                     </p>
                   </div>
                   <Badge tone={taskTone(task)}>{task.status}</Badge>
@@ -1184,12 +1317,19 @@ export default function MissionControlPage() {
   const [view, setView] = useState<MissionView>("overview");
   const [spotlight, setSpotlight] = useState({ x: 72, y: 18 });
   const [selectedMetric, setSelectedMetric] = useState("gateway");
+  const [teamFilter, setTeamFilter] = useState<TeamFilter>(() => readCachedTeamFilter());
   const { setEnd } = usePageHeader();
+
+  const updateTeamFilter = useCallback((value: TeamFilter) => {
+    setTeamFilter(value);
+    cacheTeamFilter(value);
+  }, []);
 
   const loadActivity = useCallback(async () => {
     try {
       const activity = await api.getMissionControlActivity({ timeoutMs: MISSION_CONTROL_ACTIVITY_TIMEOUT_MS });
       setData((previous) => ({ ...previous, activity }));
+      setError(null);
       setLoading(false);
     } catch {
       setError("Mission-control live activity failed to load.");
@@ -1209,16 +1349,22 @@ export default function MissionControlPage() {
       api.getKanbanBoards(timeout),
     ]);
 
-    const selectedBoard =
-      kanbanBoards.status === "fulfilled"
-        ? kanbanBoards.value.current || kanbanBoards.value.boards[0]?.slug
-        : undefined;
-    const kanban = selectedBoard
-      ? await api
-          .getKanbanBoard(selectedBoard)
-          .then((value) => ({ status: "fulfilled" as const, value }))
-          .catch((reason) => ({ status: "rejected" as const, reason }))
-      : kanbanBoards;
+    const boardMetas = kanbanBoards.status === "fulfilled" ? kanbanBoards.value.boards : [];
+    const boardResults = await Promise.allSettled(
+      boardMetas.map((board) => api.getKanbanBoard(board.slug, timeout)),
+    );
+    const kanbanByBoard = boardResults.reduce<Record<string, KanbanBoardResponse>>((acc, result, index) => {
+      if (result.status === "fulfilled") {
+        acc[boardMetas[index].slug] = result.value;
+      }
+      return acc;
+    }, {});
+    const selectedBoard = kanbanBoards.status === "fulfilled"
+      ? kanbanBoards.value.current || kanbanBoards.value.boards[0]?.slug
+      : undefined;
+    const kanban = selectedBoard && kanbanByBoard[selectedBoard]
+      ? ({ status: "fulfilled" as const, value: kanbanByBoard[selectedBoard] })
+      : ({ status: "rejected" as const });
 
     setData((previous) => ({
       status: status.status === "fulfilled" ? status.value : previous.status,
@@ -1226,8 +1372,10 @@ export default function MissionControlPage() {
       cronJobs: cronJobs.status === "fulfilled" ? cronJobs.value : previous.cronJobs,
       profiles: profiles.status === "fulfilled" ? profiles.value.profiles : previous.profiles,
       kanban: kanban.status === "fulfilled" && "columns" in kanban.value ? kanban.value : previous.kanban,
+      kanbanBoards: kanbanBoards.status === "fulfilled" ? kanbanBoards.value : previous.kanbanBoards,
+      kanbanByBoard: { ...previous.kanbanByBoard, ...kanbanByBoard },
       activity: previous.activity,
-      kanbanUnavailable: kanban.status === "rejected" || kanbanBoards.status === "rejected",
+      kanbanUnavailable: kanbanBoards.status === "rejected" || (boardMetas.length > 0 && Object.keys(kanbanByBoard).length === 0),
     }));
     const hardFailures = [status, sessions, cronJobs, profiles].filter(
       (result) => result.status === "rejected",
@@ -1270,6 +1418,20 @@ export default function MissionControlPage() {
   }, [load, loadActivity]);
 
   useEffect(() => {
+    const refreshVisible = () => {
+      if (!document.hidden) {
+        void loadActivity();
+      }
+    };
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [loadActivity]);
+
+  useEffect(() => {
     const interval = window.setInterval(() => {
       if (!document.hidden) {
         void loadActivity();
@@ -1287,8 +1449,12 @@ export default function MissionControlPage() {
     return () => window.clearInterval(interval);
   }, [load]);
 
+  const effectiveTeamFilter = useMemo(() => {
+    if (!data.kanbanBoards) return teamFilter;
+    return teamFilterOptions(data).some((option) => option.value === teamFilter) ? teamFilter : ALL_TEAMS_FILTER;
+  }, [data, teamFilter]);
   const metrics = useMemo(() => buildMetrics(data), [data]);
-  const timeline = useMemo(() => buildTimeline(data), [data]);
+  const timeline = useMemo(() => buildTimeline(data, effectiveTeamFilter), [data, effectiveTeamFilter]);
   const operations = useMemo(() => buildOperationsItems(data), [data]);
   const score = useMemo(() => computeMissionScore(data), [data]);
   const selectedMetricData =
@@ -1394,6 +1560,7 @@ export default function MissionControlPage() {
       <div className="flex flex-col gap-2 border border-current/15 bg-card/55 p-2.5 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <ViewSwitch view={view} onChange={setView} />
+          <TeamFilterSelect data={data} value={effectiveTeamFilter} onChange={updateTeamFilter} label="Queue team" />
           {selectedMetricData && (
             <Badge tone={selectedMetricData.tone}>
               Focus: {selectedMetricData.label} · {selectedMetricData.value}
@@ -1426,12 +1593,12 @@ export default function MissionControlPage() {
 
       {view === "overview" && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-          <MissionQueue data={data} />
-          <Timeline items={timeline} />
+          <MissionQueue data={data} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />
+          <Timeline items={timeline} data={data} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />
         </div>
       )}
 
-      {view === "work" && <MissionQueue data={data} />}
+      {view === "work" && <MissionQueue data={data} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />}
 
       {view === "ops" && <OpsDeck data={data} />}
 

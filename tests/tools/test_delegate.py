@@ -29,6 +29,7 @@ from tools.delegate_tool import (
     _build_child_progress_callback,
     _build_child_system_prompt,
     _extract_output_tail,
+    _run_single_child,
     _strip_blocked_tools,
     _resolve_child_credential_pool,
     _resolve_delegation_credentials,
@@ -316,6 +317,60 @@ class TestDelegateTask(unittest.TestCase):
         result = json.loads(delegate_task(goal="Break things", parent_agent=parent))
         self.assertEqual(result["results"][0]["status"], "error")
         self.assertIn("Something broke", result["results"][0]["error"])
+
+    def test_run_single_child_publishes_runtime_activity_lifecycle(self):
+        class Child:
+            _subagent_id = "sa-test1234"
+            _delegate_depth = 1
+            _parent_subagent_id = None
+            _delegate_role = "leaf"
+            _delegate_saved_tool_names = []
+            _credential_pool = None
+            session_id = "child-session"
+            model = "test-model"
+            session_prompt_tokens = 0
+            session_completion_tokens = 0
+            session_estimated_cost_usd = 0.0
+            session_reasoning_tokens = 0
+            tool_progress_callback = None
+
+            def run_conversation(self, user_message, task_id=None):
+                self.seen_user_message = user_message
+                self.seen_task_id = task_id
+                return {
+                    "final_response": "done",
+                    "completed": True,
+                    "api_calls": 1,
+                    "messages": [],
+                }
+
+            def close(self):
+                self.closed = True
+
+        parent = _make_mock_parent()
+        child = Child()
+
+        with patch("hermes_cli.runtime_activity.publish_activity") as publish:
+            result = _run_single_child(
+                task_index=0,
+                goal="sleep so Mission Control can see yellow",
+                child=child,
+                parent_agent=parent,
+            )
+
+        self.assertEqual(result["status"], "completed")
+        statuses = [call.kwargs["status"] for call in publish.call_args_list]
+        self.assertEqual(statuses[0], "working")
+        self.assertEqual(statuses[-1], "ready")
+        self.assertEqual(publish.call_args_list[0].kwargs["source"], "delegate")
+        self.assertEqual(
+            publish.call_args_list[0].kwargs["activity_id"],
+            "delegate:sa-test1234",
+        )
+        self.assertIn(
+            "sleep so Mission Control can see yellow",
+            publish.call_args_list[0].kwargs["detail"],
+        )
 
     def test_depth_increments(self):
         """Verify child gets parent's depth + 1."""

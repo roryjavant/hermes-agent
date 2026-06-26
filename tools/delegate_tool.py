@@ -187,6 +187,52 @@ def _unregister_subagent(subagent_id: str) -> None:
         _active_subagents.pop(subagent_id, None)
 
 
+def _delegate_activity_id(subagent_id: str) -> str:
+    return f"delegate:{subagent_id}"
+
+
+def _publish_subagent_runtime_activity(
+    child: Any,
+    *,
+    status: str,
+    detail: str,
+    goal: str = "",
+) -> None:
+    """Best-effort cross-process Mission Control heartbeat for a subagent.
+
+    The in-process ``_active_subagents`` registry powers the parent TUI, but
+    the web dashboard often runs in a different process. Publish delegate
+    lifecycle into the same runtime activity registry used by CLI/TUI turns so
+    Mission Control can show real delegate_task children as yellow while they
+    are running and green once they finish.
+    """
+    try:
+        from hermes_cli.runtime_activity import publish_activity
+
+        subagent_id = getattr(child, "_subagent_id", None)
+        if not isinstance(subagent_id, str) or not subagent_id:
+            return
+        session_id = str(getattr(child, "session_id", "") or subagent_id)
+        cwd = os.getcwd()
+        safe_detail = detail or "subagent running"
+        if goal and status == "working":
+            short_goal = " ".join(str(goal).split())
+            if len(short_goal) > 120:
+                short_goal = short_goal[:119].rstrip() + "…"
+            if short_goal:
+                safe_detail = f"{safe_detail}: {short_goal}"
+        publish_activity(
+            source="delegate",
+            status=status,
+            detail=safe_detail,
+            session_id=session_id,
+            cwd=cwd,
+            activity_id=_delegate_activity_id(subagent_id),
+        )
+    except Exception:
+        logger.debug("Subagent runtime activity publish failed", exc_info=True)
+
+
 def interrupt_subagent(subagent_id: str) -> bool:
     """Request that a single running subagent stop at its next iteration boundary.
 
@@ -1525,6 +1571,11 @@ def _run_single_child(
                 touch(desc)
             except Exception:
                 pass
+            _publish_subagent_runtime_activity(
+                child,
+                status="working",
+                detail=desc,
+            )
 
     _heartbeat_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
 
@@ -1554,6 +1605,12 @@ def _run_single_child(
                 "tool_count": 0,
                 "agent": child,
             }
+        )
+        _publish_subagent_runtime_activity(
+            child,
+            status="working",
+            detail="subagent starting",
+            goal=goal,
         )
 
     try:
@@ -1947,6 +2004,11 @@ def _run_single_child(
         # child was never registered (e.g. ID missing on test doubles).
         if _subagent_id:
             _unregister_subagent(_subagent_id)
+            _publish_subagent_runtime_activity(
+                child,
+                status="ready",
+                detail="subagent finished",
+            )
 
         if child_pool is not None and leased_cred_id is not None:
             try:

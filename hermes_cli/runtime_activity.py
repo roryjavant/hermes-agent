@@ -265,6 +265,39 @@ def read_activities(*, stale_after_seconds: float = DEFAULT_STALE_SECONDS) -> li
     )
 
 
+def _profile_activity_targets() -> list[tuple[str, Path]]:
+    """Return candidate profile homes that have runtime activity registries.
+
+    Mission Control polls this path frequently, so discovery must stay cheap.
+    Avoid ``profiles.list_profiles()`` here: that command enriches profile rows
+    with model/config/skill metadata and may recursively scan every installed
+    skill tree, blocking the dashboard hot path.
+    """
+    current_home = get_hermes_home()
+    default_home = current_home
+    if current_home.parent.name == "profiles":
+        default_home = current_home.parent.parent
+
+    targets: list[tuple[str, Path]] = []
+
+    def add_target(name: str, home: Path) -> None:
+        if (home / "runtime" / "activity.json").exists() or home == current_home:
+            targets.append((name, home))
+
+    add_target("default", default_home)
+
+    profiles_root = default_home / "profiles"
+    if profiles_root.is_dir():
+        for entry in sorted(profiles_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            add_target(entry.name, entry)
+
+    if not targets:
+        targets.append((_profile_name(), current_home))
+    return targets
+
+
 def read_all_profile_activities(*, stale_after_seconds: float = DEFAULT_STALE_SECONDS) -> list[dict[str, Any]]:
     """Return live activity records from every local Hermes profile.
 
@@ -272,13 +305,11 @@ def read_all_profile_activities(*, stale_after_seconds: float = DEFAULT_STALE_SE
     windows and kanban workers often run under sibling profiles. Read those
     heartbeat registries directly from disk without mutating ``HERMES_HOME``.
     """
-    targets: list[tuple[str, Path]] = []
     try:
-        from hermes_cli import profiles as profiles_mod
-
-        targets = [(info.name, info.path) for info in profiles_mod.list_profiles()]
+        targets = _profile_activity_targets()
     except Exception:
         logger.debug("Runtime activity profile discovery failed", exc_info=True)
+        targets = []
 
     if not targets:
         targets = [(_profile_name(), get_hermes_home())]

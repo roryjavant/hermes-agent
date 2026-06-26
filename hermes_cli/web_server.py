@@ -9869,6 +9869,8 @@ _VALID_CHANNEL_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _PTY_SESSIONS_LOCK = threading.Lock()
 _PTY_SESSIONS: Dict[str, Dict[str, Any]] = {}
 _PTY_SUBMITTED_MIN_WORKING_SECONDS = 3.0
+_MISSION_CONTROL_RECENT_WORKING_SECONDS = 6.0
+_MISSION_CONTROL_RECENT_REVIEW_SECONDS = 300.0
 # Starlette's TestClient reports the peer as "testclient"; treat it as
 # loopback so tests don't need to rewrite request scope.
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
@@ -10323,6 +10325,7 @@ def _apply_pty_output_status(pty_id: str, chunk: bytes) -> None:
             return
         record["status"] = status
         record["detail"] = detail
+        record["status_seen_at"] = now
 
 
 def _pty_visible_text(chunk: bytes) -> str:
@@ -10352,6 +10355,18 @@ def _pty_status_from_output(chunk: bytes) -> tuple[str, str] | None:
     lower = _pty_visible_text(chunk).lower()
     if not lower:
         return None
+    review_markers = (
+        "approval",
+        "approve",
+        "allow once",
+        "allow for session",
+        "deny",
+        "waiting for command approval",
+        "requires approval",
+        "require approval",
+    )
+    if any(marker in lower for marker in review_markers):
+        return "review", "waiting for approval"
     working_markers = (
         "thinking",
         "working",
@@ -10380,7 +10395,8 @@ def _pty_activity_rows(terminals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         pty_id = str(terminal.get("id") or "")
         if not pty_id:
             continue
-        status = "working" if terminal.get("status") == "working" else "ready"
+        raw_status = str(terminal.get("status") or "")
+        status = raw_status if raw_status in {"working", "review"} else "ready"
         rows.append({
             "activity_id": f"pty:{pty_id}",
             "pid": terminal.get("pid"),
@@ -10389,9 +10405,22 @@ def _pty_activity_rows(terminals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "session_id": str(terminal.get("resume_session_id") or terminal.get("channel") or pty_id),
             "cwd": str(terminal.get("cwd") or ""),
             "status": status,
-            "detail": str(terminal.get("detail") or ("agent turn running" if status == "working" else "waiting for input")),
+            "detail": str(
+                terminal.get("detail")
+                or (
+                    "agent turn running"
+                    if status == "working"
+                    else "waiting for approval"
+                    if status == "review"
+                    else "waiting for input"
+                )
+            ),
             "started_at": terminal.get("started_at") or now,
-            "last_seen": terminal.get("last_activity_at") or terminal.get("last_output_at") or terminal.get("started_at") or now,
+            "last_seen": (
+                terminal.get("status_seen_at")
+                if status in {"working", "review"}
+                else None
+            ) or terminal.get("last_activity_at") or terminal.get("last_output_at") or terminal.get("started_at") or now,
         })
     return rows
 
@@ -10550,40 +10579,82 @@ def _dedupe_local_activities(activities: List[Dict[str, Any]]) -> List[Dict[str,
     for record in activities:
         source = str(record.get("source") or "")
         if source in {"cli", "tui"}:
-            key = (_activity_project_key(record.get("cwd")),)
+            if (
+                int(record.get("pid") or -1) == os.getpid()
+                and _activity_project_key(record.get("cwd")) == _activity_project_key(os.getcwd())
+            ):
+                continue
+            terminal_id = record.get("pid") or record.get("session_id") or record.get("activity_id")
+            key = (_activity_project_key(record.get("cwd")), terminal_id)
             grouped.setdefault(key, []).append(record)
         else:
             passthrough.append(record)
     deduped: List[Dict[str, Any]] = []
     for key, records in grouped.items():
+        now = time.time()
+        has_live_terminal_row = any(
+            str(row.get("activity_id") or "").startswith(("local-process:", "pty:"))
+            or row.get("process_start_time") is not None
+            for row in records
+        )
+        if not has_live_terminal_row:
+            records = [
+                row for row in records
+                if str(row.get("status") or "") != "working"
+                or now - float(row.get("last_seen") or 0) <= _MISSION_CONTROL_RECENT_WORKING_SECONDS
+            ]
+            if not records:
+                continue
         heartbeat_records = [
             row for row in records
             if not str(row.get("activity_id") or "").startswith("local-process:")
         ]
         candidates = heartbeat_records or records
-        now = time.time()
+        recent_review = [
+            row for row in candidates
+            if str(row.get("status") or "") == "review"
+            and now - float(row.get("last_seen") or 0) <= _MISSION_CONTROL_RECENT_REVIEW_SECONDS
+        ]
+        newest_recent_review = max(
+            (float(row.get("last_seen") or 0) for row in recent_review),
+            default=0.0,
+        )
+        newer_ready_than_review = [
+            row for row in candidates
+            if str(row.get("status") or "") == "ready"
+            and float(row.get("last_seen") or 0) > newest_recent_review
+        ]
         recent_working = [
             row for row in candidates
             if str(row.get("status") or "") == "working"
-            and now - float(row.get("last_seen") or 0) <= 120.0
+            and now - float(row.get("last_seen") or 0) <= _MISSION_CONTROL_RECENT_WORKING_SECONDS
         ]
         newest_recent_working = max(
             (float(row.get("last_seen") or 0) for row in recent_working),
             default=0.0,
         )
-        newer_ready = [
+        newer_ready_than_working = [
             row for row in candidates
             if str(row.get("status") or "") == "ready"
             and float(row.get("last_seen") or 0) > newest_recent_working
         ]
-        candidates = newer_ready or recent_working or candidates
+        if recent_review and not newer_ready_than_review:
+            candidates = recent_review
+        else:
+            candidates = newer_ready_than_working or recent_working or (records if heartbeat_records else candidates)
         candidates.sort(key=lambda row: (-float(row.get("last_seen") or 0), _activity_status_rank(str(row.get("status") or "ready"))))
         best = dict(candidates[0])
+        if (
+            str(best.get("status") or "") == "working"
+            and now - float(best.get("last_seen") or 0) > _MISSION_CONTROL_RECENT_WORKING_SECONDS
+        ):
+            best["status"] = "ready"
+            best["detail"] = "ready"
         if key[0]:
             best["cwd"] = key[0]
         if len(records) > 1:
-            best["activity_id"] = f"deduped:project:{abs(hash(key[0]))}"
-            best["detail"] = f"{best.get('detail') or 'ready'} · {len(records)} terminal records collapsed"
+            best["activity_id"] = f"deduped:terminal:{abs(hash(key))}"
+            best["detail"] = f"{best.get('detail') or 'ready'} · {len(records)} records for this terminal"
         deduped.append(best)
     return passthrough + deduped
 
@@ -10612,6 +10683,22 @@ def _profile_role(profile: str) -> str:
     return lowered or "agent"
 
 
+def _available_profile_names_fast() -> set[str]:
+    """Return local profile names without expensive profile metadata scans."""
+    current_home = get_hermes_home()
+    default_home = current_home
+    if current_home.parent.name == "profiles":
+        default_home = current_home.parent.parent
+
+    names = {"default"}
+    profiles_root = default_home / "profiles"
+    if profiles_root.is_dir():
+        for entry in profiles_root.iterdir():
+            if entry.is_dir():
+                names.add(entry.name)
+    return names
+
+
 def _snapshot_profile_teams(activities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     live_by_profile: Dict[str, List[Dict[str, Any]]] = {}
     for record in activities:
@@ -10622,9 +10709,7 @@ def _snapshot_profile_teams(activities: List[Dict[str, Any]]) -> List[Dict[str, 
 
     available_profiles: set[str] = set()
     try:
-        from hermes_cli import profiles as profiles_mod
-
-        available_profiles = {str(info.name) for info in profiles_mod.list_profiles()}
+        available_profiles = _available_profile_names_fast()
     except Exception:
         available_profiles = set(live_by_profile)
 

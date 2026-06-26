@@ -1051,7 +1051,7 @@ class TestMissionControlActivityEndpoint:
     def _setup(self, _isolate_hermes_home):
         self.client, self.header = _client()
 
-    def test_activity_dedupe_collapses_project_terminals_and_prefers_latest_status(self, monkeypatch):
+    def test_activity_dedupe_collapses_each_terminal_and_prefers_latest_status(self, monkeypatch):
         from hermes_cli import web_server
 
         monkeypatch.setattr(web_server.time, "time", lambda: 200.0)
@@ -1069,6 +1069,7 @@ class TestMissionControlActivityEndpoint:
                     "detail": "agent turn running",
                     "started_at": 1.0,
                     "last_seen": 10.0,
+                    "process_start_time": 1.0,
                 },
                 {
                     "activity_id": "latest-ready",
@@ -1081,6 +1082,7 @@ class TestMissionControlActivityEndpoint:
                     "detail": "waiting for input",
                     "started_at": 1.0,
                     "last_seen": 200.0,
+                    "process_start_time": 1.0,
                 },
                 {
                     "activity_id": "synthetic-ui-tui",
@@ -1097,10 +1099,14 @@ class TestMissionControlActivityEndpoint:
             ]
         )
 
-        assert len(rows) == 1
-        assert rows[0]["status"] == "ready"
-        assert rows[0]["detail"] == "waiting for input · 3 terminal records collapsed"
-        assert rows[0]["cwd"] == "/Users/roryavant/Dev/hermes-team-ui"
+        assert len(rows) == 2
+        by_pid = {row["pid"]: row for row in rows}
+        assert by_pid[111]["status"] == "ready"
+        assert by_pid[111]["detail"] == "waiting for input · 2 records for this terminal"
+        assert by_pid[111]["cwd"] == "/Users/roryavant/Dev/hermes-team-ui"
+        assert by_pid[222]["status"] == "ready"
+        assert by_pid[222]["detail"] == "idle Hermes TUI"
+        assert by_pid[222]["cwd"] == "/Users/roryavant/Dev/hermes-team-ui"
 
     def test_activity_dedupe_keeps_non_terminal_sources_separate(self):
         from hermes_cli import web_server
@@ -1113,6 +1119,27 @@ class TestMissionControlActivityEndpoint:
         )
 
         assert {row["activity_id"] for row in rows} == {"cli", "delegate"}
+
+    def test_activity_dedupe_drops_dashboard_self_tui_heartbeat(self):
+        from hermes_cli import web_server
+
+        rows = web_server._dedupe_local_activities(
+            [
+                {
+                    "activity_id": "dashboard-self-tui",
+                    "pid": os.getpid(),
+                    "profile": "rorypersonal",
+                    "source": "tui",
+                    "session_id": "dashboard-session",
+                    "cwd": os.getcwd(),
+                    "status": "ready",
+                    "detail": "ready",
+                    "last_seen": 20.0,
+                }
+            ]
+        )
+
+        assert rows == []
 
     def test_activity_dedupe_real_heartbeat_beats_newer_process_scan(self, monkeypatch):
         from hermes_cli import web_server
@@ -1131,7 +1158,7 @@ class TestMissionControlActivityEndpoint:
                     "status": "working",
                     "detail": "agent turn running",
                     "started_at": 10.0,
-                    "last_seen": 20.0,
+                    "last_seen": 25.0,
                 },
                 {
                     "activity_id": "local-process:111",
@@ -1150,7 +1177,7 @@ class TestMissionControlActivityEndpoint:
 
         assert len(rows) == 1
         assert rows[0]["status"] == "working"
-        assert rows[0]["detail"] == "agent turn running · 2 terminal records collapsed"
+        assert rows[0]["detail"] == "agent turn running · 2 records for this terminal"
 
     def test_activity_dedupe_newer_ready_heartbeat_restores_green_after_working(self, monkeypatch):
         from hermes_cli import web_server
@@ -1170,6 +1197,7 @@ class TestMissionControlActivityEndpoint:
                     "detail": "agent turn running",
                     "started_at": 10.0,
                     "last_seen": 20.0,
+                    "process_start_time": 1.0,
                 },
                 {
                     "activity_id": "idle-heartbeat",
@@ -1182,13 +1210,124 @@ class TestMissionControlActivityEndpoint:
                     "detail": "waiting for input",
                     "started_at": 30.0,
                     "last_seen": 30.0,
+                    "process_start_time": 1.0,
                 },
             ]
         )
 
         assert len(rows) == 1
         assert rows[0]["status"] == "ready"
-        assert rows[0]["detail"] == "waiting for input · 2 terminal records collapsed"
+        assert rows[0]["detail"] == "waiting for input · 2 records for this terminal"
+
+    def test_activity_dedupe_review_beats_working_until_newer_ready(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server.time, "time", lambda: 50.0)
+
+        rows = web_server._dedupe_local_activities(
+            [
+                {
+                    "activity_id": "working-turn",
+                    "pid": 111,
+                    "profile": "rorypersonal",
+                    "source": "tui",
+                    "session_id": "turn-session",
+                    "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                    "status": "working",
+                    "detail": "agent turn running",
+                    "started_at": 10.0,
+                    "last_seen": 45.0,
+                },
+                {
+                    "activity_id": "approval-prompt",
+                    "pid": 111,
+                    "profile": "rorypersonal",
+                    "source": "tui",
+                    "session_id": "turn-session",
+                    "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                    "status": "review",
+                    "detail": "waiting for approval",
+                    "started_at": 10.0,
+                    "last_seen": 46.0,
+                },
+                {
+                    "activity_id": "local-process:111",
+                    "pid": 111,
+                    "profile": "rorypersonal",
+                    "source": "tui",
+                    "session_id": "",
+                    "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                    "status": "ready",
+                    "detail": "idle Hermes TUI",
+                    "started_at": 50.0,
+                    "last_seen": 50.0,
+                },
+            ]
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["status"] == "review"
+        assert rows[0]["detail"] == "waiting for approval · 3 records for this terminal"
+
+    def test_activity_dedupe_ages_out_stale_working_without_ready_heartbeat(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server.time, "time", lambda: 50.0)
+
+        rows = web_server._dedupe_local_activities(
+            [
+                {
+                    "activity_id": "stale-working-turn",
+                    "pid": 111,
+                    "profile": "rorypersonal",
+                    "source": "tui",
+                    "session_id": "turn-session",
+                    "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                    "status": "working",
+                    "detail": "agent turn running",
+                    "started_at": 10.0,
+                    "last_seen": 20.0,
+                },
+                {
+                    "activity_id": "local-process:111",
+                    "pid": 111,
+                    "profile": "rorypersonal",
+                    "source": "tui",
+                    "session_id": "",
+                    "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                    "status": "ready",
+                    "detail": "idle Hermes TUI",
+                    "started_at": 50.0,
+                    "last_seen": 50.0,
+                },
+            ]
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["status"] == "ready"
+        assert rows[0]["detail"] == "idle Hermes TUI · 2 records for this terminal"
+
+    def test_activity_dedupe_drops_stale_terminal_heartbeat_without_live_process(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server.time, "time", lambda: 50.0)
+
+        rows = web_server._dedupe_local_activities([
+            {
+                "activity_id": "stale-working-turn",
+                "pid": 111,
+                "profile": "rorypersonal",
+                "source": "tui",
+                "session_id": "turn-session",
+                "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                "status": "working",
+                "detail": "API call completed",
+                "started_at": 10.0,
+                "last_seen": 20.0,
+            }
+        ])
+
+        assert rows == []
 
     def test_pty_terminal_working_beats_ready_runtime_heartbeat(self, monkeypatch):
         from hermes_cli import web_server
@@ -1210,7 +1349,7 @@ class TestMissionControlActivityEndpoint:
         rows = web_server._dedupe_local_activities([
             {
                 "activity_id": "ready-heartbeat",
-                "pid": 111,
+                "pid": 222,
                 "profile": "rorypersonal",
                 "source": "tui",
                 "session_id": "session-ready",
@@ -1225,7 +1364,7 @@ class TestMissionControlActivityEndpoint:
 
         assert len(rows) == 1
         assert rows[0]["status"] == "working"
-        assert rows[0]["detail"] == "agent turn submitted · 2 terminal records collapsed"
+        assert rows[0]["detail"] == "agent turn submitted · 2 records for this terminal"
 
     def test_pty_status_parser_marks_thinking_working_and_ready_idle(self):
         from hermes_cli import web_server
@@ -1238,6 +1377,32 @@ class TestMissionControlActivityEndpoint:
             "running",
             "waiting for input",
         )
+        assert web_server._pty_status_from_output(b"Approval required: Allow once / Deny") == (
+            "review",
+            "waiting for approval",
+        )
+
+    def test_pty_working_last_seen_uses_status_timestamp_not_noise_output(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server.time, "time", lambda: 100.0)
+
+        rows = web_server._pty_activity_rows([
+            {
+                "id": "pty-stale-working",
+                "pid": 222,
+                "profile": "rorypersonal",
+                "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                "status": "working",
+                "detail": "agent turn running",
+                "started_at": 1.0,
+                "status_seen_at": 10.0,
+                "last_activity_at": 100.0,
+            }
+        ])
+
+        assert rows[0]["status"] == "working"
+        assert rows[0]["last_seen"] == 10.0
 
     def test_pty_ready_output_cannot_immediately_cancel_submitted_working(self, monkeypatch):
         from hermes_cli import web_server
@@ -1285,6 +1450,7 @@ class TestMissionControlActivityEndpoint:
 
     def test_activity_endpoint_returns_sibling_profile_runtime_records(self, monkeypatch):
         from hermes_constants import get_hermes_home
+        from hermes_cli import profiles as profiles_mod
         from hermes_cli import runtime_activity
 
         home = get_hermes_home()
@@ -1292,6 +1458,11 @@ class TestMissionControlActivityEndpoint:
         sibling_runtime = sibling / "runtime"
         sibling_runtime.mkdir(parents=True)
         monkeypatch.setattr(runtime_activity, "_now", lambda: 200.0)
+        monkeypatch.setattr(
+            profiles_mod,
+            "list_profiles",
+            lambda: (_ for _ in ()).throw(AssertionError("hot path must not call list_profiles")),
+        )
         runtime_activity._write_entries(
             sibling_runtime / "activity.json",
             [

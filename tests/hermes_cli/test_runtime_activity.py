@@ -189,6 +189,13 @@ def test_read_all_profile_activities_merges_sibling_profile_records(tmp_path, mo
     sibling_runtime.mkdir(parents=True)
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setattr(runtime_activity, "_now", lambda: 200.0)
+    from hermes_cli import profiles as profiles_mod
+
+    monkeypatch.setattr(
+        profiles_mod,
+        "list_profiles",
+        lambda: (_ for _ in ()).throw(AssertionError("hot path must not call list_profiles")),
+    )
 
     default_record = runtime_activity.publish_activity(
         source="cli",

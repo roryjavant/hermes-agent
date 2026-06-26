@@ -492,9 +492,9 @@ export const api = {
   // Kanban dashboard plugin summaries and safe operational controls for management pages
   getKanbanBoards: (options?: FetchJSONOptions) =>
     fetchJSON<KanbanBoardsResponse>("/api/plugins/kanban/boards", undefined, options),
-  getKanbanBoard: (board?: string) => {
+  getKanbanBoard: (board?: string, options?: FetchJSONOptions) => {
     const qs = board ? `?board=${encodeURIComponent(board)}` : "";
-    return fetchJSON<KanbanBoardResponse>(`/api/plugins/kanban/board${qs}`);
+    return fetchJSON<KanbanBoardResponse>(`/api/plugins/kanban/board${qs}`, undefined, options);
   },
   getKanbanActiveWorkers: (board?: string) => {
     const qs = board ? `?board=${encodeURIComponent(board)}` : "";
