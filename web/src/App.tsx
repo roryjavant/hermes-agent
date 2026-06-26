@@ -34,6 +34,7 @@ import {
   KeyRound,
   Menu,
   MessageSquare,
+  Network,
   Package,
   PanelLeftClose,
   PanelLeftOpen,
@@ -78,6 +79,7 @@ import FilesPage from "@/pages/FilesPage";
 import SessionsPage from "@/pages/SessionsPage";
 import LogsPage from "@/pages/LogsPage";
 import MissionControlPage from "@/pages/MissionControlPage";
+import JurorResearchMapPage from "@/pages/JurorResearchMapPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import ModelsPage from "@/pages/ModelsPage";
 import CronPage from "@/pages/CronPage";
@@ -135,6 +137,8 @@ const CHAT_NAV_ITEM: NavItem = {
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
   "/mission-control": MissionControlPage,
+  "/flow": JurorResearchMapPage,
+  "/juror-research-map": JurorResearchMapPage,
   "/sessions": SessionsPage,
   "/files": FilesPage,
   "/analytics": AnalyticsPage,
@@ -171,6 +175,11 @@ const BUILTIN_NAV_REST: NavItem[] = [
     labelKey: "missionControl",
     label: "Mission Control",
     icon: Gauge,
+  },
+  {
+    path: "/flow",
+    label: "Juror Research Flow",
+    icon: Network,
   },
   {
     path: "/sessions",
@@ -221,6 +230,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   FolderOpen,
   KeyRound,
   MessageSquare,
+  Network,
   Package,
   Settings,
   Puzzle,

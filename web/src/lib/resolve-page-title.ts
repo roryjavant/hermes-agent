@@ -18,6 +18,11 @@ const BUILTIN: Record<string, keyof Translations["app"]["nav"]> = {
   "/docs": "documentation",
 };
 
+const EXTRA_BUILTIN_LABELS: Record<string, string> = {
+  "/flow": "Juror Research Flow",
+  "/juror-research-map": "Juror Research Map",
+};
+
 const BUILTIN_LABELS: Required<Translations["app"]["nav"]> = {
   analytics: "Analytics",
   chat: "Chat",
@@ -47,6 +52,10 @@ export function resolvePageTitle(
   const plugin = pluginTabs.find((p) => p.path === normalized);
   if (plugin) {
     return plugin.label;
+  }
+  const extraLabel = EXTRA_BUILTIN_LABELS[normalized];
+  if (extraLabel) {
+    return extraLabel;
   }
   const key = BUILTIN[normalized];
   if (key) {
