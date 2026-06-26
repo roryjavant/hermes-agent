@@ -9868,7 +9868,7 @@ _PTY_READ_CHUNK_TIMEOUT = 0.2
 _VALID_CHANNEL_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _PTY_SESSIONS_LOCK = threading.Lock()
 _PTY_SESSIONS: Dict[str, Dict[str, Any]] = {}
-_PTY_SUBMITTED_MIN_WORKING_SECONDS = 120.0
+_PTY_SUBMITTED_MIN_WORKING_SECONDS = 3.0
 # Starlette's TestClient reports the peer as "testclient"; treat it as
 # loopback so tests don't need to rewrite request scope.
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
@@ -10567,7 +10567,16 @@ def _dedupe_local_activities(activities: List[Dict[str, Any]]) -> List[Dict[str,
             if str(row.get("status") or "") == "working"
             and now - float(row.get("last_seen") or 0) <= 120.0
         ]
-        candidates = recent_working or candidates
+        newest_recent_working = max(
+            (float(row.get("last_seen") or 0) for row in recent_working),
+            default=0.0,
+        )
+        newer_ready = [
+            row for row in candidates
+            if str(row.get("status") or "") == "ready"
+            and float(row.get("last_seen") or 0) > newest_recent_working
+        ]
+        candidates = newer_ready or recent_working or candidates
         candidates.sort(key=lambda row: (-float(row.get("last_seen") or 0), _activity_status_rank(str(row.get("status") or "ready"))))
         best = dict(candidates[0])
         if key[0]:

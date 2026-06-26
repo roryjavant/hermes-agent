@@ -104,6 +104,7 @@ const MISSION_CONTROL_ACTIVITY_REFRESH_MS = 1000;
 const MISSION_CONTROL_FULL_REFRESH_MS = 15000;
 const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 3000;
 const MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS = 6000;
+const TERMINAL_RECENT_INPUT_WORKING_GRACE_MS = 3000;
 
 const emptyState: LoadState = {
   status: null,
@@ -303,7 +304,7 @@ function readinessLabel(tone: ReadinessTone): string {
 
 function terminalTone(status: string, lastInputAt: number | null | undefined, checkedAt: number | null | undefined): ReadinessTone {
   const now = checkedAt || Date.now() / 1000;
-  const recentlySubmitted = Boolean(lastInputAt && now - lastInputAt < 120);
+  const recentlySubmitted = Boolean(lastInputAt && now - lastInputAt < TERMINAL_RECENT_INPUT_WORKING_GRACE_MS / 1000);
   if (status === "working" || recentlySubmitted) return "working";
   if (status === "running") return "ready";
   return "review";

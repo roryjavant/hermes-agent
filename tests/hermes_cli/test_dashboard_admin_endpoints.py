@@ -1152,7 +1152,7 @@ class TestMissionControlActivityEndpoint:
         assert rows[0]["status"] == "working"
         assert rows[0]["detail"] == "agent turn running · 2 terminal records collapsed"
 
-    def test_activity_dedupe_recent_working_beats_newer_idle_heartbeat(self, monkeypatch):
+    def test_activity_dedupe_newer_ready_heartbeat_restores_green_after_working(self, monkeypatch):
         from hermes_cli import web_server
 
         monkeypatch.setattr(web_server.time, "time", lambda: 40.0)
@@ -1187,8 +1187,8 @@ class TestMissionControlActivityEndpoint:
         )
 
         assert len(rows) == 1
-        assert rows[0]["status"] == "working"
-        assert rows[0]["detail"] == "agent turn running · 2 terminal records collapsed"
+        assert rows[0]["status"] == "ready"
+        assert rows[0]["detail"] == "waiting for input · 2 terminal records collapsed"
 
     def test_pty_terminal_working_beats_ready_runtime_heartbeat(self, monkeypatch):
         from hermes_cli import web_server
@@ -1257,6 +1257,28 @@ class TestMissionControlActivityEndpoint:
 
             assert row["status"] == "working"
             assert row["detail"] == "agent turn submitted"
+        finally:
+            with web_server._PTY_SESSIONS_LOCK:
+                web_server._PTY_SESSIONS.pop("pty-test", None)
+
+    def test_pty_ready_output_restores_idle_after_submit_grace(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server.time, "time", lambda: 103.5)
+        with web_server._PTY_SESSIONS_LOCK:
+            web_server._PTY_SESSIONS["pty-test"] = {
+                "id": "pty-test",
+                "status": "working",
+                "detail": "agent turn submitted",
+                "last_input_at": 100.0,
+            }
+        try:
+            web_server._apply_pty_output_status("pty-test", b"-- ready | gpt-5.5")
+            with web_server._PTY_SESSIONS_LOCK:
+                row = dict(web_server._PTY_SESSIONS["pty-test"])
+
+            assert row["status"] == "running"
+            assert row["detail"] == "waiting for input"
         finally:
             with web_server._PTY_SESSIONS_LOCK:
                 web_server._PTY_SESSIONS.pop("pty-test", None)
