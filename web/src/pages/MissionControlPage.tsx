@@ -114,7 +114,7 @@ type OperationsItem = {
 
 const MISSION_CONTROL_ACTIVITY_REFRESH_MS = 1000;
 const MISSION_CONTROL_FULL_REFRESH_MS = 15000;
-const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 2000;
+const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 5000;
 const MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS = 6000;
 const MISSION_CONTROL_TEAM_FILTER_KEY = "missionControl.teamFilter";
 const ALL_TEAMS_FILTER = "all";
@@ -570,7 +570,7 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
     (activity?.profile_teams ?? []).flatMap((team) => team.agents.map((agent) => agent.profile)),
   );
   const runtimeItems: OperationsItem[] = (activity?.activities ?? [])
-    .filter((record) => record.source !== "dashboard" && !record.activity_id.startsWith("pty:"))
+    .filter((record) => record.source !== "dashboard")
     .map((record) => ({
       id: `activity:${record.activity_id}`,
       kind: profileTeamProfiles.has(record.profile) ? "Profile agent" : runtimeSourceLabel(record.source) === "Local Hermes CLI" || runtimeSourceLabel(record.source) === "Local Hermes TUI" ? "Hermes terminal" : runtimeSourceLabel(record.source),
@@ -583,9 +583,10 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
     }));
 
   // PTY sessions are already projected into activity rows by the backend so
-  // they can be deduped with runtime heartbeats and local process scans.  Do
-  // not also render raw `terminals` here; that creates a second light for the
-  // same dashboard terminal.
+  // they can be deduped with runtime heartbeats and local process scans. Keep
+  // those `pty:*` activity rows in runtimeItems so approval/review prompts turn
+  // into visible red terminal lights. Do not also render raw `terminals` here;
+  // that creates a second light for the same dashboard terminal.
   const terminalItems: OperationsItem[] = [];
 
   const processItems: OperationsItem[] = (activity?.background_processes ?? [])

@@ -403,6 +403,14 @@ def _publish_session_activity(session: dict | None, status: str, detail: str = "
         logger.debug("Failed to publish TUI runtime activity", exc_info=True)
 
 
+def _emit_approval_request(sid: str, payload: dict) -> None:
+    """Emit an approval prompt and mark the live session as awaiting review."""
+    with _sessions_lock:
+        session = _sessions.get(sid)
+    _publish_session_activity(session, "review", "waiting for command approval")
+    _emit("approval.request", sid, payload)
+
+
 def _finalize_session(session: dict | None, end_reason: str = "tui_close") -> None:
     """Best-effort finalize hook + memory commit for a session."""
     if not session or session.get("_finalized"):
@@ -990,7 +998,7 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 )
 
                 register_gateway_notify(
-                    key, lambda data: _emit("approval.request", sid, data)
+                    key, lambda data: _emit_approval_request(sid, data)
                 )
                 notify_registered = True
                 load_permanent_allowlist()
@@ -2226,7 +2234,7 @@ def _sync_session_key_after_compress(
         try:
             register_gateway_notify(
                 new_session_id,
-                lambda data: _emit("approval.request", sid, data),
+                lambda data: _emit_approval_request(sid, data),
             )
         except Exception:
             pass
@@ -3456,7 +3464,7 @@ def _init_session(sid: str, key: str, agent, history: list, cols: int = 80):
     try:
         from tools.approval import register_gateway_notify, load_permanent_allowlist
 
-        register_gateway_notify(key, lambda data: _emit("approval.request", sid, data))
+        register_gateway_notify(key, lambda data: _emit_approval_request(sid, data))
         load_permanent_allowlist()
     except Exception:
         pass

@@ -443,3 +443,10 @@ def test_team_page_load_error_handler_is_stable_to_avoid_fetch_loop():
     assert "const handleLoadError = useCallback(" in source
     assert "useTeamDashboardData({ onLoadError: handleLoadError })" in source
     assert "onLoadError: (error)" not in source
+
+
+def test_mission_control_keeps_projected_pty_activity_rows_visible():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert 'record.source !== "dashboard" && !record.activity_id.startsWith("pty:")' not in source
+    assert "approval/review prompts turn" in source

@@ -238,6 +238,23 @@ def test_emit_without_payload(capture):
     assert "payload" not in json.loads(buf.getvalue())["params"]
 
 
+def test_emit_approval_request_marks_session_review(capture, monkeypatch):
+    server, buf = capture
+    calls = []
+    session = {"active_session_lease": object(), "cwd": "/repo", "profile": "rorypersonal"}
+    server._sessions["sid-approval"] = session
+    monkeypatch.setattr(server, "_publish_session_activity", lambda sess, status, detail='': calls.append((sess, status, detail)))
+
+    server._emit_approval_request("sid-approval", {"command": "rm -rf tmp"})
+    msg = json.loads(buf.getvalue())
+
+    assert calls == [(session, "review", "waiting for command approval")]
+    assert msg["method"] == "event"
+    assert msg["params"]["type"] == "approval.request"
+    assert msg["params"]["session_id"] == "sid-approval"
+    assert msg["params"]["payload"]["command"] == "rm -rf tmp"
+
+
 # ── Blocking prompt round-trip ───────────────────────────────────────
 
 
