@@ -94,11 +94,15 @@ export interface Translations {
       documentation: string;
       keys: string;
       logs: string;
+      /** Optional — fall back to the nav item's label until translated. */
+      missionControl?: string;
       models: string;
       profiles: string;
       plugins: string;
       sessions: string;
       skills: string;
+      /** Optional — fall back to the nav item's label until translated. */
+      team?: string;
     };
     modelToolsSheetSubtitle: string;
     modelToolsSheetTitle: string;

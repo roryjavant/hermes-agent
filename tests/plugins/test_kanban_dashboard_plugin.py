@@ -1341,6 +1341,53 @@ def test_event_dict_includes_run_id(client):
     assert comp[0]["run_id"] == run_id
 
 
+def test_recent_events_endpoint_returns_ws_frame_shape_and_caps_limit(client):
+    r = client.post("/api/plugins/kanban/tasks", json={"title": "events", "assignee": "worker"})
+    tid = r.json()["task"]["id"]
+    conn = kb.connect()
+    try:
+        kb.claim_task(conn, tid)
+        latest = kb.latest_run(conn, tid)
+        assert latest is not None
+        run_id = latest.id
+        kb.complete_task(conn, tid, summary="done")
+    finally:
+        conn.close()
+
+    all_events = client.get("/api/plugins/kanban/events?since=0&limit=200")
+    assert all_events.status_code == 200, all_events.text
+    data = all_events.json()
+    assert set(data) == {"events", "cursor"}
+    assert data["events"] == sorted(data["events"], key=lambda e: e["id"])
+    assert data["cursor"] == data["events"][-1]["id"]
+    for event in data["events"]:
+        assert {"id", "task_id", "run_id", "kind", "payload", "created_at"} <= set(event)
+
+    limited = client.get("/api/plugins/kanban/events?since=0&limit=2").json()
+    assert len(limited["events"]) == 2
+    after_first = client.get(f"/api/plugins/kanban/events?since={limited['events'][0]['id']}&limit=200").json()
+    assert all(event["id"] > limited["events"][0]["id"] for event in after_first["events"])
+    completed = [event for event in data["events"] if event["kind"] == "completed"]
+    assert completed[0]["run_id"] == run_id
+
+
+def test_recent_events_endpoint_respects_explicit_default_board(client):
+    default_task = client.post("/api/plugins/kanban/tasks", json={"title": "default-event"}).json()["task"]
+    kb.create_board("other")
+    other_conn = kb.connect(board="other")
+    try:
+        other_task_id = kb.create_task(other_conn, title="other-event")
+    finally:
+        other_conn.close()
+    kb.set_current_board("other")
+
+    current = client.get("/api/plugins/kanban/events?since=0").json()["events"]
+    pinned_default = client.get("/api/plugins/kanban/events?board=default&since=0").json()["events"]
+
+    assert {event["task_id"] for event in current} == {other_task_id}
+    assert {event["task_id"] for event in pinned_default} == {default_task["id"]}
+
+
 
 # ---------------------------------------------------------------------------
 # Per-task force-loaded skills via REST

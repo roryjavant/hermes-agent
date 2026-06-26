@@ -352,6 +352,8 @@ def _claim_active_session_slot(
     *,
     live_session_id: str,
     surface: str = "tui",
+    cwd: str | None = None,
+    profile: str | None = None,
 ) -> tuple[Any, str | None]:
     try:
         from hermes_cli.active_sessions import try_acquire_active_session
@@ -360,7 +362,11 @@ def _claim_active_session_slot(
             session_id=session_key,
             surface=surface,
             config=_load_cfg(),
-            metadata={"live_session_id": live_session_id},
+            metadata={
+                "live_session_id": live_session_id,
+                "cwd": cwd or "",
+                "profile": profile or "",
+            },
         )
     except Exception as exc:
         logger.warning("Failed to claim active session slot: %s", exc)
@@ -377,6 +383,24 @@ def _release_active_session_slot(session: dict | None) -> None:
         lease.release()
     except Exception:
         logger.debug("Failed to release active session slot", exc_info=True)
+
+
+def _publish_session_activity(session: dict | None, status: str, detail: str = "") -> None:
+    """Best-effort Mission Control status for a live TUI/Desktop session."""
+    if not session:
+        return
+    try:
+        from hermes_cli.active_sessions import publish_active_session_activity
+
+        publish_active_session_activity(
+            session.get("active_session_lease"),
+            status=status,
+            detail=detail,
+            cwd=str(session.get("cwd") or "") or None,
+            profile=str(session.get("profile") or "") or None,
+        )
+    except Exception:
+        logger.debug("Failed to publish TUI runtime activity", exc_info=True)
 
 
 def _finalize_session(session: dict | None, end_reason: str = "tui_close") -> None:
@@ -942,6 +966,7 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 if resume_sid := current.get("resume_session_id"):
                     kw["session_id"] = resume_sid
                 agent = _make_agent(sid, key, **kw)
+                setattr(agent, "_activity_source", "tui")
             finally:
                 _clear_session_context(tokens)
 
@@ -1349,6 +1374,9 @@ def _enable_gateway_prompts() -> None:
 def _block(event: str, sid: str, payload: dict, timeout: int = 300) -> str:
     rid = uuid.uuid4().hex[:8]
     ev = threading.Event()
+    with _sessions_lock:
+        _activity_session = _sessions.get(sid)
+    _publish_session_activity(_activity_session, "review", f"waiting for {event}")
     with _prompt_lock:
         _pending[rid] = (sid, ev)
         payload["request_id"] = rid
@@ -1357,6 +1385,7 @@ def _block(event: str, sid: str, payload: dict, timeout: int = 300) -> str:
         _emit(event, sid, payload)
         ev.wait(timeout=timeout)
     finally:
+        _publish_session_activity(_activity_session, "working", f"{event} resolved")
         with _prompt_lock:
             _pending.pop(rid, None)
             _pending_prompt_payloads.pop(rid, None)
@@ -3807,7 +3836,12 @@ def _(rid, params: dict) -> dict:
 
     ready = threading.Event()
     now = time.time()
-    lease, limit_message = _claim_active_session_slot(key, live_session_id=sid)
+    lease, limit_message = _claim_active_session_slot(
+        key,
+        live_session_id=sid,
+        cwd=resolved_cwd,
+        profile=profile,
+    )
     if limit_message is not None:
         return _err(rid, 4090, limit_message)
 
@@ -3831,6 +3865,7 @@ def _(rid, params: dict) -> dict:
             "inflight_turn": None,
             "last_active": now,
             "pending_title": title or None,
+            "profile": profile,
             "profile_home": str(profile_home) if profile_home is not None else None,
             "running": False,
             "session_key": key,
@@ -5405,6 +5440,7 @@ def _(rid, params: dict) -> dict:
                     print(f"[tui_gateway] prompt.submit: replace_messages failed: {exc}", file=sys.stderr)
         session["running"] = True
         session["last_active"] = time.time()
+        _publish_session_activity(session, "working", "agent turn running")
         _start_inflight_turn(session, text)
 
     # Persist the DB row lazily, now that the user has actually sent a message.
@@ -5426,6 +5462,7 @@ def _(rid, params: dict) -> dict:
             with session["history_lock"]:
                 session["running"] = False
                 _clear_inflight_turn(session)
+            _publish_session_activity(session, "ready", "waiting for input")
             return
         _run_prompt_submit(rid, sid, session, text)
 
@@ -5550,6 +5587,7 @@ def _notification_poller_loop(
                 process_registry.completion_queue.put(evt)
                 continue
             session["running"] = True
+            _publish_session_activity(session, "working", "process notification running")
 
         rid = f"__notif__{int(time.time() * 1000)}"
         try:
@@ -5563,6 +5601,7 @@ def _notification_poller_loop(
             )
             with session["history_lock"]:
                 session["running"] = False
+            _publish_session_activity(session, "ready", "waiting for input")
 
     # Drain any remaining events after stop signal (process all pending
     # before exiting so nothing is lost on shutdown). Events owned by other
@@ -5593,6 +5632,7 @@ def _notification_poller_loop(
                 process_registry.completion_queue.put(evt)
                 break
             session["running"] = True
+            _publish_session_activity(session, "working", "process notification running")
 
         rid = f"__notif__{int(time.time() * 1000)}"
         try:
@@ -5606,6 +5646,7 @@ def _notification_poller_loop(
             )
             with session["history_lock"]:
                 session["running"] = False
+            _publish_session_activity(session, "ready", "waiting for input")
 
     # Hand any other sessions' events back to the shared queue.
     for evt in deferred:
@@ -5987,6 +6028,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 session["running"] = False
                 session["last_active"] = time.time()
                 _clear_inflight_turn(session)
+            _publish_session_activity(session, "ready", "waiting for input")
             _emit("session.info", sid, _session_info(agent, session))
 
         # Chain a goal-continuation turn if the judge said so. We do
@@ -6002,6 +6044,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     # the judge will re-run on the next turn anyway.
                     return
                 session["running"] = True
+                _publish_session_activity(session, "working", "goal continuation running")
             try:
                 _emit("message.start", sid)
                 _run_prompt_submit(rid, sid, session, goal_followup)
@@ -6013,6 +6056,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 )
                 with session["history_lock"]:
                     session["running"] = False
+                _publish_session_activity(session, "ready", "waiting for input")
 
         # Drain completion notifications that arrived during this turn.
         # The background poller handles between-turn delivery; this is
@@ -6026,6 +6070,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                         process_registry.completion_queue.put(_evt)
                         break
                     session["running"] = True
+                    _publish_session_activity(session, "working", "process notification running")
                 try:
                     _emit("message.start", sid)
                     _run_prompt_submit(rid, sid, session, synth)
@@ -6037,6 +6082,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     )
                     with session["history_lock"]:
                         session["running"] = False
+                    _publish_session_activity(session, "ready", "waiting for input")
         except Exception as _drain_exc:
             print(
                 f"[tui_gateway] completion queue drain failed: "

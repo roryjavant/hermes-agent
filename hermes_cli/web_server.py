@@ -132,6 +132,44 @@ def _start_desktop_cron_ticker(stop_event: "threading.Event", interval: int = 60
 async def _lifespan(app: "FastAPI"):
     app.state.event_channels = {}  # dict[str, set]
     app.state.event_lock = asyncio.Lock()
+    dashboard_activity_id: str | None = None
+    dashboard_activity_stop: threading.Event | None = None
+    dashboard_activity_thread: threading.Thread | None = None
+    try:
+        from hermes_cli.runtime_activity import publish_activity
+
+        record = publish_activity(
+            source="dashboard",
+            status="ready",
+            detail="dashboard backend ready",
+            session_id="dashboard",
+            cwd=str(PROJECT_ROOT),
+        )
+        dashboard_activity_id = str(record.get("activity_id") or "") or None
+        if dashboard_activity_id:
+            dashboard_activity_stop = threading.Event()
+
+            def _refresh_dashboard_activity() -> None:
+                while not dashboard_activity_stop.wait(60.0):
+                    try:
+                        from hermes_cli.runtime_activity import refresh_activity
+
+                        if not refresh_activity(activity_id=dashboard_activity_id or ""):
+                            return
+                    except Exception:
+                        _log.debug(
+                            "Dashboard runtime activity refresh failed",
+                            exc_info=True,
+                        )
+
+            dashboard_activity_thread = threading.Thread(
+                target=_refresh_dashboard_activity,
+                name="hermes-dashboard-runtime-activity",
+                daemon=True,
+            )
+            dashboard_activity_thread.start()
+    except Exception:
+        _log.debug("Dashboard runtime activity heartbeat failed", exc_info=True)
 
     # Desktop-spawned backends (HERMES_DESKTOP=1) fire cron jobs themselves,
     # since the app has no gateway running the scheduler. Server `hermes
@@ -151,6 +189,17 @@ async def _lifespan(app: "FastAPI"):
     try:
         yield
     finally:
+        if dashboard_activity_stop is not None:
+            dashboard_activity_stop.set()
+        if dashboard_activity_thread is not None:
+            dashboard_activity_thread.join(timeout=1.0)
+        if dashboard_activity_id:
+            try:
+                from hermes_cli.runtime_activity import clear_activity
+
+                clear_activity(activity_id=dashboard_activity_id)
+            except Exception:
+                _log.debug("Dashboard runtime activity clear failed", exc_info=True)
         if cron_stop is not None:
             cron_stop.set()
 
@@ -9817,6 +9866,9 @@ else:
 _RESIZE_RE = re.compile(rb"\x1b\[RESIZE:(\d+);(\d+)\]")
 _PTY_READ_CHUNK_TIMEOUT = 0.2
 _VALID_CHANNEL_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+_PTY_SESSIONS_LOCK = threading.Lock()
+_PTY_SESSIONS: Dict[str, Dict[str, Any]] = {}
+_PTY_SUBMITTED_MIN_WORKING_SECONDS = 120.0
 # Starlette's TestClient reports the peer as "testclient"; treat it as
 # loopback so tests don't need to rewrite request scope.
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
@@ -10230,6 +10282,413 @@ def _ws_close_reason(text: str) -> str:
     return encoded[:120].decode("utf-8", "ignore") + "..."
 
 
+def _snapshot_pty_sessions() -> List[Dict[str, Any]]:
+    now = time.time()
+    with _PTY_SESSIONS_LOCK:
+        sessions = [dict(record) for record in _PTY_SESSIONS.values()]
+    for record in sessions:
+        record["uptime_seconds"] = int(now - float(record.get("started_at") or now))
+    return sorted(sessions, key=lambda r: float(r.get("started_at") or 0), reverse=True)
+
+
+def _update_pty_session(pty_id: str, **updates: Any) -> None:
+    if not updates:
+        return
+    with _PTY_SESSIONS_LOCK:
+        record = _PTY_SESSIONS.get(pty_id)
+        if record is None:
+            return
+        record.update(updates)
+
+
+def _apply_pty_output_status(pty_id: str, chunk: bytes) -> None:
+    now = time.time()
+    status_update = _pty_status_from_output(chunk)
+    with _PTY_SESSIONS_LOCK:
+        record = _PTY_SESSIONS.get(pty_id)
+        if record is None:
+            return
+        record["last_output_at"] = now
+        record["last_activity_at"] = now
+        if status_update is None:
+            return
+        status, detail = status_update
+        last_input_at = float(record.get("last_input_at") or 0.0)
+        if (
+            status == "running"
+            and record.get("status") == "working"
+            and last_input_at
+            and now - last_input_at < _PTY_SUBMITTED_MIN_WORKING_SECONDS
+        ):
+            return
+        record["status"] = status
+        record["detail"] = detail
+
+
+def _pty_visible_text(chunk: bytes) -> str:
+    try:
+        text = chunk.decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    try:
+        from tools.ansi_strip import strip_ansi
+
+        text = strip_ansi(text)
+    except Exception:
+        pass
+    return text.replace("\r", "\n")
+
+
+def _pty_status_from_output(chunk: bytes) -> tuple[str, str] | None:
+    """Infer agent turn state from terminal output.
+
+    Mission Control's light must follow the user's terminal, not just the later
+    agent heartbeat.  The embedded TUI prints a stable status line containing
+    ``ready`` between turns and words like ``thinking``/``working``/``executing``
+    during a turn.  This parser is intentionally conservative: input submit
+    marks the PTY working immediately, and output only flips it back to ready
+    when the terminal explicitly says ready.
+    """
+    lower = _pty_visible_text(chunk).lower()
+    if not lower:
+        return None
+    working_markers = (
+        "thinking",
+        "working",
+        "executing tool",
+        "waiting for model",
+        "waiting for non-streaming api response",
+        "streaming response",
+    )
+    if any(marker in lower for marker in working_markers):
+        return "working", "agent turn running"
+    if "ready" in lower:
+        return "running", "waiting for input"
+    return None
+
+
+def _pty_activity_rows(terminals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Expose live PTY terminal state as Mission Control activity rows.
+
+    These rows are fed through the same project-level deduper as runtime
+    heartbeats.  That makes the terminal the source of truth for yellow: a PTY
+    marked working wins over a stale/late ready heartbeat for the same project.
+    """
+    now = time.time()
+    rows: List[Dict[str, Any]] = []
+    for terminal in terminals:
+        pty_id = str(terminal.get("id") or "")
+        if not pty_id:
+            continue
+        status = "working" if terminal.get("status") == "working" else "ready"
+        rows.append({
+            "activity_id": f"pty:{pty_id}",
+            "pid": terminal.get("pid"),
+            "profile": str(terminal.get("profile") or ""),
+            "source": "tui",
+            "session_id": str(terminal.get("resume_session_id") or terminal.get("channel") or pty_id),
+            "cwd": str(terminal.get("cwd") or ""),
+            "status": status,
+            "detail": str(terminal.get("detail") or ("agent turn running" if status == "working" else "waiting for input")),
+            "started_at": terminal.get("started_at") or now,
+            "last_seen": terminal.get("last_activity_at") or terminal.get("last_output_at") or terminal.get("started_at") or now,
+        })
+    return rows
+
+
+def _local_process_cwd(pid: int) -> str:
+    try:
+        result = subprocess.run(
+            ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+        )
+    except Exception:
+        return ""
+    if result.returncode != 0:
+        return ""
+    for line in result.stdout.splitlines():
+        if line.startswith("n"):
+            return line[1:]
+    return ""
+
+
+def _local_process_cwds(pids: List[int]) -> Dict[int, str]:
+    if not pids:
+        return {}
+    try:
+        result = subprocess.run(
+            ["lsof", "-a", "-p", ",".join(str(pid) for pid in pids), "-d", "cwd", "-Fn"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except Exception:
+        return {}
+    if result.returncode != 0:
+        return {}
+    cwds: Dict[int, str] = {}
+    current_pid: Optional[int] = None
+    for line in result.stdout.splitlines():
+        if line.startswith("p"):
+            try:
+                current_pid = int(line[1:])
+            except ValueError:
+                current_pid = None
+        elif line.startswith("n") and current_pid is not None:
+            cwds[current_pid] = line[1:]
+    return cwds
+
+
+def _parse_process_profile(command: str) -> str:
+    parts = command.split()
+    for index, part in enumerate(parts):
+        if part in {"-p", "--profile"} and index + 1 < len(parts):
+            return parts[index + 1]
+        if part.startswith("--profile="):
+            return part.split("=", 1)[1]
+    return "default"
+
+
+def _snapshot_local_agent_processes() -> List[Dict[str, Any]]:
+    """Best-effort local Hermes CLI/TUI presence with stable per-process rows."""
+    process_table = _local_process_table()
+    if not process_table:
+        return []
+    candidates: List[Tuple[int, Dict[str, Any], bool, bool]] = []
+    for pid, process in process_table.items():
+        command = process["command"]
+        if "hermes" not in command:
+            continue
+        is_cli = "/bin/hermes" in command or "-m hermes_cli.main" in command or command.startswith("hermes ")
+        is_tui = "ui-tui/dist/entry.js" in command
+        if not is_cli and not is_tui:
+            continue
+        if any(token in command for token in [" dashboard", " gateway run", "slash_worker", "tools_mcp_server"]):
+            continue
+        candidates.append((pid, process, is_cli, is_tui))
+    cwds = _local_process_cwds([pid for pid, _, _, _ in candidates])
+    rows: List[Dict[str, Any]] = []
+    now = time.time()
+    for pid, process, is_cli, is_tui in candidates:
+        command = process["command"]
+        cwd = cwds.get(pid, "")
+        busy_reason = _local_hermes_busy_reason(pid, process_table)
+        rows.append({
+            "activity_id": f"local-process:{pid}",
+            "pid": pid,
+            "profile": _parse_process_profile(command),
+            "source": "tui" if is_tui else "cli",
+            "session_id": "",
+            "cwd": cwd,
+            "status": "working" if busy_reason else "ready",
+            "detail": busy_reason or ("idle Hermes TUI" if is_tui else "idle Hermes CLI"),
+            "started_at": now,
+            "last_seen": now,
+        })
+    return rows
+
+
+def _local_process_table() -> Dict[int, Dict[str, Any]]:
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,stat=,command="],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except Exception:
+        return {}
+    if result.returncode != 0:
+        return {}
+    rows: Dict[int, Dict[str, Any]] = {}
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(None, 3)
+        if len(parts) < 4:
+            continue
+        try:
+            pid = int(parts[0])
+            ppid = int(parts[1])
+        except ValueError:
+            continue
+        rows[pid] = {"ppid": ppid, "stat": parts[2], "command": parts[3]}
+    return rows
+
+
+def _local_hermes_busy_reason(pid: int, process_table: Dict[int, Dict[str, Any]]) -> str:
+    for child in process_table.values():
+        if int(child.get("ppid") or -1) != pid:
+            continue
+        command = str(child.get("command") or "")
+        if "tui_gateway.slash_worker" in command:
+            return "TUI turn running"
+    return ""
+
+
+def _activity_status_rank(status: str) -> int:
+    return {"review": 0, "working": 1, "ready": 2}.get(str(status or "ready"), 2)
+
+
+def _activity_project_key(cwd: Any) -> str:
+    path = str(cwd or "").strip()
+    if not path:
+        return ""
+    dev_prefix = "/Users/roryavant/Dev/"
+    if path == "/Users/roryavant/Dev":
+        return path
+    if path.startswith(dev_prefix):
+        parts = path[len(dev_prefix):].split("/", 1)
+        if parts and parts[0]:
+            return dev_prefix + parts[0]
+    return path
+
+
+def _dedupe_local_activities(activities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    grouped: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
+    passthrough: List[Dict[str, Any]] = []
+    for record in activities:
+        source = str(record.get("source") or "")
+        if source in {"cli", "tui"}:
+            key = (_activity_project_key(record.get("cwd")),)
+            grouped.setdefault(key, []).append(record)
+        else:
+            passthrough.append(record)
+    deduped: List[Dict[str, Any]] = []
+    for key, records in grouped.items():
+        heartbeat_records = [
+            row for row in records
+            if not str(row.get("activity_id") or "").startswith("local-process:")
+        ]
+        candidates = heartbeat_records or records
+        now = time.time()
+        recent_working = [
+            row for row in candidates
+            if str(row.get("status") or "") == "working"
+            and now - float(row.get("last_seen") or 0) <= 120.0
+        ]
+        candidates = recent_working or candidates
+        candidates.sort(key=lambda row: (-float(row.get("last_seen") or 0), _activity_status_rank(str(row.get("status") or "ready"))))
+        best = dict(candidates[0])
+        if key[0]:
+            best["cwd"] = key[0]
+        if len(records) > 1:
+            best["activity_id"] = f"deduped:project:{abs(hash(key[0]))}"
+            best["detail"] = f"{best.get('detail') or 'ready'} · {len(records)} terminal records collapsed"
+        deduped.append(best)
+    return passthrough + deduped
+
+
+_PROFILE_TEAM_DEFINITIONS = [
+    {
+        "team_id": "juror-research",
+        "label": "Juror Research",
+        "project_path": "/Users/roryavant/Dev/juror-research",
+        "profiles": ["jrplanner", "jrbuilder", "jrreviewer", "jrsynth", "jrcurator"],
+    },
+    {
+        "team_id": "hermes-agent",
+        "label": "Hermes Agent",
+        "project_path": "/Users/roryavant/Dev/hermes-team-ui",
+        "profiles": ["hermesplanner", "hermesbuilder", "hermesreviewer", "hermessynth", "hermescurator"],
+    },
+]
+
+
+def _profile_role(profile: str) -> str:
+    lowered = str(profile or "").lower()
+    for role in ("planner", "builder", "reviewer", "synth", "curator"):
+        if lowered.endswith(role):
+            return role
+    return lowered or "agent"
+
+
+def _snapshot_profile_teams(activities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    live_by_profile: Dict[str, List[Dict[str, Any]]] = {}
+    for record in activities:
+        profile = str(record.get("profile") or "").strip()
+        if not profile:
+            continue
+        live_by_profile.setdefault(profile, []).append(record)
+
+    available_profiles: set[str] = set()
+    try:
+        from hermes_cli import profiles as profiles_mod
+
+        available_profiles = {str(info.name) for info in profiles_mod.list_profiles()}
+    except Exception:
+        available_profiles = set(live_by_profile)
+
+    teams: List[Dict[str, Any]] = []
+    for definition in _PROFILE_TEAM_DEFINITIONS:
+        agents: List[Dict[str, Any]] = []
+        for profile in definition["profiles"]:
+            live = live_by_profile.get(profile, [])
+            live.sort(key=lambda row: float(row.get("last_seen") or 0), reverse=True)
+            record = live[0] if live else {}
+            configured = profile in available_profiles
+            agents.append({
+                "profile": profile,
+                "role": _profile_role(profile),
+                "configured": configured,
+                "active": bool(record),
+                "status": str(record.get("status") or ("ready" if configured else "missing")),
+                "source": str(record.get("source") or "profile"),
+                "pid": record.get("pid"),
+                "cwd": str(record.get("cwd") or definition["project_path"]),
+                "detail": str(record.get("detail") or ("profile standby" if configured else "profile missing")),
+                "last_seen": record.get("last_seen"),
+            })
+        teams.append({**definition, "agents": agents})
+    return teams
+
+
+@app.get("/api/mission-control/activity")
+async def get_mission_control_activity():
+    """Live operational activity for Mission Control."""
+    processes: List[Dict[str, Any]] = []
+    subagents: List[Dict[str, Any]] = []
+    activities: List[Dict[str, Any]] = []
+    try:
+        from tools.process_registry import process_registry
+
+        processes = process_registry.list_sessions()
+    except Exception:
+        _log.debug("Mission Control process snapshot failed", exc_info=True)
+    try:
+        from tools.delegate_tool import list_active_subagents
+
+        subagents = list_active_subagents()
+    except Exception:
+        _log.debug("Mission Control subagent snapshot failed", exc_info=True)
+    try:
+        from hermes_cli.runtime_activity import read_all_profile_activities
+
+        activities = read_all_profile_activities()
+    except Exception:
+        _log.debug("Mission Control runtime activity snapshot failed", exc_info=True)
+    terminals = _snapshot_pty_sessions()
+    activities.extend(_pty_activity_rows(terminals))
+    synthetic_agents = _snapshot_local_agent_processes()
+    existing_keys = {
+        (int(record.get("pid") or -1), str(record.get("source") or ""))
+        for record in activities
+    }
+    activities.extend(
+        record for record in synthetic_agents
+        if (int(record.get("pid") or -1), str(record.get("source") or "")) not in existing_keys
+    )
+    activities = _dedupe_local_activities(activities)
+    return {
+        "checked_at": time.time(),
+        "activities": activities,
+        "profile_teams": _snapshot_profile_teams(activities),
+        "terminals": terminals,
+        "background_processes": processes,
+        "subagents": subagents,
+    }
+
+
 @app.websocket("/api/pty")
 async def pty_ws(ws: WebSocket) -> None:
     peer = ws.client.host if ws.client else "?"
@@ -10315,6 +10774,20 @@ async def pty_ws(ws: WebSocket) -> None:
         await ws.close(code=1011)
         return
 
+    pty_id = f"pty_{secrets.token_hex(6)}"
+    with _PTY_SESSIONS_LOCK:
+        _PTY_SESSIONS[pty_id] = {
+            "id": pty_id,
+            "pid": bridge.pid,
+            "profile": profile or None,
+            "resume_session_id": resume,
+            "channel": channel,
+            "cwd": cwd,
+            "command": " ".join(argv[:4]),
+            "started_at": time.time(),
+            "status": "running",
+        }
+
     loop = asyncio.get_running_loop()
 
     # --- reader task: PTY master → WebSocket ----------------------------
@@ -10328,6 +10801,7 @@ async def pty_ws(ws: WebSocket) -> None:
             if not chunk:  # no data this tick; yield control and retry
                 await asyncio.sleep(0)
                 continue
+            _apply_pty_output_status(pty_id, chunk)
             try:
                 await ws.send_bytes(chunk)
             except Exception:
@@ -10357,6 +10831,14 @@ async def pty_ws(ws: WebSocket) -> None:
                 bridge.resize(cols=cols, rows=rows)
                 continue
 
+            if b"\r" in raw or b"\n" in raw:
+                _update_pty_session(
+                    pty_id,
+                    status="working",
+                    detail="agent turn submitted",
+                    last_input_at=time.time(),
+                    last_activity_at=time.time(),
+                )
             bridge.write(raw)
     except WebSocketDisconnect:
         pass
@@ -10367,6 +10849,8 @@ async def pty_ws(ws: WebSocket) -> None:
         except (asyncio.CancelledError, Exception):
             pass
         bridge.close()
+        with _PTY_SESSIONS_LOCK:
+            _PTY_SESSIONS.pop(pty_id, None)
 
 
 # ---------------------------------------------------------------------------

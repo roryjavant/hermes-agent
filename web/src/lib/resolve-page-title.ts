@@ -2,6 +2,7 @@ import type { Translations } from "@/i18n/types";
 
 const BUILTIN: Record<string, keyof Translations["app"]["nav"]> = {
   "/chat": "chat",
+  "/mission-control": "missionControl",
   "/sessions": "sessions",
   "/analytics": "analytics",
   "/models": "models",
@@ -10,9 +11,28 @@ const BUILTIN: Record<string, keyof Translations["app"]["nav"]> = {
   "/skills": "skills",
   "/plugins": "plugins",
   "/profiles": "profiles",
+  "/team": "team",
+  "/team/present": "team",
   "/config": "config",
   "/env": "keys",
   "/docs": "documentation",
+};
+
+const BUILTIN_LABELS: Required<Translations["app"]["nav"]> = {
+  analytics: "Analytics",
+  chat: "Chat",
+  config: "Config",
+  cron: "Cron",
+  documentation: "Documentation",
+  keys: "Keys",
+  logs: "Logs",
+  missionControl: "Mission Control",
+  models: "Models",
+  profiles: "Profiles",
+  plugins: "Plugins",
+  sessions: "Sessions",
+  skills: "Skills",
+  team: "Team",
 };
 
 export function resolvePageTitle(
@@ -30,7 +50,7 @@ export function resolvePageTitle(
   }
   const key = BUILTIN[normalized];
   if (key) {
-    return t.app.nav[key];
+    return t.app.nav[key] ?? BUILTIN_LABELS[key];
   }
   // Derive title from pathname: "/profiles" → "Profiles"
   const segment = normalized.slice(1);

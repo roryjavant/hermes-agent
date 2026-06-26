@@ -76,6 +76,95 @@ def test_active_session_lease_blocks_until_release(tmp_path, monkeypatch):
     assert active_sessions.active_session_registry_snapshot() == []
 
 
+def test_active_session_runtime_activity_transitions(tmp_path, monkeypatch):
+    home = tmp_path / ".hermes"
+    monkeypatch.setenv("HERMES_HOME", str(home))
+
+    lease, message = active_sessions.try_acquire_active_session(
+        session_id="session-activity",
+        surface="tui",
+        config={},
+    )
+
+    assert message is None
+    assert lease is not None
+    try:
+        from hermes_cli import runtime_activity
+
+        rows = runtime_activity.read_activities()
+        assert [(row["source"], row["status"], row["detail"]) for row in rows] == [
+            ("tui", "ready", "ready")
+        ]
+
+        active_sessions.publish_active_session_activity(
+            lease,
+            status="working",
+            detail="agent turn running",
+        )
+        rows = runtime_activity.read_activities()
+        assert [(row["source"], row["status"], row["detail"]) for row in rows] == [
+            ("tui", "working", "agent turn running")
+        ]
+
+        active_sessions.publish_active_session_activity(
+            lease,
+            status="review",
+            detail="waiting for command approval",
+        )
+        rows = runtime_activity.read_activities()
+        assert [(row["source"], row["status"], row["detail"]) for row in rows] == [
+            ("tui", "review", "waiting for command approval")
+        ]
+
+        active_sessions.publish_active_session_activity(
+            lease,
+            status="ready",
+            detail="waiting for input",
+        )
+        rows = runtime_activity.read_activities()
+        assert [(row["source"], row["status"], row["detail"]) for row in rows] == [
+            ("tui", "ready", "waiting for input")
+        ]
+    finally:
+        lease.release()
+
+
+def test_active_session_runtime_activity_preserves_session_cwd_and_profile(tmp_path, monkeypatch):
+    home = tmp_path / ".hermes"
+    monkeypatch.setenv("HERMES_HOME", str(home))
+
+    lease, message = active_sessions.try_acquire_active_session(
+        session_id="session-activity-cwd",
+        surface="tui",
+        config={},
+        metadata={"cwd": "/Users/roryavant/Dev/hermes-team-ui", "profile": "rorypersonal"},
+    )
+
+    assert message is None
+    assert lease is not None
+    try:
+        from hermes_cli import runtime_activity
+
+        rows = runtime_activity.read_activities()
+        assert [(row["profile"], row["cwd"], row["status"]) for row in rows] == [
+            ("rorypersonal", "/Users/roryavant/Dev/hermes-team-ui", "ready")
+        ]
+
+        active_sessions.publish_active_session_activity(
+            lease,
+            status="working",
+            detail="agent turn running",
+            cwd="/Users/roryavant/Dev/hermes-team-ui",
+            profile="rorypersonal",
+        )
+        rows = runtime_activity.read_activities()
+        assert [(row["profile"], row["cwd"], row["status"], row["detail"]) for row in rows] == [
+            ("rorypersonal", "/Users/roryavant/Dev/hermes-team-ui", "working", "agent turn running")
+        ]
+    finally:
+        lease.release()
+
+
 def test_active_session_registry_prunes_dead_pids(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     monkeypatch.setenv("HERMES_HOME", str(home))

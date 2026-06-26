@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
@@ -223,12 +224,137 @@ class ActiveSessionLease:
     session_id: str
     surface: str
     enabled: bool = True
+    activity_id: str | None = None
+    _activity_stop: threading.Event | None = field(default=None, repr=False)
+    _activity_thread: threading.Thread | None = field(default=None, repr=False)
     released: bool = False
 
     def release(self) -> None:
-        if self.released or not self.enabled:
+        if self.released:
             return
-        release_active_session(self)
+        if self.enabled:
+            release_active_session(self)
+        else:
+            _clear_runtime_activity(self)
+            self.released = True
+
+
+def _runtime_activity_source(surface: str) -> str:
+    return (
+        "dashboard"
+        if surface == "dashboard"
+        else "tui" if surface == "tui" else "cli"
+    )
+
+
+def _publish_runtime_activity(
+    *,
+    session_id: str,
+    surface: str,
+    metadata: Optional[dict[str, Any]] = None,
+) -> str | None:
+    try:
+        from hermes_cli.runtime_activity import publish_activity
+
+        source = _runtime_activity_source(surface)
+        detail = "ready"
+        if metadata and metadata.get("detail"):
+            detail = str(metadata.get("detail") or "ready")
+        record = publish_activity(
+            source=source,
+            status="ready",
+            detail=detail,
+            session_id=session_id,
+            cwd=metadata.get("cwd") if metadata else None,
+            profile=metadata.get("profile") if metadata else None,
+        )
+        return str(record.get("activity_id") or "") or None
+    except Exception:
+        logger.debug("Failed to publish runtime activity heartbeat", exc_info=True)
+        return None
+
+
+def publish_active_session_activity(
+    lease: ActiveSessionLease | None,
+    *,
+    status: str,
+    detail: str = "",
+    cwd: str | os.PathLike[str] | None = None,
+    profile: str | None = None,
+) -> None:
+    """Best-effort visible activity status update for an acquired local session.
+
+    The active-session lease owns the stable runtime activity id. CLI/TUI
+    surfaces call this around local agent-loop state changes so Mission Control
+    can show idle/working/review without touching model context or tool schemas.
+    """
+    if lease is None:
+        return
+    try:
+        from hermes_cli.runtime_activity import publish_activity
+
+        record = publish_activity(
+            source=_runtime_activity_source(str(lease.surface)),
+            status=status,
+            detail=detail,
+            session_id=str(lease.session_id),
+            activity_id=lease.activity_id,
+            cwd=cwd,
+            profile=profile,
+        )
+        lease.activity_id = str(record.get("activity_id") or "") or lease.activity_id
+    except Exception:
+        logger.debug("Failed to update runtime activity status", exc_info=True)
+
+
+def _clear_runtime_activity(lease: ActiveSessionLease) -> None:
+    _stop_runtime_activity_heartbeat(lease)
+    try:
+        from hermes_cli.runtime_activity import clear_activity
+
+        if lease.activity_id:
+            clear_activity(activity_id=lease.activity_id)
+        else:
+            clear_activity(source=lease.surface, session_id=lease.session_id)
+    except Exception:
+        logger.debug("Failed to clear runtime activity heartbeat", exc_info=True)
+
+
+def _start_runtime_activity_heartbeat(lease: ActiveSessionLease) -> None:
+    if not lease.activity_id:
+        return
+    stop = threading.Event()
+
+    def _run() -> None:
+        while not stop.wait(60.0):
+            try:
+                from hermes_cli.runtime_activity import refresh_activity
+
+                if not refresh_activity(activity_id=lease.activity_id or ""):
+                    return
+            except Exception:
+                logger.debug("Failed to refresh runtime activity heartbeat", exc_info=True)
+
+    thread = threading.Thread(
+        target=_run,
+        name=f"hermes-runtime-activity-{lease.surface}",
+        daemon=True,
+    )
+    lease._activity_stop = stop
+    lease._activity_thread = thread
+    thread.start()
+
+
+def _stop_runtime_activity_heartbeat(lease: ActiveSessionLease) -> None:
+    stop = lease._activity_stop
+    if stop is None:
+        return
+    stop.set()
+    thread = lease._activity_thread
+    if thread is not None and thread is not threading.current_thread():
+        thread.join(timeout=1.0)
+    lease._activity_stop = None
+    lease._activity_thread = None
 
 
 def try_acquire_active_session(
@@ -246,12 +372,20 @@ def try_acquire_active_session(
     max_sessions = resolve_max_concurrent_sessions(config)
     lease_id = uuid.uuid4().hex
     if max_sessions is None:
-        return ActiveSessionLease(
+        activity_id = _publish_runtime_activity(
+            session_id=str(session_id),
+            surface=str(surface),
+            metadata=metadata,
+        )
+        lease = ActiveSessionLease(
             lease_id=lease_id,
             session_id=session_id,
             surface=surface,
             enabled=False,
-        ), None
+            activity_id=activity_id,
+        )
+        _start_runtime_activity_heartbeat(lease)
+        return lease, None
 
     now = time.time()
     entry = {
@@ -288,11 +422,20 @@ def try_acquire_active_session(
         entries.append(entry)
         _write_entries(state_path, entries)
 
-    return ActiveSessionLease(
+    activity_id = _publish_runtime_activity(
+        session_id=str(session_id),
+        surface=str(surface),
+        metadata=metadata,
+    )
+
+    lease = ActiveSessionLease(
         lease_id=lease_id,
         session_id=str(session_id),
         surface=str(surface),
-    ), None
+        activity_id=activity_id,
+    )
+    _start_runtime_activity_heartbeat(lease)
+    return lease, None
 
 
 def release_active_session(lease: ActiveSessionLease) -> None:
@@ -308,6 +451,7 @@ def release_active_session(lease: ActiveSessionLease) -> None:
             if len(kept) != len(entries):
                 _write_entries(state_path, kept)
     finally:
+        _clear_runtime_activity(lease)
         lease.released = True
 
 

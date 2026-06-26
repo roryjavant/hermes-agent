@@ -1410,6 +1410,48 @@ def list_active_workers(
         conn.close()
 
 
+@router.get("/events")
+def list_recent_events(
+    board: Optional[str] = Query(None, description="Kanban board slug (omit for current)"),
+    since: int = Query(0, ge=0, description="Return events with id greater than this cursor"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of events to return"),
+):
+    """Return recent Kanban events using the same frame shape as the live WS.
+
+    This is intentionally read-only and compact so the Team page can render a
+    populated activity feed before the WebSocket sees the next event.
+    """
+    board = _resolve_board(board)
+    conn = _conn(board=board)
+    try:
+        rows = conn.execute(
+            "SELECT id, task_id, run_id, kind, payload, created_at "
+            "FROM task_events WHERE id > ? ORDER BY id ASC LIMIT ?",
+            (since, min(limit, 200)),
+        ).fetchall()
+        events: list[dict[str, Any]] = []
+        cursor = since
+        for r in rows:
+            try:
+                payload = json.loads(r["payload"]) if r["payload"] else None
+            except Exception:
+                payload = None
+            events.append(
+                {
+                    "id": r["id"],
+                    "task_id": r["task_id"],
+                    "run_id": r["run_id"],
+                    "kind": r["kind"],
+                    "payload": payload,
+                    "created_at": r["created_at"],
+                }
+            )
+            cursor = r["id"]
+        return {"events": events, "cursor": cursor}
+    finally:
+        conn.close()
+
+
 @router.get("/runs/{run_id}")
 def get_run_endpoint(
     run_id: int,

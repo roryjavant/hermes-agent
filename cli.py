@@ -3563,6 +3563,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 session_id=self.session_id,
                 surface=surface,
                 config=self.config,
+                metadata={"cwd": os.getcwd(), "profile": os.getenv("HERMES_PROFILE") or ""},
             )
         except Exception as exc:
             logger.warning("Failed to claim active session slot: %s", exc)
@@ -3590,6 +3591,21 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             logger.debug("Failed to release active session slot", exc_info=True)
         finally:
             self._active_session_lease = None
+
+    def _publish_runtime_activity_status(self, status: str, detail: str = "") -> None:
+        """Best-effort Mission Control status for this local CLI session."""
+        try:
+            from hermes_cli.active_sessions import publish_active_session_activity
+
+            publish_active_session_activity(
+                getattr(self, "_active_session_lease", None),
+                status=status,
+                detail=detail,
+                cwd=os.getcwd(),
+                profile=os.getenv("HERMES_PROFILE") or None,
+            )
+        except Exception:
+            logger.debug("Failed to publish CLI runtime activity", exc_info=True)
 
     def _invalidate(self, min_interval: float = 0.25) -> None:
         """Throttled UI repaint for high-frequency background updates.
@@ -9479,6 +9495,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         timeout = CLI_CONFIG.get("clarify", {}).get("timeout", 120)
         response_queue = queue.Queue()
         is_open_ended = not choices
+        self._publish_runtime_activity_status("review", "waiting for clarify response")
 
         self._clarify_state = {
             "question": question,
@@ -9505,6 +9522,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 result = response_queue.get(timeout=1)
                 self._clarify_deadline = 0
                 self._persist_prompt_summary("?", "Clarify", question, str(result))
+                self._publish_runtime_activity_status("working", "clarify answered")
                 return result
             except queue.Empty:
                 remaining = self._clarify_deadline - _time.monotonic()
@@ -9521,6 +9539,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._clarify_deadline = 0
         self._paint_now()
         _cprint(f"\n{_DIM}(clarify timed out after {timeout}s — agent will decide){_RST}")
+        self._publish_runtime_activity_status("working", "clarify timed out")
         return (
             "The user did not provide a response within the time limit. "
             "Use your best judgement to make the choice and proceed."
@@ -9538,6 +9557,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         timeout = 45
         response_queue = queue.Queue()
+        self._publish_runtime_activity_status("review", "waiting for sudo password")
 
         self._capture_modal_input_snapshot()
         self._sudo_state = {
@@ -9560,6 +9580,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     _cprint(f"\n{_DIM}  ✓ Password received (cached for session){_RST}")
                 else:
                     _cprint(f"\n{_DIM}  ⏭ Skipped{_RST}")
+                self._publish_runtime_activity_status("working", "sudo prompt resolved")
                 return result
             except queue.Empty:
                 remaining = self._sudo_deadline - _time.monotonic()
@@ -9572,6 +9593,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._restore_modal_input_snapshot()
         self._paint_now()
         _cprint(f"\n{_DIM}  ⏱ Timeout — continuing without sudo{_RST}")
+        self._publish_runtime_activity_status("working", "sudo prompt timed out")
         return ""
 
     def _approval_callback(self, command: str, description: str,
@@ -9594,6 +9616,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         with self._approval_lock:
             timeout = int(CLI_CONFIG.get("approvals", {}).get("timeout", 60))
             response_queue = queue.Queue()
+            self._publish_runtime_activity_status("review", "waiting for command approval")
 
             self._approval_state = {
                 "command": command,
@@ -9628,6 +9651,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         "⚠", "Approval", command,
                         _outcome_labels.get(result, str(result)),
                     )
+                    self._publish_runtime_activity_status("working", "approval resolved")
                     return result
                 except queue.Empty:
                     remaining = self._approval_deadline - _time.monotonic()
@@ -9642,6 +9666,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._approval_deadline = 0
             self._paint_now()
             _cprint(f"\n{_DIM}  ⏱ Timeout — denying command{_RST}")
+            self._publish_runtime_activity_status("working", "approval timed out")
             return "deny"
 
     def _approval_choices(self, command: str, *, allow_permanent: bool = True) -> list[str]:
@@ -10238,6 +10263,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # finishes; reset on the next turn.
             self._prompt_start_time = time.time()
             self._prompt_duration = 0.0
+            self._publish_runtime_activity_status("working", "agent turn running")
             agent_thread = threading.Thread(target=run_agent, daemon=True)
             agent_thread.start()
 
@@ -10322,6 +10348,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # Record when this agent loop finished so the status bar can show
             # idle time since the last final response.
             self._last_turn_finished_at = time.time()
+            self._publish_runtime_activity_status("ready", "waiting for input")
 
             # Proactively clean up async clients whose event loop is dead.
             # The agent thread may have created AsyncOpenAI clients bound
