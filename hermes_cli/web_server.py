@@ -10693,14 +10693,31 @@ _PROFILE_TEAM_DEFINITIONS = [
         "project_path": "/Users/roryavant/Dev/hermes-team-ui",
         "profiles": ["hermesplanner", "hermesbuilder", "hermesreviewer", "hermessynth", "hermescurator"],
     },
+    {
+        "team_id": "agent-arena",
+        "label": "Agent Arena",
+        "project_path": "/Users/roryavant/Dev/agent-arena",
+        "profiles": ["aaplanner", "aaimplementor", "aadesigner", "aavisionqa", "aacurator"],
+    },
 ]
 
 
 def _profile_role(profile: str) -> str:
     lowered = str(profile or "").lower()
-    for role in ("planner", "builder", "reviewer", "synth", "curator"):
+    role_labels = {
+        "implementor": "implementor",
+        "designer": "designer",
+        "visionqa": "vision qa",
+        "visionreviewer": "vision qa",
+        "planner": "planner",
+        "builder": "builder",
+        "reviewer": "reviewer",
+        "synth": "synth",
+        "curator": "curator",
+    }
+    for role, label in role_labels.items():
         if lowered.endswith(role):
-            return role
+            return label
     return lowered or "agent"
 
 

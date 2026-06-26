@@ -162,6 +162,61 @@ def test_juror_research_board_uses_jr_profiles_for_pipeline_counts():
     }
 
 
+def test_agent_arena_board_uses_visual_specialist_profiles():
+    script = textwrap.dedent(
+        """
+        import { buildTeamOverview, chooseTeamRoles } from './web/src/lib/team.ts';
+
+        const profile = (name) => ({
+          name,
+          path: '/must/not/render',
+          is_default: false,
+          model: 'gpt-5.5',
+          provider: 'openai-codex',
+          has_env: true,
+          skill_count: 3,
+          gateway_running: false,
+          description: '',
+          description_auto: false,
+          distribution_name: null,
+          distribution_version: null,
+          distribution_source: null,
+          has_alias: false,
+        });
+        const profiles = [
+          profile('aaplanner'),
+          profile('aaimplementor'),
+          profile('aadesigner'),
+          profile('aavisionqa'),
+          profile('aacurator'),
+        ];
+        const board = {
+          columns: [
+            { name: 'running', tasks: [{ id: 'aa_visual', title: 'Polish live table', assignee: 'aadesigner', status: 'running' }] },
+            { name: 'review', tasks: [{ id: 'aa_qa', title: 'Inspect screenshot OCR', assignee: 'aavisionqa', status: 'review' }] },
+          ],
+        };
+
+        const overview = buildTeamOverview(profiles, board, [], chooseTeamRoles('agent-arena'));
+        console.log(JSON.stringify({
+          roleProfiles: overview.map((member) => member.role.profileName),
+          roleLabels: overview.map((member) => member.role.label),
+          designerRunning: overview.find((row) => row.role.key === 'designer')?.byStatus.running,
+          visionReview: overview.find((row) => row.role.key === 'visionqa')?.byStatus.review,
+        }));
+        """
+    )
+
+    result = run_node_team_script(script)
+
+    assert result == {
+        "roleProfiles": ["aaplanner", "aaimplementor", "aadesigner", "aavisionqa", "aacurator"],
+        "roleLabels": ["Arena Planner", "Implementor", "Creative Director", "Vision QA", "Curator"],
+        "designerRunning": 1,
+        "visionReview": 1,
+    }
+
+
 def test_team_activity_maps_events_safely_and_caps_latest_unique_ids():
     script = textwrap.dedent(
         """

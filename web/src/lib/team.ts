@@ -216,9 +216,43 @@ export const JUROR_RESEARCH_TEAM_ROLES: TeamRoleDefinition[] = [
   },
 ];
 
+export const AGENT_ARENA_TEAM_ROLES: TeamRoleDefinition[] = [
+  {
+    key: "planner",
+    label: "Arena Planner",
+    profileName: "aaplanner",
+    description: "Turns Agent Arena goals into tight visual/gameplay slices, risk checks, and verification plans.",
+  },
+  {
+    key: "implementor",
+    label: "Implementor",
+    profileName: "aaimplementor",
+    description: "Builds the Pixi/browser/gameplay changes, keeps the data path intact, and runs the real viewer/tests.",
+  },
+  {
+    key: "designer",
+    label: "Creative Director",
+    profileName: "aadesigner",
+    description: "Owns the design brain, sprite direction, asset prompts, composition, motion feel, and visual hierarchy.",
+  },
+  {
+    key: "visionqa",
+    label: "Vision QA",
+    profileName: "aavisionqa",
+    description: "OCR/screenshot reviewer that inspects real frames for clipping, readability, sprite defects, and regressions.",
+  },
+  {
+    key: "curator",
+    label: "Curator",
+    profileName: "aacurator",
+    description: "Captures reusable Agent Arena workflows, asset decisions, prompts, verification recipes, and lessons learned.",
+  },
+];
+
 export const DEFAULT_TEAM_ROLES = HERMES_TEAM_ROLES;
 
 export function chooseTeamRoles(boardSlug: string | null | undefined): TeamRoleDefinition[] {
+  if (boardSlug === "agent-arena") return AGENT_ARENA_TEAM_ROLES;
   if (boardSlug === "juror-research") return JUROR_RESEARCH_TEAM_ROLES;
   return DEFAULT_TEAM_ROLES;
 }

@@ -1108,6 +1108,29 @@ class TestMissionControlActivityEndpoint:
         assert by_pid[222]["detail"] == "idle Hermes TUI"
         assert by_pid[222]["cwd"] == "/Users/roryavant/Dev/hermes-team-ui"
 
+    def test_profile_teams_include_agent_arena_specialist_roster(self):
+        from hermes_cli import web_server
+
+        teams = web_server._snapshot_profile_teams([])
+        by_id = {team["team_id"]: team for team in teams}
+
+        assert by_id["agent-arena"]["label"] == "Agent Arena"
+        assert by_id["agent-arena"]["project_path"] == "/Users/roryavant/Dev/agent-arena"
+        assert [agent["profile"] for agent in by_id["agent-arena"]["agents"]] == [
+            "aaplanner",
+            "aaimplementor",
+            "aadesigner",
+            "aavisionqa",
+            "aacurator",
+        ]
+        assert [agent["role"] for agent in by_id["agent-arena"]["agents"]] == [
+            "planner",
+            "implementor",
+            "designer",
+            "vision qa",
+            "curator",
+        ]
+
     def test_activity_dedupe_keeps_non_terminal_sources_separate(self):
         from hermes_cli import web_server
 
