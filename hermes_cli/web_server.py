@@ -9869,7 +9869,12 @@ _VALID_CHANNEL_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _PTY_SESSIONS_LOCK = threading.Lock()
 _PTY_SESSIONS: Dict[str, Dict[str, Any]] = {}
 _PTY_SUBMITTED_MIN_WORKING_SECONDS = 3.0
-_MISSION_CONTROL_RECENT_WORKING_SECONDS = 6.0
+# Mission Control polls live activity at roughly one-second intervals, but a
+# real turn can sit in model-startup/network wait for much longer than six
+# seconds before another heartbeat is emitted. Keep a recent explicit working
+# heartbeat visible long enough for the light to stay yellow during that gap;
+# newer explicit ready heartbeats still restore green immediately.
+_MISSION_CONTROL_RECENT_WORKING_SECONDS = 60.0
 _MISSION_CONTROL_RECENT_REVIEW_SECONDS = 300.0
 # Starlette's TestClient reports the peer as "testclient"; treat it as
 # loopback so tests don't need to rewrite request scope.
@@ -10480,9 +10485,13 @@ def _parse_process_profile(command: str) -> str:
     return "default"
 
 
-def _snapshot_local_agent_processes() -> List[Dict[str, Any]]:
+def _is_dashboard_process_command(command: str) -> bool:
+    return any(token in command for token in [" dashboard", " gateway run"])
+
+
+def _snapshot_local_agent_processes(process_table: Optional[Dict[int, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """Best-effort local Hermes CLI/TUI presence with stable per-process rows."""
-    process_table = _local_process_table()
+    process_table = process_table if process_table is not None else _local_process_table()
     if not process_table:
         return []
     candidates: List[Tuple[int, Dict[str, Any], bool, bool]] = []
@@ -10494,7 +10503,7 @@ def _snapshot_local_agent_processes() -> List[Dict[str, Any]]:
         is_tui = "ui-tui/dist/entry.js" in command
         if not is_cli and not is_tui:
             continue
-        if any(token in command for token in [" dashboard", " gateway run", "slash_worker", "tools_mcp_server"]):
+        if _is_dashboard_process_command(command) or any(token in command for token in ["slash_worker", "tools_mcp_server"]):
             continue
         candidates.append((pid, process, is_cli, is_tui))
     cwds = _local_process_cwds([pid for pid, _, _, _ in candidates])
@@ -10573,17 +10582,29 @@ def _activity_project_key(cwd: Any) -> str:
     return path
 
 
-def _dedupe_local_activities(activities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _dedupe_local_activities(
+    activities: List[Dict[str, Any]],
+    process_table: Optional[Dict[int, Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
     grouped: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
     passthrough: List[Dict[str, Any]] = []
     for record in activities:
         source = str(record.get("source") or "")
         if source in {"cli", "tui"}:
+            try:
+                pid = int(record.get("pid") or -1)
+            except (TypeError, ValueError):
+                pid = -1
             if (
-                int(record.get("pid") or -1) == os.getpid()
+                pid == os.getpid()
                 and _activity_project_key(record.get("cwd")) == _activity_project_key(os.getcwd())
             ):
                 continue
+            if process_table is not None:
+                process = process_table.get(pid)
+                command = str(process.get("command") or "") if process else ""
+                if _is_dashboard_process_command(command):
+                    continue
             terminal_id = record.get("pid") or record.get("session_id") or record.get("activity_id")
             key = (_activity_project_key(record.get("cwd")), terminal_id)
             grouped.setdefault(key, []).append(record)
@@ -10761,9 +10782,10 @@ async def get_mission_control_activity():
         activities = read_all_profile_activities()
     except Exception:
         _log.debug("Mission Control runtime activity snapshot failed", exc_info=True)
+    process_table = _local_process_table()
     terminals = _snapshot_pty_sessions()
     activities.extend(_pty_activity_rows(terminals))
-    synthetic_agents = _snapshot_local_agent_processes()
+    synthetic_agents = _snapshot_local_agent_processes(process_table)
     existing_keys = {
         (int(record.get("pid") or -1), str(record.get("source") or ""))
         for record in activities
@@ -10772,7 +10794,7 @@ async def get_mission_control_activity():
         record for record in synthetic_agents
         if (int(record.get("pid") or -1), str(record.get("source") or "")) not in existing_keys
     )
-    activities = _dedupe_local_activities(activities)
+    activities = _dedupe_local_activities(activities, process_table)
     return {
         "checked_at": time.time(),
         "activities": activities,

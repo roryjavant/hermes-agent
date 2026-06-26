@@ -1141,6 +1141,43 @@ class TestMissionControlActivityEndpoint:
 
         assert rows == []
 
+    def test_activity_dedupe_drops_dashboard_pid_even_when_not_current_process(self):
+        from hermes_cli import web_server
+
+        rows = web_server._dedupe_local_activities(
+            [
+                {
+                    "activity_id": "old-dashboard-tui-session",
+                    "pid": 4242,
+                    "profile": "rorypersonal",
+                    "source": "tui",
+                    "session_id": "dashboard-session",
+                    "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                    "status": "ready",
+                    "detail": "ready",
+                    "last_seen": 20.0,
+                },
+                {
+                    "activity_id": "real-cli",
+                    "pid": 5252,
+                    "profile": "rorypersonal",
+                    "source": "cli",
+                    "session_id": "real-session",
+                    "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                    "status": "ready",
+                    "detail": "waiting for input",
+                    "last_seen": 20.0,
+                },
+            ],
+            {
+                4242: {"command": "python -m hermes_cli.main -p default dashboard --port 9119"},
+                5252: {"command": "/Users/roryavant/.hermes/hermes-agent/venv/bin/hermes"},
+            },
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["pid"] == 5252
+
     def test_activity_dedupe_real_heartbeat_beats_newer_process_scan(self, monkeypatch):
         from hermes_cli import web_server
 
@@ -1178,6 +1215,44 @@ class TestMissionControlActivityEndpoint:
         assert len(rows) == 1
         assert rows[0]["status"] == "working"
         assert rows[0]["detail"] == "agent turn running · 2 records for this terminal"
+
+    def test_activity_dedupe_holds_working_through_model_wait_gap(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server.time, "time", lambda: 50.0)
+
+        rows = web_server._dedupe_local_activities(
+            [
+                {
+                    "activity_id": "real-turn-heartbeat",
+                    "pid": 111,
+                    "profile": "rorypersonal",
+                    "source": "cli",
+                    "session_id": "session-1",
+                    "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                    "status": "working",
+                    "detail": "waiting for model",
+                    "started_at": 10.0,
+                    "last_seen": 25.0,
+                },
+                {
+                    "activity_id": "local-process:111",
+                    "pid": 111,
+                    "profile": "rorypersonal",
+                    "source": "cli",
+                    "session_id": "",
+                    "cwd": "/Users/roryavant/Dev/hermes-team-ui",
+                    "status": "ready",
+                    "detail": "idle Hermes CLI",
+                    "started_at": 50.0,
+                    "last_seen": 50.0,
+                },
+            ]
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["status"] == "working"
+        assert rows[0]["detail"] == "waiting for model · 2 records for this terminal"
 
     def test_activity_dedupe_newer_ready_heartbeat_restores_green_after_working(self, monkeypatch):
         from hermes_cli import web_server
@@ -1286,7 +1361,7 @@ class TestMissionControlActivityEndpoint:
                     "status": "working",
                     "detail": "agent turn running",
                     "started_at": 10.0,
-                    "last_seen": 20.0,
+                    "last_seen": -20.0,
                 },
                 {
                     "activity_id": "local-process:111",
@@ -1323,7 +1398,7 @@ class TestMissionControlActivityEndpoint:
                 "status": "working",
                 "detail": "API call completed",
                 "started_at": 10.0,
-                "last_seen": 20.0,
+                "last_seen": -20.0,
             }
         ])
 

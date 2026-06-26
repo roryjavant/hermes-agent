@@ -108,6 +108,8 @@ type OperationsItem = {
   tone: ReadinessTone;
   href: string;
   icon: LucideIcon;
+  popoverTitle?: string;
+  popoverSubtitle?: string;
 };
 
 const MISSION_CONTROL_ACTIVITY_REFRESH_MS = 1000;
@@ -434,6 +436,37 @@ function readinessLabel(tone: ReadinessTone): string {
   return "Review";
 }
 
+function ActivityLightPopover({ item, rowLabel }: { item: OperationsItem; rowLabel: string }) {
+  const title = item.popoverTitle || item.title;
+  const subtitle = item.popoverSubtitle || item.kind;
+
+  return (
+    <span
+      className={cn(
+        "pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-64 -translate-x-1/2",
+        "border border-current/20 bg-popover/95 p-3 text-left text-popover-foreground shadow-2xl backdrop-blur-md",
+        "group-hover:block group-focus:block",
+      )}
+      role="tooltip"
+    >
+      <span className="block font-mondwest text-display text-xs uppercase tracking-[0.16em] text-foreground">
+        {title}
+      </span>
+      <span className="mt-1 block truncate font-mono-ui text-xs text-midground">{subtitle}</span>
+      <span className="mt-2 flex flex-wrap items-center gap-2 text-[0.68rem] uppercase tracking-[0.1em] text-muted-foreground">
+        <span>{rowLabel.split(" · ")[0]}</span>
+        <span>·</span>
+        <span>{readinessLabel(item.tone)}</span>
+      </span>
+      <span className="mt-2 block text-xs leading-relaxed text-muted-foreground">{item.detail}</span>
+      <span className="mt-2 block truncate text-[0.68rem] uppercase tracking-[0.1em] text-muted-foreground">
+        {item.meta}
+      </span>
+      <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-current/20 bg-popover/95" />
+    </span>
+  );
+}
+
 function runtimeSourceLabel(source: string): string {
   if (source === "cli") return "Local Hermes CLI";
   if (source === "tui") return "Local Hermes TUI";
@@ -525,6 +558,8 @@ function teamRowsFromProfileTeams(profileTeams: MissionControlProfileTeam[]) {
       tone: toneFromProfileStatus(agent.status, agent.configured),
       href: "/profiles",
       icon: Users,
+      popoverTitle: agent.role,
+      popoverSubtitle: agent.profile,
     })),
   }));
 }
@@ -1059,6 +1094,7 @@ function ActiveOperationsBoard({ items, profileTeams }: { items: OperationsItem[
                                         item.tone === "review" && "border-destructive/55 bg-destructive/10 text-destructive shadow-[0_0_16px_color-mix(in_srgb,var(--color-destructive)_24%,transparent)]",
                                       )}
                                     >
+                                      <ActivityLightPopover item={item} rowLabel={row.label} />
                                       <span className={cn(
                                         "absolute inset-1 rounded-full border border-current/20 opacity-60",
                                         item.tone === "working" && "animate-pulse",
