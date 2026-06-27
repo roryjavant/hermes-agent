@@ -43,6 +43,7 @@ type FlowNode = ResearchNode | ZoneNode;
 interface ResearchEdgeData extends Record<string, unknown> {
   label: string;
   detail: string;
+  direction: "forward" | "feedback";
   sourceLabel: string;
   targetLabel: string;
   feedbackTraceActive?: boolean;
@@ -67,9 +68,9 @@ interface PhaseMeta {
 const PHASES: PhaseMeta[] = [
   { id: "intake", label: "Intake", short: "01", icon: "ID", color: "#67e8f9", ring: "rgba(103, 232, 249, 0.34)", detail: "Case setup and juror identity grounding before any research is trusted." },
   { id: "sources", label: "Sources", short: "02", icon: "SRC", color: "#a78bfa", ring: "rgba(167, 139, 250, 0.34)", detail: "Public records, web/social, and local context collection lanes." },
-  { id: "analysis", label: "Analysis", short: "03", icon: "SIG", color: "#fbbf24", ring: "rgba(251, 191, 36, 0.34)", detail: "Fact extraction, corroboration, potential leads, OC lensing, and signal modeling." },
+  { id: "analysis", label: "Analysis", short: "03", icon: "SIG", color: "#fbbf24", ring: "rgba(251, 191, 36, 0.34)", detail: "Evidence capture, fact extraction, corroboration, PRF enrichment, lead gating, and signal modeling." },
   { id: "review", label: "Review", short: "04", icon: "CHK", color: "#fb7185", ring: "rgba(251, 113, 133, 0.34)", detail: "Human judgment and live-box handoff checks before signals become operational." },
-  { id: "output", label: "Output", short: "05", icon: "OUT", color: "#34d399", ring: "rgba(52, 211, 153, 0.34)", detail: "Live questions, strike signals, strike board, facesheet, and coverage evaluation." },
+  { id: "output", label: "Output", short: "05", icon: "OUT", color: "#34d399", ring: "rgba(52, 211, 153, 0.34)", detail: "Live questions, strike signals, strike board, courtroom decision posture, facesheet, and coverage evaluation." },
 ];
 
 const LIVE_LOOP_LEGEND = {
@@ -81,36 +82,38 @@ const LIVE_LOOP_LEGEND = {
 
 const PHASE_BY_ID = new Map(PHASES.map((phase) => [phase.id, phase]));
 const BASE_ZONE_NODES: ZoneNode[] = [
-  zoneNode("backend-zone", "Backend evidence / research system", "Source discovery, extraction, dedupe, signal modeling", "backend"),
-  zoneNode("box-zone", "Box flow / live trial system", "Box state, OC Q&A, live questions, strike board", "box"),
+  zoneNode("backend-zone", "Backend evidence / research system", "Research jobs, captured evidence, facts, PRF, lead gating", "backend"),
+  zoneNode("box-zone", "Box flow / live trial system", "Box state, OC Q&A, live questions, strike board, courtroom decisions", "box"),
   zoneNode("boundary-zone", "Interface boundary", "Source anchors → live payload · feedback sync → audit/eval", "boundary"),
 ];
 
 const BASE_NODES: ResearchNode[] = [
-  researchNode("case-intake", "Case + trial intake", "intake", "Venire, case posture, claims, dates, geography, and research constraints.", ["Case file", "Juror list", "Court / venue context"], ["Research scope", "Known entities", "Timebox"], ["Bad seed data creates false joins"]),
+  researchNode("case-intake", "Case + venire intake", "intake", "Matter setup, venire rows, case posture, parties, venue, dates, geography, and research constraints.", ["Case file", "Juror list", "Court / venue context"], ["Case record", "Venire records", "Research scope", "Known entities"], ["Bad seed data creates false joins"]),
   researchNode("identity-resolution", "Juror identity resolution", "intake", "Resolve each juror into a high-confidence person record before downstream evidence is trusted.", ["Names", "Addresses", "Age bands", "Public profile hints"], ["Canonical juror profile", "Confidence score", "Ambiguity flags"], ["Common names", "Household member collisions"]),
-  researchNode("source-planner", "Source planner", "sources", "Pick public and configured sources by juror and case question.", ["Canonical juror profile", "Case themes"], ["Search plan", "Source queue", "Collection budget"], ["Over-collection", "Missing venue-specific sources"]),
-  researchNode("public-records", "Public records sweep", "sources", "Corroborate identity, affiliations, location, and litigation-relevant history.", ["Search plan", "Juror identifiers"], ["Record hits", "Corroborating facts"], ["Stale records", "Name-only false positives"]),
-  researchNode("web-social", "Web + social scan", "sources", "Search open web, social profiles, posts, images, affiliations, and issue signals.", ["Search plan", "Alias variants"], ["Posts", "Profiles", "Issue signals"], ["Private accounts", "Context collapse"]),
-  researchNode("news-local", "Local news + civic context", "sources", "Map local stories, employers, civic memberships, and venue context.", ["Venue", "Employer/location hints"], ["Local context", "Event references"], ["Weak relevance", "Duplicate syndicated stories"]),
-  researchNode("fact-extraction", "Fact extraction", "analysis", "Convert source material into atomic facts with links and juror/entity references.", ["Record hits", "Posts", "Articles"], ["Candidate facts", "Evidence snippets"], ["Unsupported summaries", "Lost source provenance"]),
-  researchNode("dedupe-corroborate", "Dedupe + corroborate", "analysis", "Merge duplicate claims while preserving candidates that are useful but not yet confirmed.", ["Candidate facts", "Evidence snippets"], ["Confirmed facts", "Conflict set", "Potential relevant facts", "Source graph"], ["Premature promotion", "Over-merged people"]),
-  researchNode("potential-fact-pool", "Potential Relevant Fact Pool", "analysis", "Hold sourced, case-adjacent facts that may matter in box, live questioning, or strike strategy.", ["Candidate facts", "Confirmed facts", "Case themes"], ["Potential relevant facts", "Case tags", "Source-backed snippets"], ["Noisy facts crowding the live lane"]),
-  researchNode("box-eligible-leads", "Box-Eligible Leads", "analysis", "Screen the pool into leads worth watching or raising when a juror reaches the box.", ["Potential relevant facts", "Identity confidence", "Voir dire posture"], ["Box-ready leads", "Ask/observe triggers", "Priority"], ["Weak leads promoted too early"]),
+  researchNode("source-planner", "Research job + query planner", "sources", "Claim the juror research job, hydrate state, and plan bounded searches from identity, case themes, and prior findings.", ["Canonical juror profile", "Case themes", "Pipeline settings"], ["Search plan", "Source queue", "Collection budget", "Persisted job state"], ["Over-collection", "Missing venue-specific sources", "Stale resumed state"]),
+  researchNode("public-records", "Public records sweep", "sources", "Corroborate identity, affiliations, location, property, business, litigation, and other public-record context.", ["Search plan", "Juror identifiers"], ["Record hits", "Corroborating facts"], ["Stale records", "Name-only false positives"]),
+  researchNode("web-social", "Web + social scan", "sources", "Search open web, social profiles, posts, images, affiliations, and issue signals.", ["Search plan", "Alias variants"], ["Posts", "Profiles", "Issue signals", "Profile images"], ["Private accounts", "Context collapse"]),
+  researchNode("news-local", "Local news + civic context", "sources", "Map local stories, employers, civic memberships, organizations, schools, and venue context.", ["Venue", "Employer/location hints"], ["Local context", "Event references"], ["Weak relevance", "Duplicate syndicated stories"]),
+  researchNode("evidence-capture", "Evidence capture", "analysis", "Persist source artifacts, screenshots, page text, profile image evidence, and capture summaries before facts are trusted downstream.", ["Accepted links", "Capture targets", "Source pages"], ["Evidence artifacts", "Captured page text", "Source anchors"], ["Capture login failures", "Lost source provenance"]),
+  researchNode("fact-extraction", "Candidate fact extraction", "analysis", "Convert captured evidence and analyzed sources into atomic candidate facts with source links and subject scope.", ["Evidence artifacts", "Record hits", "Posts", "Articles"], ["Candidate facts", "Evidence snippets", "Subject scope"], ["Unsupported summaries", "Spouse/household facts misattributed to juror"]),
+  researchNode("dedupe-corroborate", "Dedupe + corroborate", "analysis", "Merge duplicate claims, expose conflicts, and promote only facts that satisfy confidence/review rules.", ["Candidate facts", "Evidence snippets"], ["Confirmed facts", "Conflict set", "Candidate fact set", "Source graph"], ["Premature promotion", "Over-merged people"]),
+  researchNode("potential-fact-pool", "Potential Relevant Fact Pool", "analysis", "Retain sourced, non-asserted case-adjacent facts with provenance, subject scope, identity confidence, caveats, and optional enrichment.", ["Candidate facts", "Confirmed facts", "Case themes"], ["potential_relevance_fact_pool", "Enrichment payload", "Source-backed snippets"], ["Noisy facts crowding the live lane", "Weak identity treated as certainty"]),
+  researchNode("box-eligible-leads", "Box-Eligible Leads", "analysis", "Load the latest PRF/enrichment per juror and classify courtroom-safe leads as ask-now, ask-if-time, conditional, needs-confirmation, audit-only, or suppress.", ["Potential relevant facts", "Identity confidence", "Voir dire posture"], ["Box-ready leads", "Ask/observe triggers", "Suppressed clutter", "Priority"], ["Weak leads promoted too early", "Wrong-subject facts shown as juror facts"]),
   researchNode("opposing-counsel-lens", "Opposing Counsel Lens", "analysis", "Model what OC is likely to value, probe, rehabilitate, or strike against the same juror facts.", ["Case themes", "Potential relevant facts", "OC posture"], ["OC themes", "OC likely questions", "OC pressure points"], ["Assuming OC priorities without courtroom proof"]),
   researchNode("signal-model", "Signal model", "analysis", "Translate confirmed facts, potential leads, and OC pressure into case-relevant risks, strengths, and questions.", ["Confirmed facts", "Potential relevant facts", "Case themes", "OC themes"], ["Risk signals", "Opportunity signals", "Follow-up prompts"], ["Biased weighting", "Unexplained inference"]),
   researchNode("human-review", "Human review gate", "review", "Route high-impact findings, weak evidence, and conflicts through reviewer judgment without blocking live box flow.", ["Risk signals", "Conflict set", "Source graph"], ["Reviewer decisions", "Suppressed facts", "Clarification asks"], ["Reviewer overload", "Insufficient audit trail"]),
-  researchNode("backend-box-handoff", "Backend ↔ Box handoff", "review", "Package backend findings into live-safe payloads and define what the box flow sends back.", ["Box-ready leads", "Reviewer decisions", "Source graph"], ["Live payload", "Source anchors", "State update contract"], ["Live UI acting on unsourced or stale backend data"]),
-  researchNode("box-live-cockpit", "Box Live Cockpit", "review", "Operational view for in-box jurors, active leads, questions, objections, and team attention.", ["Box-ready leads", "Reviewer decisions", "Live courtroom events"], ["Live watch list", "Raised hands", "Question queue"], ["Live state drifting from source facts"]),
+  researchNode("backend-box-handoff", "Backend ↔ Box handoff", "review", "Package jury-box data, confirmed facts, PRF leads, live state, seats, and source anchors into the live-safe Box payload.", ["Box-ready leads", "Reviewer decisions", "Source graph"], ["Live payload", "Source anchors", "State update contract"], ["Live UI acting on unsourced or stale backend data"]),
+  researchNode("box-live-cockpit", "Box Live Cockpit", "review", "Operator surface for in-box jurors, active leads, current question, addressed seats, scratchpad, notes, Q&A, and team attention.", ["Box-ready leads", "Reviewer decisions", "Live courtroom events"], ["Live watch list", "Raised hands", "Question queue", "Scratchpad context"], ["Live state drifting from source facts"]),
   researchNode("operator-notes", "Operator notes", "review", "Freeform live notes, observed demeanor, answer fragments, and team callouts captured by the operator.", ["Live courtroom events", "Box Live Cockpit", "OC Q&A"], ["Timestamped notes", "Answer fragments", "Team callouts"], ["Notes not linked back to juror/source context"]),
-  researchNode("box-live-state", "Box Live State", "review", "Track current panel/box status, lead disposition, question status, and team ownership.", ["Live watch list", "Question queue", "Team notes"], ["Current box state", "Lead outcomes", "Team handoffs"], ["Stale cockpit state"]),
+  researchNode("box-live-state", "Box Live State", "review", "Persist current panel/box status, lead disposition, question status, addressed seats, answer links, and team ownership.", ["Live watch list", "Question queue", "Team notes"], ["Current box state", "Lead outcomes", "Team handoffs", "Live answer envelope"], ["Stale cockpit state"]),
   researchNode("oc-voir-dire-tracker", "OC voir dire / Q&A tracker", "review", "Capture OC questions, juror answers, rehabilitation attempts, and follow-up openings while the box is live.", ["OC likely questions", "Live courtroom events", "Current box state"], ["OC Q&A notes", "OC follow-up openings", "Rehabilitation signals"], ["Losing sequence/context of OC questions"]),
-  researchNode("live-feedback-sync", "Live feedback sync", "review", "Return box outcomes, OC answers, raised hands, and strike decisions to backend audit/eval surfaces.", ["Current box state", "OC Q&A notes", "Strike board"], ["Disposition updates", "Answer-backed facts", "Coverage/eval updates"], ["Live outcomes never making it back to backend truth"]),
+  researchNode("live-feedback-sync", "Live feedback sync", "review", "Return Box outcomes, OC answers, raised hands, lead dispositions, and strike decisions to backend audit/eval surfaces.", ["Current box state", "OC Q&A notes", "Strike board", "Courtroom decisions"], ["Disposition updates", "Answer-backed facts", "Coverage/eval updates", "Research gaps"], ["Live outcomes never making it back to backend truth"]),
   researchNode("live-questions", "Live questions / raised hands / OC Q&A", "output", "Surface our question prompts, raised-hand moments, OC questions, OC answers, and answer capture.", ["Question queue", "OC Q&A notes", "Live courtroom events"], ["Ask list", "Raised hands", "OC Q&A notes"], ["Missing context around answers"]),
   researchNode("strike-signals", "Strike Signals", "output", "Separate FACT / LEAD / OURS / OC signals so strike decisions show their evidentiary and adversarial footing.", ["Risk signals", "Opportunity signals", "Lead outcomes", "OC Q&A notes", "OC pressure points"], ["FACT signals", "LEAD signals", "OURS signals", "OC signals"], ["Blending evidence with inference"]),
-  researchNode("live-strike-board", "Live Strike Board", "output", "Trial-team board for live strikes, holds, cause questions, and per-juror signal stacks.", ["Current box state", "FACT signals", "LEAD signals", "OURS signals", "OC signals"], ["Strike board", "Cause/keep notes", "Team callouts"], ["Board decisions without source trace"]),
+  researchNode("live-strike-board", "Live Strike Board", "output", "Trial-team board for live strikes, holds, cause questions, and per-juror signal stacks.", ["Current box state", "FACT signals", "LEAD signals", "OURS signals", "OC signals"], ["Strike board", "Cause/keep notes", "Team callouts", "Decision posture"], ["Board decisions without source trace"]),
+  researchNode("courtroom-decisions", "Courtroom Decisions", "output", "Turn sourced research, live answers, strike budgets, and board movement into the next trial action.", ["Strike board", "Current box state", "FACT / LEAD / OURS / OC signals", "Cause and peremptory posture"], ["Accept / keep", "Question", "Cause challenge", "Peremptory strike", "Avoid", "Research-needed flag"], ["Treating PRF or live answers as newly confirmed facts", "Losing source trace behind action posture"]),
   researchNode("facesheet", "Juror face sheet / report", "output", "Generate a concise sourced artifact with action-oriented trial team notes.", ["Reviewer decisions", "Confirmed facts", "Strike signals"], ["Face sheet", "Report", "Trial team notes"], ["Too much detail", "Missing citations"]),
-  researchNode("coverage-eval", "Coverage + quality eval", "output", "Score completeness, source coverage, identity confidence, and evidence quality.", ["Face sheet", "Source graph", "Research scope"], ["Coverage report", "Gaps", "Regression signals"], ["Green checks on stale artifacts"]),
+  researchNode("coverage-eval", "Coverage + quality eval", "output", "Score completeness, source coverage, identity confidence, evidence quality, PRF-to-Box coverage, and live-loop gaps.", ["Face sheet", "Source graph", "Research scope", "Live feedback"], ["Coverage report", "Gaps", "Regression signals", "New research targets"], ["Green checks on stale artifacts"]),
 ];
 
 const BASE_EDGES: ResearchEdge[] = [
@@ -123,7 +126,11 @@ const BASE_EDGES: ResearchEdge[] = [
   researchEdge("public-records", "fact-extraction", "evidence"),
   researchEdge("web-social", "fact-extraction", "evidence"),
   researchEdge("news-local", "fact-extraction", "context"),
-  researchEdge("fact-extraction", "dedupe-corroborate", "Social Candidates"),
+  researchEdge("public-records", "evidence-capture", "accepted source"),
+  researchEdge("web-social", "evidence-capture", "profile/source artifact"),
+  researchEdge("news-local", "evidence-capture", "local source artifact"),
+  researchEdge("evidence-capture", "fact-extraction", "captured evidence"),
+  researchEdge("fact-extraction", "dedupe-corroborate", "candidate facts"),
   researchEdge("fact-extraction", "potential-fact-pool", "candidate facts"),
   researchEdge("dedupe-corroborate", "potential-fact-pool", "potential"),
   researchEdge("potential-fact-pool", "box-eligible-leads", "screen"),
@@ -132,6 +139,7 @@ const BASE_EDGES: ResearchEdge[] = [
   researchEdge("signal-model", "human-review", "triage"),
   researchEdge("dedupe-corroborate", "human-review", "conflicts"),
   researchEdge("box-eligible-leads", "backend-box-handoff", "box-ready"),
+  researchEdge("box-eligible-leads", "box-live-cockpit", "active leads", true),
   researchEdge("human-review", "backend-box-handoff", "reviewed"),
   researchEdge("backend-box-handoff", "box-live-cockpit", "live payload", true),
   researchEdge("backend-box-handoff", "box-live-state", "state contract", true),
@@ -152,7 +160,9 @@ const BASE_EDGES: ResearchEdge[] = [
   researchEdge("oc-voir-dire-tracker", "strike-signals", "OC answers", true),
   researchEdge("live-questions", "strike-signals", "answers"),
   researchEdge("strike-signals", "live-strike-board", "FACT / LEAD / OURS / OC", true),
-  researchEdge("live-strike-board", "live-feedback-sync", "strike decision", true),
+  researchEdge("live-strike-board", "courtroom-decisions", "action posture", true),
+  researchEdge("courtroom-decisions", "live-feedback-sync", "decision sync", true),
+  researchEdge("courtroom-decisions", "facesheet", "trial action notes"),
   researchEdge("live-feedback-sync", "coverage-eval", "audit loop", true),
   researchEdge("human-review", "facesheet", "approved"),
   researchEdge("strike-signals", "facesheet", "report signals"),
@@ -172,7 +182,8 @@ const FEEDBACK_TRACE_EDGE_IDS = new Set([
   "oc-voir-dire-tracker-strike-signals",
   "live-questions-strike-signals",
   "strike-signals-live-strike-board",
-  "live-strike-board-live-feedback-sync",
+  "live-strike-board-courtroom-decisions",
+  "courtroom-decisions-live-feedback-sync",
   "live-feedback-sync-coverage-eval",
   "coverage-eval-source-planner",
 ]);
@@ -186,106 +197,126 @@ const FEEDBACK_TRACE_NODE_IDS = new Set([
   "live-questions",
   "strike-signals",
   "live-strike-board",
+  "courtroom-decisions",
   "live-feedback-sync",
   "coverage-eval",
 ]);
 
-type EdgeChipSegment = "source" | "middle" | "target" | "label";
+const VISIBLE_EDGE_CHIP_IDS = new Set([
+  "source-planner-web-social",
+  "web-social-evidence-capture",
+  "evidence-capture-fact-extraction",
+  "fact-extraction-potential-fact-pool",
+  "potential-fact-pool-box-eligible-leads",
+  "box-eligible-leads-backend-box-handoff",
+  "backend-box-handoff-box-live-cockpit",
+  "box-live-cockpit-box-live-state",
+  "box-live-cockpit-live-questions",
+  "live-questions-strike-signals",
+  "strike-signals-live-strike-board",
+  "live-strike-board-courtroom-decisions",
+  "courtroom-decisions-live-feedback-sync",
+  "live-feedback-sync-coverage-eval",
+  "coverage-eval-source-planner",
+]);
 
-const EDGE_CHIP_PLACEMENTS: Record<string, { segment: EdgeChipSegment; t: number }> = {
-  "case-intake-identity-resolution": { segment: "target", t: 0.82 },
-  "identity-resolution-source-planner": { segment: "source", t: 0.82 },
-  "case-intake-source-planner": { segment: "source", t: 0.18 },
-  "public-records-fact-extraction": { segment: "source", t: 0.74 },
-  "web-social-fact-extraction": { segment: "source", t: 0.64 },
-  "news-local-fact-extraction": { segment: "source", t: 0.74 },
-  "dedupe-corroborate-human-review": { segment: "target", t: 0.78 },
-  "backend-box-handoff-box-live-state": { segment: "source", t: 0.5 },
-  "box-live-cockpit-live-questions": { segment: "source", t: 0.36 },
-  "box-live-cockpit-operator-notes": { segment: "middle", t: 0.56 },
-  "operator-notes-box-live-state": { segment: "middle", t: 0.34 },
-  "operator-notes-strike-signals": { segment: "source", t: 0.44 },
-  "operator-notes-live-feedback-sync": { segment: "middle", t: 0.72 },
-  "box-live-state-oc-voir-dire-tracker": { segment: "middle", t: 0.72 },
-  "oc-voir-dire-tracker-live-questions": { segment: "middle", t: 0.42 },
-  "box-live-state-live-feedback-sync": { segment: "middle", t: 0.36 },
-  "oc-voir-dire-tracker-live-feedback-sync": { segment: "source", t: 0.52 },
-  "box-live-state-live-strike-board": { segment: "target", t: 0.58 },
-  "signal-model-strike-signals": { segment: "target", t: 0.78 },
-  "oc-voir-dire-tracker-strike-signals": { segment: "middle", t: 0.58 },
-  "live-questions-strike-signals": { segment: "target", t: 0.5 },
-  "strike-signals-live-strike-board": { segment: "middle", t: 0.44 },
-  "live-strike-board-live-feedback-sync": { segment: "middle", t: 0.28 },
-  "human-review-facesheet": { segment: "source", t: 0.45 },
-  "strike-signals-facesheet": { segment: "source", t: 0.56 },
-  "facesheet-coverage-eval": { segment: "source", t: 0.5 },
-  "coverage-eval-source-planner": { segment: "middle", t: 0.5 },
+type EdgeChipSegment = "source" | "middle" | "target" | "label";
+type EdgeChipPlacement = { segment: EdgeChipSegment; t: number; dx?: number; dy?: number };
+
+const EDGE_CHIP_PLACEMENTS: Record<string, EdgeChipPlacement> = {
+  "source-planner-web-social": { segment: "middle", t: 0.5, dy: -46 },
+  "web-social-evidence-capture": { segment: "middle", t: 0.5, dy: -46 },
+  "evidence-capture-fact-extraction": { segment: "middle", t: 0.5, dy: -46 },
+  "fact-extraction-potential-fact-pool": { segment: "middle", t: 0.5, dy: -46 },
+  "potential-fact-pool-box-eligible-leads": { segment: "middle", t: 0.5, dy: -46 },
+  "box-eligible-leads-backend-box-handoff": { segment: "middle", t: 0.5, dy: -46 },
+  "backend-box-handoff-box-live-cockpit": { segment: "middle", t: 0.5, dy: -46 },
+  "box-live-cockpit-box-live-state": { segment: "middle", t: 0.5, dy: -46 },
+  "box-live-cockpit-live-questions": { segment: "middle", t: 0.5, dy: 52 },
+  "operator-notes-box-live-state": { segment: "middle", t: 0.5, dx: -140, dy: 70 },
+  "operator-notes-strike-signals": { segment: "middle", t: 0.5, dx: -110, dy: 132 },
+  "operator-notes-live-feedback-sync": { segment: "middle", t: 0.5, dx: -260, dy: 340 },
+  "box-live-state-oc-voir-dire-tracker": { segment: "middle", t: 0.5, dx: 250, dy: 52 },
+  "oc-voir-dire-tracker-live-questions": { segment: "middle", t: 0.5, dx: 106, dy: 30 },
+  "box-live-state-live-feedback-sync": { segment: "middle", t: 0.5, dx: -86, dy: 132 },
+  "oc-voir-dire-tracker-live-feedback-sync": { segment: "middle", t: 0.5, dx: 88, dy: 130 },
+  "oc-voir-dire-tracker-strike-signals": { segment: "middle", t: 0.5, dx: 96, dy: 84 },
+  "live-questions-strike-signals": { segment: "middle", t: 0.5, dy: -46 },
+  "strike-signals-live-strike-board": { segment: "middle", t: 0.5, dy: -52 },
+  "live-strike-board-courtroom-decisions": { segment: "middle", t: 0.5, dy: -46 },
+  "courtroom-decisions-live-feedback-sync": { segment: "middle", t: 0.5, dx: 58 },
+  "live-feedback-sync-coverage-eval": { segment: "middle", t: 0.5, dy: 58 },
+  "coverage-eval-source-planner": { segment: "label", t: 0.5, dy: 60 },
 };
 
 const LOGICAL_POSITIONS: Record<string, { x: number; y: number }> = {
   "case-intake": { x: 0, y: 360 },
-  "identity-resolution": { x: 440, y: 360 },
-  "source-planner": { x: 920, y: 360 },
-  "public-records": { x: 1430, y: 40 },
-  "web-social": { x: 1430, y: 360 },
-  "news-local": { x: 1430, y: 680 },
-  "fact-extraction": { x: 2060, y: 360 },
-  "dedupe-corroborate": { x: 2680, y: 620 },
-  "potential-fact-pool": { x: 2680, y: 120 },
-  "box-eligible-leads": { x: 3360, y: 120 },
-  "opposing-counsel-lens": { x: 3360, y: 930 },
-  "signal-model": { x: 3360, y: 620 },
-  "human-review": { x: 4040, y: 620 },
-  "backend-box-handoff": { x: 4020, y: 330 },
-  "box-live-cockpit": { x: 4700, y: 120 },
-  "operator-notes": { x: 4700, y: 520 },
-  "box-live-state": { x: 5380, y: 120 },
-  "oc-voir-dire-tracker": { x: 5380, y: 930 },
-  "live-feedback-sync": { x: 6060, y: 930 },
-  "live-questions": { x: 5380, y: 520 },
-  "strike-signals": { x: 6060, y: 520 },
-  "live-strike-board": { x: 6060, y: 120 },
-  facesheet: { x: 6740, y: 520 },
-  "coverage-eval": { x: 7420, y: 520 },
+  "identity-resolution": { x: 430, y: 360 },
+  "source-planner": { x: 880, y: 360 },
+  "public-records": { x: 1380, y: 40 },
+  "web-social": { x: 1380, y: 360 },
+  "news-local": { x: 1380, y: 680 },
+  "evidence-capture": { x: 1900, y: 360 },
+  "fact-extraction": { x: 2400, y: 360 },
+  "dedupe-corroborate": { x: 2920, y: 650 },
+  "potential-fact-pool": { x: 2920, y: 80 },
+  "box-eligible-leads": { x: 3440, y: 80 },
+  "opposing-counsel-lens": { x: 3440, y: 950 },
+  "signal-model": { x: 3440, y: 430 },
+  "human-review": { x: 3960, y: 650 },
+  "backend-box-handoff": { x: 3960, y: 360 },
+  "box-live-cockpit": { x: 4480, y: 80 },
+  "operator-notes": { x: 4480, y: 500 },
+  "box-live-state": { x: 5000, y: 80 },
+  "live-questions": { x: 5000, y: 500 },
+  "oc-voir-dire-tracker": { x: 5000, y: 950 },
+  "live-strike-board": { x: 5520, y: 80 },
+  "strike-signals": { x: 5520, y: 500 },
+  "live-feedback-sync": { x: 5520, y: 950 },
+  "courtroom-decisions": { x: 6040, y: 80 },
+  facesheet: { x: 6040, y: 500 },
+  "coverage-eval": { x: 6560, y: 500 },
 };
 
 const GALAXY_POSITIONS: Record<string, { x: number; y: number }> = {
-  "case-intake": { x: 320, y: 410 },
-  "identity-resolution": { x: 720, y: 410 },
-  "source-planner": { x: 1190, y: 410 },
-  "public-records": { x: 1640, y: 90 },
-  "web-social": { x: 1740, y: 410 },
-  "news-local": { x: 1640, y: 730 },
-  "fact-extraction": { x: 2260, y: 410 },
-  "dedupe-corroborate": { x: 2880, y: 690 },
-  "potential-fact-pool": { x: 2880, y: 150 },
-  "box-eligible-leads": { x: 3560, y: 150 },
-  "opposing-counsel-lens": { x: 3560, y: 980 },
-  "signal-model": { x: 3560, y: 690 },
-  "human-review": { x: 4240, y: 690 },
-  "backend-box-handoff": { x: 4220, y: 380 },
-  "box-live-cockpit": { x: 4920, y: 150 },
-  "operator-notes": { x: 4920, y: 560 },
-  "box-live-state": { x: 5600, y: 150 },
-  "oc-voir-dire-tracker": { x: 5600, y: 980 },
-  "live-feedback-sync": { x: 6280, y: 980 },
-  "live-questions": { x: 5600, y: 560 },
-  "strike-signals": { x: 6280, y: 560 },
-  "live-strike-board": { x: 6280, y: 150 },
-  facesheet: { x: 6980, y: 560 },
-  "coverage-eval": { x: 7660, y: 560 },
+  "case-intake": { x: 280, y: 430 },
+  "identity-resolution": { x: 700, y: 430 },
+  "source-planner": { x: 1160, y: 430 },
+  "public-records": { x: 1620, y: 100 },
+  "web-social": { x: 1700, y: 430 },
+  "news-local": { x: 1620, y: 760 },
+  "evidence-capture": { x: 2160, y: 430 },
+  "fact-extraction": { x: 2680, y: 430 },
+  "dedupe-corroborate": { x: 3220, y: 720 },
+  "potential-fact-pool": { x: 3220, y: 150 },
+  "box-eligible-leads": { x: 3760, y: 150 },
+  "opposing-counsel-lens": { x: 3760, y: 1020 },
+  "signal-model": { x: 3760, y: 430 },
+  "human-review": { x: 4300, y: 720 },
+  "backend-box-handoff": { x: 4300, y: 430 },
+  "box-live-cockpit": { x: 4840, y: 150 },
+  "operator-notes": { x: 4840, y: 580 },
+  "box-live-state": { x: 5380, y: 150 },
+  "live-questions": { x: 5380, y: 580 },
+  "oc-voir-dire-tracker": { x: 5380, y: 1020 },
+  "live-strike-board": { x: 5920, y: 150 },
+  "strike-signals": { x: 5920, y: 580 },
+  "live-feedback-sync": { x: 5920, y: 1020 },
+  "courtroom-decisions": { x: 6460, y: 150 },
+  facesheet: { x: 6460, y: 580 },
+  "coverage-eval": { x: 7000, y: 580 },
 };
 
 const LOGICAL_ZONE_POSITIONS: Record<string, { x: number; y: number; width: number; height: number }> = {
-  "backend-zone": { x: -260, y: -1600, width: 4160, height: 5600 },
-  "box-zone": { x: 3900, y: -1600, width: 3900, height: 5600 },
-  "boundary-zone": { x: 3660, y: -1600, width: 560, height: 5600 },
+  "backend-zone": { x: -260, y: -1600, width: 4020, height: 5600 },
+  "box-zone": { x: 3760, y: -1600, width: 3160, height: 5600 },
+  "boundary-zone": { x: 3600, y: -1600, width: 520, height: 5600 },
 };
 
 const GALAXY_ZONE_POSITIONS: Record<string, { x: number; y: number; width: number; height: number }> = {
-  "backend-zone": { x: 120, y: -1600, width: 4040, height: 5800 },
-  "box-zone": { x: 4160, y: -1600, width: 3900, height: 5800 },
-  "boundary-zone": { x: 3920, y: -1600, width: 560, height: 5800 },
+  "backend-zone": { x: 80, y: -1600, width: 3940, height: 5800 },
+  "box-zone": { x: 4020, y: -1600, width: 3260, height: 5800 },
+  "boundary-zone": { x: 3820, y: -1600, width: 520, height: 5800 },
 };
 
 const nodeTypes = { research: ResearchFlowNode, zone: ZoneFlowNode };
@@ -298,20 +329,22 @@ function edgeChipPoint(id: string, sourceX: number, sourceY: number, targetX: nu
   const placement = EDGE_CHIP_PLACEMENTS[id] ?? { segment: "middle", t: 0.5 };
   const t = Math.min(0.92, Math.max(0.08, placement.t));
   const centerX = sourceX + (targetX - sourceX) / 2;
+  const offsetX = placement.dx ?? 0;
+  const offsetY = placement.dy ?? 0;
 
   if (placement.segment === "label") {
-    return { x: labelX, y: labelY };
+    return { x: labelX + offsetX, y: labelY + offsetY };
   }
 
   if (placement.segment === "source") {
-    return { x: sourceX + (centerX - sourceX) * t, y: sourceY };
+    return { x: sourceX + (centerX - sourceX) * t + offsetX, y: sourceY + offsetY };
   }
 
   if (placement.segment === "target") {
-    return { x: centerX + (targetX - centerX) * t, y: targetY };
+    return { x: centerX + (targetX - centerX) * t + offsetX, y: targetY + offsetY };
   }
 
-  return { x: centerX, y: sourceY + (targetY - sourceY) * t };
+  return { x: centerX + offsetX, y: sourceY + (targetY - sourceY) * t + offsetY };
 }
 
 function researchNode(
@@ -350,36 +383,39 @@ function researchEdge(source: string, target: string, label: string, animated = 
   const targetLabel = BASE_NODES.find((node) => node.id === target)?.data.label ?? target;
   const isDedupeToPotentialPool = source === "dedupe-corroborate" && target === "potential-fact-pool";
   const isOcLensToSignalModel = source === "opposing-counsel-lens" && target === "signal-model";
-  const isFactPoolToSignalModel = source === "potential-fact-pool" && target === "signal-model";
-  const isSourceToFactExtraction = target === "fact-extraction" && ["public-records", "web-social", "news-local"].includes(source);
+  const isCockpitToOperatorNotes = source === "box-live-cockpit" && target === "operator-notes";
+  const isFeedback = animated || source === "coverage-eval" || source === "live-feedback-sync" || target === "live-feedback-sync";
   const upwardHandoff = isDedupeToPotentialPool || isOcLensToSignalModel;
-  const shouldShowArrowhead = upwardHandoff || isFactPoolToSignalModel || isSourceToFactExtraction;
+  const shouldShowArrowhead = true;
+  const markerColor = isFeedback ? "#34d399" : "#b4c2ff";
   return {
     id: `${source}-${target}`,
     type: "research",
     source,
-    sourceHandle: upwardHandoff ? "top-source" : undefined,
+    sourceHandle: isCockpitToOperatorNotes ? "bottom-source" : upwardHandoff ? "top-source" : undefined,
     target,
-    targetHandle: upwardHandoff ? "bottom-target" : undefined,
+    targetHandle: isCockpitToOperatorNotes ? "top-target" : upwardHandoff ? "bottom-target" : undefined,
     animated,
     markerEnd: shouldShowArrowhead
       ? {
           type: MarkerType.ArrowClosed,
-          color: "#b4c2ff",
+          color: markerColor,
           height: 20,
           width: 20,
         }
       : undefined,
     data: {
       label,
+      direction: isFeedback ? "feedback" : "forward",
       sourceLabel,
       targetLabel,
       detail: `${sourceLabel} sends “${label}” into ${targetLabel}. Click the connected nodes to see the source and destination responsibilities, inputs, outputs, and watch-outs.`,
     },
     style: {
-      stroke: animated ? "#34d399" : "rgba(180, 194, 255, 0.52)",
+      stroke: isFeedback ? "#34d399" : "rgba(180, 194, 255, 0.52)",
       strokeWidth: animated ? 2.6 : 2,
-      filter: animated ? "drop-shadow(0 0 8px rgba(52, 211, 153, 0.7))" : "drop-shadow(0 0 6px rgba(125, 211, 252, 0.28))",
+      strokeDasharray: isFeedback ? "8 8" : undefined,
+      filter: isFeedback ? "drop-shadow(0 0 8px rgba(52, 211, 153, 0.7))" : "drop-shadow(0 0 6px rgba(125, 211, 252, 0.28))",
     },
   };
 }
@@ -406,7 +442,7 @@ function ResearchFlowEdge({
     targetPosition,
   });
   const isDedupeConflictReviewEdge = id === "dedupe-corroborate-human-review";
-  const conflictLaneY = Math.min(sourceY, targetY) - 260;
+  const conflictLaneY = Math.max(sourceY, targetY) + 120;
   const conflictSourceDoglegX = sourceX + 120;
   const conflictTargetDoglegX = targetX - 120;
   const edgePath = isDedupeConflictReviewEdge
@@ -441,6 +477,8 @@ function ResearchFlowEdge({
       : style;
   const selectEdge = () => data?.onSelect?.(id);
   const chipPoint = edgeChipPoint(id, sourceX, sourceY, targetX, targetY, labelX, labelY);
+  const directionGlyph = data?.direction === "feedback" ? "↺" : "→";
+  const shouldShowChip = selected || (feedbackTraceActive && feedbackTraceRoute) || VISIBLE_EDGE_CHIP_IDS.has(id);
 
   return (
     <>
@@ -456,18 +494,21 @@ function ResearchFlowEdge({
           selectEdge();
         }}
       />
-      <EdgeLabelRenderer>
+      {shouldShowChip ? (
+        <EdgeLabelRenderer>
         <button
           type="button"
           className={cn(
-            "nodrag nopan pointer-events-auto absolute rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] shadow-lg backdrop-blur transition-colors",
+            "nodrag nopan pointer-events-auto absolute inline-flex max-w-[11.75rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase leading-none tracking-[0.12em] shadow-lg backdrop-blur-md transition-colors",
             feedbackTraceActive && feedbackTraceRoute
               ? "border-red-200/70 bg-red-500 text-white shadow-[0_0_16px_rgba(248,113,113,0.7)]"
               : feedbackTraceActive
                 ? "border-slate-500/10 bg-slate-950/35 text-slate-500 opacity-35"
                 : selected
               ? "border-midground bg-midground text-background-base"
-              : "border-white/10 bg-black/80 text-slate-100 hover:border-midground/70 hover:text-midground",
+              : data?.direction === "feedback"
+                ? "border-emerald-200/25 bg-emerald-950/85 text-emerald-100 hover:border-emerald-200/60 hover:text-emerald-50"
+                : "border-white/10 bg-black/85 text-slate-100 hover:border-midground/70 hover:text-midground",
           )}
           style={{ transform: `translate(-50%, -50%) translate(${chipPoint.x}px, ${chipPoint.y}px)`, zIndex: selected ? 80 : 60 }}
           onClick={(event) => {
@@ -477,9 +518,11 @@ function ResearchFlowEdge({
           aria-label={`${selected ? "Hide" : "Show"} details for ${data?.label ?? "flow"} connection`}
           title={data?.detail ?? data?.label ?? "flow"}
         >
-          {data?.label ?? "flow"}
+          <span aria-hidden="true" className="text-[10px] leading-none opacity-80">{directionGlyph}</span>
+          <span className="truncate">{data?.label ?? "flow"}</span>
         </button>
-      </EdgeLabelRenderer>
+        </EdgeLabelRenderer>
+      ) : null}
     </>
   );
 }
@@ -493,6 +536,7 @@ function nodeRoleIcon(label: string): string {
   if (normalized.includes("review") || normalized.includes("handoff")) return "CHK";
   if (normalized.includes("box") || normalized.includes("cockpit") || normalized.includes("state")) return "BOX";
   if (normalized.includes("notes") || normalized.includes("q&a") || normalized.includes("questions")) return "QA";
+  if (normalized.includes("decision") || normalized.includes("action")) return "ACT";
   if (normalized.includes("face") || normalized.includes("report")) return "RPT";
   if (normalized.includes("coverage") || normalized.includes("eval")) return "EVAL";
   return "FLOW";
@@ -674,6 +718,7 @@ function EdgeDetails({ edge, onCollapse }: { edge: ResearchEdge; onCollapse: () 
         </button>
       </div>
       <p className="mb-4 text-sm leading-6 text-text-secondary">{data.detail}</p>
+      <DetailList label="Direction" values={[data.direction === "feedback" ? "Feedback loop: live or eval outcomes feed back into research/audit state." : "Forward flow: source, analysis, review, or courtroom output advances to the next step."]} />
       <DetailList label="From" values={[data.sourceLabel]} />
       <DetailList label="To" values={[data.targetLabel]} />
       <DetailList
@@ -713,7 +758,8 @@ function FeedbackTraceDetails({ onCollapse }: { onCollapse: () => void }) {
         values={[
           "Live questions / OC Q&A captures the juror answer.",
           "Strike Signals turns the answer into FACT / LEAD / OURS / OC signal stacks.",
-          "Live Strike Board records the team decision or hold/cause posture.",
+          "Live Strike Board ranks the risk and passes the posture into Courtroom Decisions.",
+          "Courtroom Decisions records accept, question, cause, peremptory, avoid, or research-needed action.",
           "Live feedback sync sends dispositions and answer-backed facts back to backend truth.",
           "Coverage + quality eval audits what changed and loops gaps back to Source planner.",
         ]}
@@ -778,6 +824,7 @@ function JurorResearchMapContent() {
   const edges = useMemo<ResearchEdge[]>(
     () => BASE_EDGES.map((edge) => {
       const data = edge.data;
+      const direction: ResearchEdgeData["direction"] = data?.direction === "feedback" ? "feedback" : "forward";
       return {
         ...edge,
         selected: edge.id === selectedEdgeId,
@@ -786,6 +833,7 @@ function JurorResearchMapContent() {
           detail: data?.detail ?? "Workflow handoff between these steps.",
           feedbackTraceActive,
           feedbackTraceRoute: FEEDBACK_TRACE_EDGE_IDS.has(edge.id),
+          direction,
           sourceLabel: data?.sourceLabel ?? edge.source,
           targetLabel: data?.targetLabel ?? edge.target,
           onSelect: (edgeId: string) => {
@@ -936,8 +984,8 @@ function JurorResearchMapContent() {
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
-            defaultViewport={{ x: 24, y: 154, zoom: 0.13 }}
-            minZoom={0.1}
+            defaultViewport={{ x: -980, y: 285, zoom: 0.42 }}
+            minZoom={0.12}
             maxZoom={1.4}
             onNodeClick={handleNodeClick}
             onPaneClick={() => setSelectedEdgeId(null)}
