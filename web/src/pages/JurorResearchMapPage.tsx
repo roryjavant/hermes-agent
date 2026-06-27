@@ -53,7 +53,6 @@ interface ResearchEdgeData extends Record<string, unknown> {
 type ResearchEdge = Edge<ResearchEdgeData, "research">;
 type ViewMode = "logical" | "galaxy";
 type PhaseId = "intake" | "sources" | "analysis" | "review" | "output";
-type LegendId = PhaseId | "live-loop";
 
 interface PhaseMeta {
   id: PhaseId;
@@ -72,13 +71,6 @@ const PHASES: PhaseMeta[] = [
   { id: "review", label: "Review", short: "04", icon: "CHK", color: "#fb7185", ring: "rgba(251, 113, 133, 0.34)", detail: "Human judgment and live-box handoff checks before signals become operational." },
   { id: "output", label: "Output", short: "05", icon: "OUT", color: "#34d399", ring: "rgba(52, 211, 153, 0.34)", detail: "Live questions, strike signals, strike board, courtroom decision posture, facesheet, and coverage evaluation." },
 ];
-
-const LIVE_LOOP_LEGEND = {
-  id: "live-loop" as const,
-  label: "Live loop",
-  icon: "LOOP",
-  detail: "Dashed green connections carry live courtroom outcomes back into audit, coverage, and downstream decision surfaces.",
-};
 
 const PHASE_BY_ID = new Map(PHASES.map((phase) => [phase.id, phase]));
 const BASE_ZONE_NODES: ZoneNode[] = [
@@ -594,9 +586,9 @@ function ResearchFlowNode({ data, selected }: NodeProps<ResearchNode>) {
 
 function ZoneFlowNode({ data }: NodeProps<ZoneNode>) {
   const toneClass = {
-    backend: "border-sky-200/10 bg-[radial-gradient(circle_at_22%_22%,rgba(103,232,249,0.075),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.28),rgba(2,6,23,0.08)_68%,transparent)] text-sky-100/72",
-    box: "border-emerald-200/10 bg-[radial-gradient(circle_at_78%_24%,rgba(52,211,153,0.075),transparent_34%),linear-gradient(135deg,transparent,rgba(2,6,23,0.08)_34%,rgba(6,78,59,0.18))] text-emerald-100/72",
-    boundary: "border-amber-200/0 bg-[linear-gradient(90deg,transparent,rgba(251,191,36,0.035)_44%,rgba(251,191,36,0.14)_50%,rgba(251,191,36,0.035)_56%,transparent)] text-amber-100/68",
+    backend: "border-current/10 bg-current/[0.025] text-midground/70",
+    box: "border-current/10 bg-current/[0.03] text-midground/70",
+    boundary: "border-current/0 bg-current/[0.035] text-midground/70",
   }[data.tone];
   const labelClass = data.tone === "boundary" ? "left-1/2 top-32 -translate-x-1/2" : data.tone === "backend" ? "left-28 top-28" : "right-28 top-28";
 
@@ -794,8 +786,7 @@ function JurorResearchMapContent() {
   const [selectedId, setSelectedId] = useState("potential-fact-pool");
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
-  const [activeLegendId, setActiveLegendId] = useState<LegendId | null>(null);
-  const [feedbackTraceEnabled, setFeedbackTraceEnabled] = useState(false);
+  const feedbackTraceEnabled = false;
 
 
   useLayoutEffect(() => {
@@ -856,10 +847,6 @@ function JurorResearchMapContent() {
   const selectedNode = flowNodes.find((node): node is ResearchNode => isResearchNode(node) && node.id === selectedId) ?? flowNodes.find(isResearchNode);
   const selectedEdge = selectedEdgeId ? edges.find((edge) => edge.id === selectedEdgeId) ?? null : null;
   const researchNodes = useMemo(() => flowNodes.filter(isResearchNode), [flowNodes]);
-  const activePhaseId: PhaseId | null = activeLegendId && activeLegendId !== LIVE_LOOP_LEGEND.id ? activeLegendId : null;
-  const activePhase = activePhaseId ? PHASE_BY_ID.get(activePhaseId) ?? null : null;
-  const activeLegend = activeLegendId === LIVE_LOOP_LEGEND.id ? LIVE_LOOP_LEGEND : activePhase;
-  const activeLegendCount = activePhase ? researchNodes.filter((node) => node.data.phase === activePhase.id).length : null;
 
   const selectNodeById = useCallback(
     (nodeId: string) => {
@@ -895,118 +882,12 @@ function JurorResearchMapContent() {
 
   return (
     <div className="flex min-h-[calc(100dvh-3.5rem)] w-full flex-col gap-4 p-4 lg:p-6">
-      <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.88),rgba(2,6,23,0.78)_54%,rgba(8,13,28,0.9))] px-4 py-3 shadow-2xl shadow-black/35 backdrop-blur-xl">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_24%,rgba(103,232,249,0.18),transparent_30%),radial-gradient(circle_at_44%_18%,rgba(251,191,36,0.12),transparent_24%),radial-gradient(circle_at_78%_20%,rgba(52,211,153,0.14),transparent_28%)]" />
-        <div className="pointer-events-none absolute inset-x-8 bottom-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-        <div className="relative flex flex-wrap items-center gap-2">
-          {PHASES.map((phase, index) => (
-            <div className="flex items-center gap-2" key={phase.id}>
-              <button
-                type="button"
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
-                  activeLegendId === phase.id
-                    ? "border-white/30 bg-white/12 text-midground"
-                    : "border-current/15 bg-black/25 text-text-secondary hover:border-white/25 hover:text-midground",
-                )}
-                onClick={() => setActiveLegendId((current) => (current === phase.id ? null : phase.id))}
-                aria-expanded={activeLegendId === phase.id}
-              >
-                <span className="grid size-6 place-items-center rounded-full border border-current/25 bg-black/30 text-[8px] font-black leading-none shadow-[0_0_14px_currentColor]" style={{ color: phase.color }}>
-                  {phase.icon}
-                </span>
-                {phase.label}
-              </button>
-              {index < PHASES.length - 1 ? (
-                <span className="relative hidden h-px w-9 bg-gradient-to-r from-current/25 via-current/55 to-current/25 text-cyan-100/60 sm:inline-block" aria-hidden="true">
-                  <span className="absolute -right-1 -top-[5px] text-[10px] leading-none text-current">›</span>
-                </span>
-              ) : null}
-            </div>
-          ))}
-          <span className="hidden h-px w-9 bg-gradient-to-r from-emerald-300/25 via-emerald-300/55 to-emerald-300/25 sm:inline-block" aria-hidden="true" />
-          <button
-            type="button"
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
-              activeLegendId === LIVE_LOOP_LEGEND.id
-                ? "border-emerald-200/45 bg-emerald-300/12 text-emerald-50"
-                : "border-emerald-300/25 bg-emerald-950/20 text-emerald-100/90 hover:border-emerald-200/40 hover:text-emerald-50",
-            )}
-            onClick={() => setActiveLegendId((current) => (current === LIVE_LOOP_LEGEND.id ? null : LIVE_LOOP_LEGEND.id))}
-            aria-expanded={activeLegendId === LIVE_LOOP_LEGEND.id}
-          >
-            <span className="grid size-6 place-items-center rounded-full border border-emerald-300/35 bg-black/30 text-[8px] font-black leading-none text-emerald-200 shadow-[0_0_14px_rgba(52,211,153,0.8)]">
-              {LIVE_LOOP_LEGEND.icon}
-            </span>
-            {LIVE_LOOP_LEGEND.label}
-          </button>
-          <button
-            type="button"
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-black uppercase tracking-[0.12em] transition-colors",
-              feedbackTraceEnabled
-                ? "border-red-200/70 bg-red-500 text-white shadow-[0_0_18px_rgba(248,113,113,0.65)]"
-                : "border-red-300/25 bg-red-950/25 text-red-100/90 hover:border-red-200/45 hover:text-red-50",
-            )}
-            onClick={() => {
-              setFeedbackTraceEnabled((current) => !current);
-              setActiveLegendId(null);
-              setSelectedEdgeId(null);
-            }}
-            aria-pressed={feedbackTraceEnabled}
-            title="Highlight how live answers and strike decisions feed back into audit, coverage, and source planning"
-          >
-            <span className="h-0 w-7 border-t-[3px] border-red-400 shadow-[0_0_12px_rgba(248,113,113,0.85)]" />
-            Trace feedback
-          </button>
-          {activeLegend ? (
-            <div className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-[min(22rem,calc(100vw-3rem))] rounded-2xl border border-white/15 bg-slate-950/95 p-3 text-sm text-slate-200 shadow-2xl shadow-black/40 backdrop-blur">
-              <div className="mb-1 flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-midground">
-                {activePhase ? <span className="size-2 rounded-full shadow-[0_0_14px_currentColor]" style={{ backgroundColor: activePhase.color, color: activePhase.color }} /> : <span className="h-0 w-7 border-t-2 border-dashed border-emerald-300" />}
-                {activeLegend.label}
-              </div>
-              <p className="leading-5 text-text-secondary">{activeLegend.detail}</p>
-              {activeLegendCount !== null ? <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-text-tertiary">{activeLegendCount} nodes in this phase</p> : null}
-            </div>
-          ) : null}
-        </div>
-      </section>
-
       <div className={cn("grid min-h-[780px] flex-1 gap-4", detailsCollapsed ? "xl:grid-cols-[minmax(0,1fr)_52px]" : "xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_400px]")}>
-        <section className="relative min-h-[700px] overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(135deg,#05060d_0%,#070b14_48%,#050b0d_100%)] shadow-2xl shadow-black/35 ring-1 ring-white/5">
-          <div
-            className="pointer-events-none absolute inset-0 opacity-80"
-            style={{
-              background: `radial-gradient(ellipse at 12% 42%, rgba(103, 232, 249, 0.14), transparent 34%),
-                radial-gradient(ellipse at 32% 32%, rgba(167, 139, 250, 0.11), transparent 32%),
-                radial-gradient(ellipse at 50% 48%, rgba(251, 191, 36, 0.09), transparent 34%),
-                radial-gradient(ellipse at 66% 46%, rgba(251, 113, 133, 0.075), transparent 32%),
-                radial-gradient(ellipse at 84% 44%, rgba(52, 211, 153, 0.13), transparent 36%)`,
-            }}
-          />
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_26%,rgba(103,232,249,0.08),transparent_30%),radial-gradient(circle_at_48%_36%,rgba(251,191,36,0.055),transparent_32%),radial-gradient(circle_at_82%_35%,rgba(52,211,153,0.075),transparent_30%),linear-gradient(90deg,rgba(226,232,240,0.052)_1px,transparent_1px),linear-gradient(rgba(226,232,240,0.052)_1px,transparent_1px)] bg-[size:100%_100%,100%_100%,100%_100%,72px_72px,72px_72px]" />
-          <div className="pointer-events-none absolute inset-0 opacity-22 [background-image:radial-gradient(circle,rgba(203,213,225,0.5)_1px,transparent_1.5px)] [background-size:46px_46px]" />
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_54%,rgba(2,6,23,0.82)_100%),linear-gradient(180deg,rgba(255,255,255,0.045),transparent_18%,transparent_82%,rgba(0,0,0,0.32))]" />
-          <div className="pointer-events-none absolute inset-x-8 top-0 z-10 h-px bg-gradient-to-r from-transparent via-cyan-100/30 to-transparent" />
-          <div className="pointer-events-none absolute inset-x-6 top-6 z-10 grid grid-cols-5 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/45 shadow-2xl shadow-black/20 backdrop-blur-sm">
-            {PHASES.map((phase) => (
-              <div
-                key={phase.id}
-                className="relative min-h-14 border-r border-white/10 px-4 py-3 last:border-r-0"
-                style={{
-                  background: `linear-gradient(135deg, ${phase.ring}, transparent 72%)`,
-                }}
-              >
-                <div className="mb-1 flex items-center gap-2 text-[9px] font-black uppercase leading-none tracking-[0.2em] text-slate-100/82">
-                  <span className="size-2 rounded-full shadow-[0_0_14px_currentColor]" style={{ backgroundColor: phase.color, color: phase.color }} />
-                  {phase.short} · {phase.label}
-                </div>
-                <div className="truncate text-[10px] font-medium leading-tight text-slate-300/60">{phase.detail}</div>
-              </div>
-            ))}
-          </div>
-          <div className="pointer-events-none absolute bottom-5 left-5 z-10 rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-100/78 shadow-lg shadow-black/30 backdrop-blur-md">
+        <section className="relative min-h-[700px] overflow-hidden rounded-3xl border border-current/15 bg-background-base shadow-2xl shadow-black/35 ring-1 ring-current/5">
+          <div className="pointer-events-none absolute inset-0 opacity-75 [background-image:linear-gradient(90deg,color-mix(in_srgb,var(--midground-base)_7%,transparent)_1px,transparent_1px),linear-gradient(color-mix(in_srgb,var(--midground-base)_7%,transparent)_1px,transparent_1px)] [background-size:72px_72px]" />
+          <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:radial-gradient(circle,color-mix(in_srgb,var(--midground-base)_42%,transparent)_1px,transparent_1.5px)] [background-size:46px_46px]" />
+          <div className="pointer-events-none absolute inset-x-8 top-0 z-10 h-px bg-gradient-to-r from-transparent via-current/20 to-transparent" />
+          <div className="pointer-events-none absolute bottom-5 left-5 z-10 rounded-full border border-current/15 bg-background-base/70 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-midground/78 shadow-lg shadow-black/30 backdrop-blur-md">
             Drag canvas · scroll to zoom · click a node
           </div>
           <ReactFlow
@@ -1023,7 +904,7 @@ function JurorResearchMapContent() {
             panOnScroll
             proOptions={{ hideAttribution: true }}
           >
-            <Background color="rgba(226, 232, 240, 0.075)" gap={46} />
+            <Background color="color-mix(in srgb, var(--midground-base) 10%, transparent)" gap={46} />
           </ReactFlow>
         </section>
 
