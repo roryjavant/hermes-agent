@@ -242,61 +242,61 @@ const EDGE_CHIP_PLACEMENTS: Record<string, EdgeChipPlacement> = {
 };
 
 const LOGICAL_POSITIONS: Record<string, { x: number; y: number }> = {
-  "case-intake": { x: 0, y: 360 },
-  "identity-resolution": { x: 430, y: 360 },
-  "source-planner": { x: 880, y: 360 },
-  "public-records": { x: 1380, y: 40 },
-  "web-social": { x: 1380, y: 360 },
-  "news-local": { x: 1380, y: 680 },
-  "evidence-capture": { x: 1900, y: 360 },
-  "fact-extraction": { x: 2400, y: 360 },
-  "dedupe-corroborate": { x: 2920, y: 650 },
-  "potential-fact-pool": { x: 2920, y: 80 },
-  "box-eligible-leads": { x: 3440, y: 80 },
-  "opposing-counsel-lens": { x: 3440, y: 950 },
-  "signal-model": { x: 3440, y: 430 },
-  "human-review": { x: 3960, y: 650 },
-  "backend-box-handoff": { x: 3960, y: 360 },
-  "box-live-cockpit": { x: 4480, y: 80 },
-  "operator-notes": { x: 4480, y: 500 },
-  "box-live-state": { x: 5000, y: 80 },
-  "live-questions": { x: 5000, y: 500 },
-  "oc-voir-dire-tracker": { x: 5000, y: 950 },
-  "live-strike-board": { x: 5520, y: 80 },
-  "strike-signals": { x: 5520, y: 500 },
-  "live-feedback-sync": { x: 5520, y: 950 },
-  "courtroom-decisions": { x: 6040, y: 80 },
-  facesheet: { x: 6040, y: 500 },
-  "coverage-eval": { x: 6560, y: 500 },
+  "case-intake": { x: 0, y: 420 },
+  "identity-resolution": { x: 430, y: 420 },
+  "source-planner": { x: 880, y: 420 },
+  "public-records": { x: 1380, y: 140 },
+  "web-social": { x: 1380, y: 420 },
+  "news-local": { x: 1380, y: 700 },
+  "evidence-capture": { x: 1900, y: 420 },
+  "fact-extraction": { x: 2400, y: 420 },
+  "dedupe-corroborate": { x: 2920, y: 220 },
+  "potential-fact-pool": { x: 2920, y: 520 },
+  "box-eligible-leads": { x: 3440, y: 220 },
+  "signal-model": { x: 3440, y: 520 },
+  "opposing-counsel-lens": { x: 3440, y: 820 },
+  "backend-box-handoff": { x: 3960, y: 220 },
+  "human-review": { x: 3960, y: 520 },
+  "box-live-cockpit": { x: 4480, y: 220 },
+  "operator-notes": { x: 4480, y: 520 },
+  "box-live-state": { x: 5000, y: 220 },
+  "live-questions": { x: 5000, y: 520 },
+  "oc-voir-dire-tracker": { x: 5000, y: 820 },
+  "live-strike-board": { x: 5520, y: 220 },
+  "strike-signals": { x: 5520, y: 520 },
+  "courtroom-decisions": { x: 6040, y: 220 },
+  facesheet: { x: 6040, y: 520 },
+  "live-feedback-sync": { x: 6040, y: 820 },
+  "coverage-eval": { x: 6560, y: 820 },
 };
 
 const GALAXY_POSITIONS: Record<string, { x: number; y: number }> = {
   "case-intake": { x: 280, y: 430 },
   "identity-resolution": { x: 700, y: 430 },
   "source-planner": { x: 1160, y: 430 },
-  "public-records": { x: 1620, y: 100 },
+  "public-records": { x: 1620, y: 150 },
   "web-social": { x: 1700, y: 430 },
-  "news-local": { x: 1620, y: 760 },
+  "news-local": { x: 1620, y: 710 },
   "evidence-capture": { x: 2160, y: 430 },
   "fact-extraction": { x: 2680, y: 430 },
-  "dedupe-corroborate": { x: 3220, y: 720 },
-  "potential-fact-pool": { x: 3220, y: 150 },
-  "box-eligible-leads": { x: 3760, y: 150 },
-  "opposing-counsel-lens": { x: 3760, y: 1020 },
-  "signal-model": { x: 3760, y: 430 },
-  "human-review": { x: 4300, y: 720 },
-  "backend-box-handoff": { x: 4300, y: 430 },
-  "box-live-cockpit": { x: 4840, y: 150 },
-  "operator-notes": { x: 4840, y: 580 },
-  "box-live-state": { x: 5380, y: 150 },
-  "live-questions": { x: 5380, y: 580 },
-  "oc-voir-dire-tracker": { x: 5380, y: 1020 },
-  "live-strike-board": { x: 5920, y: 150 },
-  "strike-signals": { x: 5920, y: 580 },
-  "live-feedback-sync": { x: 5920, y: 1020 },
-  "courtroom-decisions": { x: 6460, y: 150 },
-  facesheet: { x: 6460, y: 580 },
-  "coverage-eval": { x: 7000, y: 580 },
+  "dedupe-corroborate": { x: 3220, y: 230 },
+  "potential-fact-pool": { x: 3220, y: 530 },
+  "box-eligible-leads": { x: 3760, y: 230 },
+  "signal-model": { x: 3760, y: 530 },
+  "opposing-counsel-lens": { x: 3760, y: 830 },
+  "backend-box-handoff": { x: 4300, y: 230 },
+  "human-review": { x: 4300, y: 530 },
+  "box-live-cockpit": { x: 4840, y: 230 },
+  "operator-notes": { x: 4840, y: 530 },
+  "box-live-state": { x: 5380, y: 230 },
+  "live-questions": { x: 5380, y: 530 },
+  "oc-voir-dire-tracker": { x: 5380, y: 830 },
+  "live-strike-board": { x: 5920, y: 230 },
+  "strike-signals": { x: 5920, y: 530 },
+  "courtroom-decisions": { x: 6460, y: 230 },
+  facesheet: { x: 6460, y: 530 },
+  "live-feedback-sync": { x: 6460, y: 830 },
+  "coverage-eval": { x: 7000, y: 830 },
 };
 
 const LOGICAL_ZONE_POSITIONS: Record<string, { x: number; y: number; width: number; height: number }> = {
@@ -373,20 +373,27 @@ function zoneNode(id: string, label: string, detail: string, tone: ZoneNodeData[
 function researchEdge(source: string, target: string, label: string, animated = false): ResearchEdge {
   const sourceLabel = BASE_NODES.find((node) => node.id === source)?.data.label ?? source;
   const targetLabel = BASE_NODES.find((node) => node.id === target)?.data.label ?? target;
-  const isDedupeToPotentialPool = source === "dedupe-corroborate" && target === "potential-fact-pool";
   const isOcLensToSignalModel = source === "opposing-counsel-lens" && target === "signal-model";
+  const isDedupeToPotentialPool = source === "dedupe-corroborate" && target === "potential-fact-pool";
   const isCockpitToOperatorNotes = source === "box-live-cockpit" && target === "operator-notes";
+  const isReviewToHandoff = source === "human-review" && target === "backend-box-handoff";
+  const isDecisionToFeedback = source === "courtroom-decisions" && target === "live-feedback-sync";
+  const isStateToOcTracker = source === "box-live-state" && target === "oc-voir-dire-tracker";
+  const isOcTrackerToQuestions = source === "oc-voir-dire-tracker" && target === "live-questions";
+  const isStrikeSignalsToBoard = source === "strike-signals" && target === "live-strike-board";
+  const isDecisionToFacesheet = source === "courtroom-decisions" && target === "facesheet";
   const isFeedback = animated || source === "coverage-eval" || source === "live-feedback-sync" || target === "live-feedback-sync";
-  const upwardHandoff = isDedupeToPotentialPool || isOcLensToSignalModel;
+  const topToBottom = isOcLensToSignalModel || isReviewToHandoff || isOcTrackerToQuestions || isStrikeSignalsToBoard;
+  const bottomToTop = isDedupeToPotentialPool || isCockpitToOperatorNotes || isDecisionToFeedback || isStateToOcTracker || isDecisionToFacesheet;
   const shouldShowArrowhead = true;
   const markerColor = isFeedback ? "#34d399" : "#b4c2ff";
   return {
     id: `${source}-${target}`,
     type: "research",
     source,
-    sourceHandle: isCockpitToOperatorNotes ? "bottom-source" : upwardHandoff ? "top-source" : undefined,
+    sourceHandle: bottomToTop ? "bottom-source" : topToBottom ? "top-source" : undefined,
     target,
-    targetHandle: isCockpitToOperatorNotes ? "top-target" : upwardHandoff ? "bottom-target" : undefined,
+    targetHandle: bottomToTop ? "top-target" : topToBottom ? "bottom-target" : undefined,
     animated,
     markerEnd: shouldShowArrowhead
       ? {
@@ -434,14 +441,20 @@ function ResearchFlowEdge({
     targetPosition,
   });
   const isDedupeConflictReviewEdge = id === "dedupe-corroborate-human-review";
+  const isCoverageGapLoopEdge = id === "coverage-eval-source-planner";
   const conflictLaneY = Math.max(sourceY, targetY) + 120;
   const conflictSourceDoglegX = sourceX + 120;
   const conflictTargetDoglegX = targetX - 120;
-  const edgePath = isDedupeConflictReviewEdge
-    ? `M ${sourceX},${sourceY} L ${conflictSourceDoglegX},${sourceY} L ${conflictSourceDoglegX},${conflictLaneY} L ${conflictTargetDoglegX},${conflictLaneY} L ${conflictTargetDoglegX},${targetY} L ${targetX},${targetY}`
-    : smoothEdgePath;
-  const labelX = isDedupeConflictReviewEdge ? (conflictSourceDoglegX + conflictTargetDoglegX) / 2 : smoothLabelX;
-  const labelY = isDedupeConflictReviewEdge ? conflictLaneY : smoothLabelY;
+  const gapLoopLaneY = Math.max(sourceY, targetY) + 260;
+  const gapLoopSourceDoglegX = sourceX + 180;
+  const gapLoopTargetDoglegX = targetX - 180;
+  const edgePath = isCoverageGapLoopEdge
+    ? `M ${sourceX},${sourceY} L ${gapLoopSourceDoglegX},${sourceY} L ${gapLoopSourceDoglegX},${gapLoopLaneY} L ${gapLoopTargetDoglegX},${gapLoopLaneY} L ${gapLoopTargetDoglegX},${targetY} L ${targetX},${targetY}`
+    : isDedupeConflictReviewEdge
+      ? `M ${sourceX},${sourceY} L ${conflictSourceDoglegX},${sourceY} L ${conflictSourceDoglegX},${conflictLaneY} L ${conflictTargetDoglegX},${conflictLaneY} L ${conflictTargetDoglegX},${targetY} L ${targetX},${targetY}`
+      : smoothEdgePath;
+  const labelX = isCoverageGapLoopEdge ? (gapLoopSourceDoglegX + gapLoopTargetDoglegX) / 2 : isDedupeConflictReviewEdge ? (conflictSourceDoglegX + conflictTargetDoglegX) / 2 : smoothLabelX;
+  const labelY = isCoverageGapLoopEdge ? gapLoopLaneY : isDedupeConflictReviewEdge ? conflictLaneY : smoothLabelY;
   const feedbackTraceActive = Boolean(data?.feedbackTraceActive);
   const feedbackTraceRoute = Boolean(data?.feedbackTraceRoute);
   const visibleStyle = feedbackTraceActive

@@ -467,3 +467,15 @@ def test_mission_control_score_ignores_stale_disabled_cron_and_unassigned_profil
     assert "data.cronJobs.filter((job) => job.last_error)" not in source
     assert "data.activity?.profile_teams" in source
     assert "data.profiles.filter((profile) => !profile.has_env)" not in source
+
+
+def test_mission_control_team_role_glyphs_cover_domain_specialists():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert 'normalized.includes("strategist")' in source
+    assert 'normalized.includes("scout")' in source
+    assert 'normalized.includes("analyst")' in source
+    assert 'normalized.includes("fact")' in source
+    assert 'normalized.includes("analytics")' in source
+    assert "Profile-backed role agents per project team" in source
+    assert "Five profile-backed role agents per coding team" not in source

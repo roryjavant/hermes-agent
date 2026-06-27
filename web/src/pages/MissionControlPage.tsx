@@ -752,6 +752,17 @@ function toneFromProfileStatus(status: string, configured: boolean): ReadinessTo
 
 function glyphForTeamRole(role: string): string {
   const normalized = role.toLowerCase();
+  if (normalized.includes("strategist")) return "strategy";
+  if (normalized.includes("scout")) return "scout";
+  if (normalized.includes("analyst")) return "analyst";
+  if (normalized.includes("fact")) return "fact check";
+  if (normalized.includes("copywriter")) return "copy";
+  if (normalized.includes("calendar")) return "calendar";
+  if (normalized.includes("analytics")) return "analytics";
+  if (normalized.includes("growth")) return "growth";
+  if (normalized.includes("brand")) return "brand";
+  if (normalized.includes("assets")) return "assets";
+  if (normalized.includes("ideation")) return "ideation";
   if (normalized.includes("planner")) return "planner";
   if (normalized.includes("implementor")) return "implementor";
   if (normalized.includes("builder")) return "builder";
@@ -1573,7 +1584,7 @@ function ActiveOperationsBoard({
   };
   const segments: Array<{ id: ActivitySegment; label: string; helper: string }> = [
     { id: "terminals", label: "Terminals", helper: "Local Hermes/PTY shells and dashboard surfaces" },
-    { id: "teams", label: "Teams", helper: "Five profile-backed role agents per coding team" },
+    { id: "teams", label: "Teams", helper: "Profile-backed role agents per project team" },
     { id: "agents", label: "Agents", helper: "Live profile-backed Hermes agents" },
     { id: "subagents", label: "Subagents", helper: "Ephemeral delegate children spawned by an agent" },
   ];
@@ -1718,7 +1729,7 @@ function ActiveOperationsBoard({
                                   const ariaLabel = `${row.label} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${riskTitle}`;
                                   const lightClassName = cn(
                                     "group relative flex items-center justify-center rounded-full border transition-all duration-200",
-                                    isTeamFlow ? "h-20 w-20" : "h-10 w-10",
+                                    isTeamFlow ? "h-[4.5rem] w-[4.5rem]" : "h-10 w-10",
                                     "hover:-translate-y-0.5 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                     item.tone === "ready" && "border-success/50 bg-success/10 text-success shadow-[0_0_16px_color-mix(in_srgb,var(--color-success)_22%,transparent)]",
                                     item.tone === "working" && "border-warning/50 bg-warning/10 text-warning shadow-[0_0_16px_color-mix(in_srgb,var(--color-warning)_24%,transparent)]",
@@ -1769,7 +1780,7 @@ function ActiveOperationsBoard({
                                       {isTeamFlow && !isLastTeamLight && (
                                         <span
                                           className={cn(
-                                            "relative flex h-20 w-12 shrink-0 items-center justify-center",
+                                            "relative flex h-[4.5rem] w-8 shrink-0 items-center justify-center",
                                             "before:absolute before:left-0 before:right-0 before:top-1/2 before:h-px before:-translate-y-1/2 before:bg-current/35",
                                             item.tone === "ready" && "text-success",
                                             item.tone === "working" && "text-warning",
