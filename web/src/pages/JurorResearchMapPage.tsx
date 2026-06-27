@@ -543,17 +543,17 @@ function ResearchFlowNode({ data, selected }: NodeProps<ResearchNode>) {
   return (
     <div
       className={cn(
-        "group relative h-32 w-[268px] overflow-hidden rounded-[1.35rem] border px-3.5 py-3",
-        "bg-[linear-gradient(145deg,rgba(15,23,42,0.97),rgba(3,7,18,0.92)_58%,rgba(2,6,23,0.97))] text-left shadow-2xl backdrop-blur-xl transition-transform duration-150",
+        "group relative h-32 w-[268px] overflow-hidden rounded-2xl border px-3.5 py-3",
+        "bg-background-base/95 text-left shadow-xl shadow-black/30 backdrop-blur-md transition-transform duration-150",
         feedbackTraceDimmed && "opacity-35 saturate-50",
         feedbackTraceRoute && "scale-[1.03]",
-        selected && "scale-[1.04]",
+        selected && "scale-[1.025]",
       )}
       style={{
-        borderColor: feedbackTraceRoute ? "#ef4444" : `${color}cc`,
+        borderColor: feedbackTraceRoute ? "#ef4444" : `${color}99`,
         boxShadow: feedbackTraceRoute
-          ? "0 0 0 1px rgba(255,255,255,0.1) inset, 0 20px 42px rgba(0,0,0,0.36), 0 0 54px rgba(248,113,113,0.9)"
-          : `0 0 0 1px rgba(255,255,255,0.1) inset, 0 18px 36px rgba(0,0,0,0.38), 0 0 ${selected ? 48 : 24}px ${phase?.ring ?? "rgba(148,163,184,0.25)"}`,
+          ? "0 0 0 1px rgba(255,255,255,0.1) inset, 0 18px 34px rgba(0,0,0,0.38), 0 0 28px rgba(248,113,113,0.45)"
+          : `0 0 0 1px rgba(255,255,255,0.08) inset, 0 16px 30px rgba(0,0,0,0.34), 0 0 ${selected ? 24 : 10}px ${phase?.ring ?? "rgba(148,163,184,0.18)"}`,
       }}
     >
       <Handle className="!size-2 !border-0" position={Position.Left} style={{ background: color }} type="target" />
@@ -562,40 +562,32 @@ function ResearchFlowNode({ data, selected }: NodeProps<ResearchNode>) {
       <Handle className="!size-2 !border-0" id="top-target" position={Position.Top} style={{ background: color }} type="target" />
       <Handle className="!size-2 !border-0" id="bottom-source" position={Position.Bottom} style={{ background: color }} type="source" />
       <Handle className="!size-2 !border-0" id="bottom-target" position={Position.Bottom} style={{ background: color }} type="target" />
-      <div className="pointer-events-none absolute inset-0 opacity-90" style={{ background: `radial-gradient(circle at 16% 4%, ${phase?.ring ?? "rgba(148,163,184,0.24)"}, transparent 42%), linear-gradient(180deg, rgba(255,255,255,0.08), transparent 34%)` }} />
-      <div className="pointer-events-none absolute -right-10 -top-10 size-24 rounded-full blur-2xl opacity-22" style={{ backgroundColor: color }} />
-      <div className="pointer-events-none absolute inset-x-3 top-0 h-px opacity-80" style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }} />
-      <div className="pointer-events-none absolute inset-x-4 bottom-0 h-8 bg-gradient-to-t from-slate-950/88 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-1" style={{ backgroundColor: color }} />
+      <div className="pointer-events-none absolute inset-x-4 bottom-0 h-px bg-current/10" />
       <div className="relative flex items-center justify-between gap-3">
-        <span className="max-w-[10.5rem] truncate rounded-full border border-white/10 bg-black/35 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-slate-200/78">
+        <span className="max-w-[10.5rem] truncate rounded-md border border-current/10 bg-current/[0.04] px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-midground/75">
           {phase?.short} · {phase?.label}
         </span>
         <span
-          className="grid size-7 shrink-0 place-items-center rounded-full border text-[8px] font-black leading-none shadow-[0_0_14px_currentColor]"
-          style={{ borderColor: color, color: feedbackTraceRoute ? "#ef4444" : color, background: "rgba(2,6,23,0.72)" }}
+          className="grid size-7 shrink-0 place-items-center rounded-md border text-[8px] font-black leading-none"
+          style={{ borderColor: `${color}99`, color: feedbackTraceRoute ? "#ef4444" : color, background: "color-mix(in srgb, var(--background-base) 88%, transparent)" }}
           title={`${data.label} role`}
         >
           {roleIcon}
         </span>
       </div>
-      <div className="relative mt-2 min-h-[1.15rem] truncate text-[15px] font-black leading-[1.12] tracking-[-0.015em] text-slate-50">{data.label}</div>
-      <p className="relative mt-1.5 line-clamp-2 text-[10px] font-medium leading-[1.25] text-slate-300/78">{data.summary}</p>
+      <div className="relative mt-2 min-h-[1.15rem] truncate text-[15px] font-black leading-[1.12] tracking-[-0.015em] text-midground">{data.label}</div>
+      <p className="relative mt-1.5 line-clamp-2 text-[10px] font-medium leading-[1.25] text-text-secondary/80">{data.summary}</p>
     </div>
   );
 }
 
 function ZoneFlowNode({ data }: NodeProps<ZoneNode>) {
-  const toneClass = {
-    backend: "border-current/10 bg-current/[0.025] text-midground/70",
-    box: "border-current/10 bg-current/[0.03] text-midground/70",
-    boundary: "border-current/0 bg-current/[0.035] text-midground/70",
-  }[data.tone];
   const labelClass = data.tone === "boundary" ? "left-1/2 top-32 -translate-x-1/2" : data.tone === "backend" ? "left-28 top-28" : "right-28 top-28";
 
   return (
-    <div className={cn("relative h-full w-full rounded-[2rem] border backdrop-blur-[1px]", toneClass)}>
-      <div className="pointer-events-none absolute inset-8 rounded-[1.75rem] border border-white/[0.035]" />
-      <div className={cn("absolute rounded-full border border-current/15 bg-slate-950/30 px-4 py-1.5 text-[10px] font-black uppercase tracking-[0.22em] backdrop-blur-sm", labelClass)}>
+    <div className="relative h-full w-full">
+      <div className={cn("absolute rounded-md border border-current/10 bg-background-base/65 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-midground/55 backdrop-blur-sm", labelClass)}>
         {data.label}
         <span className="ml-2 text-[9px] font-semibold normal-case tracking-normal opacity-60">{data.detail}</span>
       </div>
@@ -886,7 +878,6 @@ function JurorResearchMapContent() {
         <section className="relative min-h-[700px] overflow-hidden rounded-3xl border border-current/15 bg-background-base shadow-2xl shadow-black/35 ring-1 ring-current/5">
           <div className="pointer-events-none absolute inset-0 opacity-75 [background-image:linear-gradient(90deg,color-mix(in_srgb,var(--midground-base)_7%,transparent)_1px,transparent_1px),linear-gradient(color-mix(in_srgb,var(--midground-base)_7%,transparent)_1px,transparent_1px)] [background-size:72px_72px]" />
           <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:radial-gradient(circle,color-mix(in_srgb,var(--midground-base)_42%,transparent)_1px,transparent_1.5px)] [background-size:46px_46px]" />
-          <div className="pointer-events-none absolute inset-x-8 top-0 z-10 h-px bg-gradient-to-r from-transparent via-current/20 to-transparent" />
           <div className="pointer-events-none absolute bottom-5 left-5 z-10 rounded-full border border-current/15 bg-background-base/70 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-midground/78 shadow-lg shadow-black/30 backdrop-blur-md">
             Drag canvas · scroll to zoom · click a node
           </div>
