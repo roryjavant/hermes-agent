@@ -2,6 +2,7 @@ import type { Translations } from "@/i18n/types";
 
 const BUILTIN: Record<string, keyof Translations["app"]["nav"]> = {
   "/chat": "chat",
+  "/launchpad": "launchpad",
   "/mission-control": "missionControl",
   "/sessions": "sessions",
   "/analytics": "analytics",
@@ -30,6 +31,7 @@ const BUILTIN_LABELS: Required<Translations["app"]["nav"]> = {
   cron: "Cron",
   documentation: "Documentation",
   keys: "Keys",
+  launchpad: "Launchpad",
   logs: "Logs",
   missionControl: "Mission Control",
   models: "Models",

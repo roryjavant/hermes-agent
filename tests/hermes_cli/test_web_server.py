@@ -244,6 +244,65 @@ class TestWebServerEndpoints:
         assert "hermes_home" in data
         assert "active_sessions" in data
 
+    def test_get_launchpad_projects(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server, "_localhost_url_responding", lambda _url: False)
+
+        resp = self.client.get("/api/launchpad/projects")
+
+        assert resp.status_code == 200
+        projects = resp.json()["projects"]
+        assert {project["id"] for project in projects} == {
+            "juror-research",
+            "agent-arena",
+            "hermes-team-ui",
+            "home-hub",
+        }
+        assert all("url" in project for project in projects)
+
+    def test_launchpad_unknown_project_404s(self):
+        resp = self.client.post("/api/launchpad/projects/not-real/launch")
+
+        assert resp.status_code == 404
+        assert "Unknown launchpad project" in resp.json()["detail"]
+
+    def test_launchpad_stop_unknown_project_404s(self):
+        resp = self.client.post("/api/launchpad/projects/not-real/stop")
+
+        assert resp.status_code == 404
+        assert "Unknown launchpad project" in resp.json()["detail"]
+
+    def test_launchpad_stop_terminates_spawned_project(self, monkeypatch):
+        from hermes_cli import web_server
+
+        class DummyProc:
+            pid = 12345
+
+            def __init__(self):
+                self.terminated = False
+
+            def poll(self):
+                return 0 if self.terminated else None
+
+            def terminate(self):
+                self.terminated = True
+
+            def wait(self, timeout=None):
+                return 0
+
+        proc = DummyProc()
+        monkeypatch.setattr(web_server.sys, "platform", "win32")
+        monkeypatch.setattr(web_server, "_localhost_url_responding", lambda _url: False)
+        web_server._ACTION_PROCS["project-launch-hermes-team-ui"] = proc  # type: ignore[assignment]
+
+        resp = self.client.post("/api/launchpad/projects/hermes-team-ui/stop")
+
+        assert resp.status_code == 200
+        assert resp.json()["running"] is False
+        assert proc.terminated is True
+        assert "project-launch-hermes-team-ui" not in web_server._ACTION_PROCS
+
     # ── GET /api/media (remote image display) ───────────────────────────
 
     def test_get_media_serves_image_in_root(self):

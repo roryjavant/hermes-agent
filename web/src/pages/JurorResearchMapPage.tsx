@@ -127,8 +127,6 @@ const BASE_EDGES: ResearchEdge[] = [
   researchEdge("fact-extraction", "potential-fact-pool", "candidate facts"),
   researchEdge("dedupe-corroborate", "potential-fact-pool", "potential"),
   researchEdge("potential-fact-pool", "box-eligible-leads", "screen"),
-  researchEdge("potential-fact-pool", "opposing-counsel-lens", "OC lens"),
-  researchEdge("dedupe-corroborate", "signal-model", "confirmed"),
   researchEdge("potential-fact-pool", "signal-model", "case-adjacent"),
   researchEdge("opposing-counsel-lens", "signal-model", "OC pressure"),
   researchEdge("signal-model", "human-review", "triage"),
@@ -351,15 +349,20 @@ function researchEdge(source: string, target: string, label: string, animated = 
   const sourceLabel = BASE_NODES.find((node) => node.id === source)?.data.label ?? source;
   const targetLabel = BASE_NODES.find((node) => node.id === target)?.data.label ?? target;
   const isDedupeToPotentialPool = source === "dedupe-corroborate" && target === "potential-fact-pool";
+  const isOcLensToSignalModel = source === "opposing-counsel-lens" && target === "signal-model";
+  const isFactPoolToSignalModel = source === "potential-fact-pool" && target === "signal-model";
+  const isSourceToFactExtraction = target === "fact-extraction" && ["public-records", "web-social", "news-local"].includes(source);
+  const upwardHandoff = isDedupeToPotentialPool || isOcLensToSignalModel;
+  const shouldShowArrowhead = upwardHandoff || isFactPoolToSignalModel || isSourceToFactExtraction;
   return {
     id: `${source}-${target}`,
     type: "research",
     source,
-    sourceHandle: isDedupeToPotentialPool ? "top-source" : undefined,
+    sourceHandle: upwardHandoff ? "top-source" : undefined,
     target,
-    targetHandle: isDedupeToPotentialPool ? "bottom-target" : undefined,
+    targetHandle: upwardHandoff ? "bottom-target" : undefined,
     animated,
-    markerEnd: isDedupeToPotentialPool
+    markerEnd: shouldShowArrowhead
       ? {
           type: MarkerType.ArrowClosed,
           color: "#b4c2ff",
@@ -394,7 +397,7 @@ function ResearchFlowEdge({
   data,
   selected,
 }: EdgeProps<ResearchEdge>) {
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [smoothEdgePath, smoothLabelX, smoothLabelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -402,6 +405,15 @@ function ResearchFlowEdge({
     targetY,
     targetPosition,
   });
+  const isDedupeConflictReviewEdge = id === "dedupe-corroborate-human-review";
+  const conflictLaneY = Math.min(sourceY, targetY) - 260;
+  const conflictSourceDoglegX = sourceX + 120;
+  const conflictTargetDoglegX = targetX - 120;
+  const edgePath = isDedupeConflictReviewEdge
+    ? `M ${sourceX},${sourceY} L ${conflictSourceDoglegX},${sourceY} L ${conflictSourceDoglegX},${conflictLaneY} L ${conflictTargetDoglegX},${conflictLaneY} L ${conflictTargetDoglegX},${targetY} L ${targetX},${targetY}`
+    : smoothEdgePath;
+  const labelX = isDedupeConflictReviewEdge ? (conflictSourceDoglegX + conflictTargetDoglegX) / 2 : smoothLabelX;
+  const labelY = isDedupeConflictReviewEdge ? conflictLaneY : smoothLabelY;
   const feedbackTraceActive = Boolean(data?.feedbackTraceActive);
   const feedbackTraceRoute = Boolean(data?.feedbackTraceRoute);
   const visibleStyle = feedbackTraceActive
@@ -511,6 +523,8 @@ function ResearchFlowNode({ data, selected }: NodeProps<ResearchNode>) {
       <Handle className="!size-2 !border-0" position={Position.Left} style={{ background: color }} type="target" />
       <Handle className="!size-2 !border-0" position={Position.Right} style={{ background: color }} type="source" />
       <Handle className="!size-2 !border-0" id="top-source" position={Position.Top} style={{ background: color }} type="source" />
+      <Handle className="!size-2 !border-0" id="top-target" position={Position.Top} style={{ background: color }} type="target" />
+      <Handle className="!size-2 !border-0" id="bottom-source" position={Position.Bottom} style={{ background: color }} type="source" />
       <Handle className="!size-2 !border-0" id="bottom-target" position={Position.Bottom} style={{ background: color }} type="target" />
       <div className="pointer-events-none absolute inset-0 opacity-90" style={{ background: `radial-gradient(circle at 18% 8%, ${phase?.ring ?? "rgba(148,163,184,0.24)"}, transparent 44%), linear-gradient(180deg, rgba(255,255,255,0.07), transparent 34%)` }} />
       <div className="pointer-events-none absolute -right-10 -top-10 size-24 rounded-full blur-2xl opacity-28" style={{ backgroundColor: color }} />

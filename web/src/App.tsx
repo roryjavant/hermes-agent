@@ -32,6 +32,7 @@ import {
   Gauge,
   Heart,
   KeyRound,
+  LayoutGrid,
   Menu,
   MessageSquare,
   Network,
@@ -78,6 +79,7 @@ import EnvPage from "@/pages/EnvPage";
 import FilesPage from "@/pages/FilesPage";
 import SessionsPage from "@/pages/SessionsPage";
 import LogsPage from "@/pages/LogsPage";
+import LaunchpadPage from "@/pages/LaunchpadPage";
 import MissionControlPage from "@/pages/MissionControlPage";
 import JurorResearchMapPage from "@/pages/JurorResearchMapPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
@@ -136,6 +138,7 @@ const CHAT_NAV_ITEM: NavItem = {
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
+  "/launchpad": LaunchpadPage,
   "/mission-control": MissionControlPage,
   "/flow": JurorResearchMapPage,
   "/juror-research-map": JurorResearchMapPage,
@@ -170,6 +173,12 @@ function ChatRouteSink() {
 }
 
 const BUILTIN_NAV_REST: NavItem[] = [
+  {
+    path: "/launchpad",
+    labelKey: "launchpad",
+    label: "Launchpad",
+    icon: LayoutGrid,
+  },
   {
     path: "/mission-control",
     labelKey: "missionControl",
@@ -229,6 +238,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   FileText,
   FolderOpen,
   KeyRound,
+  LayoutGrid,
   MessageSquare,
   Network,
   Package,

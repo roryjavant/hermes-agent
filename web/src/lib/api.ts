@@ -323,6 +323,15 @@ export const api = {
   getStatus: (options?: FetchJSONOptions) => fetchJSON<StatusResponse>("/api/status", undefined, options),
   getMissionControlActivity: (options?: FetchJSONOptions) =>
     fetchJSON<MissionControlActivityResponse>("/api/mission-control/activity", undefined, options),
+  getLaunchpadProjects: () => fetchJSON<LaunchpadProjectsResponse>("/api/launchpad/projects"),
+  launchProject: (projectId: string) =>
+    fetchJSON<LaunchpadLaunchResponse>(`/api/launchpad/projects/${encodeURIComponent(projectId)}/launch`, {
+      method: "POST",
+    }),
+  stopProject: (projectId: string) =>
+    fetchJSON<LaunchpadStopResponse>(`/api/launchpad/projects/${encodeURIComponent(projectId)}/stop`, {
+      method: "POST",
+    }),
   /**
    * Identity probe for the dashboard auth gate (Phase 7).
    *
@@ -1210,6 +1219,42 @@ export interface ActionResponse {
   error?: string;
   message?: string;
   update_command?: string;
+}
+
+export interface LaunchpadProjectStatus {
+  id: string;
+  name: string;
+  url: string;
+  action_name: string;
+  installed: boolean;
+  running: boolean;
+  pid: number | null;
+}
+
+export interface LaunchpadProjectsResponse {
+  projects: LaunchpadProjectStatus[];
+}
+
+export interface LaunchpadLaunchResponse {
+  ok: boolean;
+  project_id: string;
+  name: string;
+  url: string;
+  action_name: string;
+  pid: number | null;
+  reused: boolean;
+  running: boolean;
+}
+
+export interface LaunchpadStopResponse {
+  ok: boolean;
+  project_id: string;
+  name: string;
+  url: string;
+  action_name: string;
+  pid: number | null;
+  running: boolean;
+  message: string;
 }
 
 export interface DebugShareResponse {

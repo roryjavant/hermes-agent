@@ -25,6 +25,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -2050,6 +2051,10 @@ _ACTION_LOG_FILES: Dict[str, str] = {
     "dump": "action-dump.log",
     "config-migrate": "action-config-migrate.log",
     "tools-post-setup": "action-tools-post-setup.log",
+    "project-launch-juror-research": "project-launch-juror-research.log",
+    "project-launch-agent-arena": "project-launch-agent-arena.log",
+    "project-launch-hermes-team-ui": "project-launch-hermes-team-ui.log",
+    "project-launch-home-hub": "project-launch-home-hub.log",
 }
 
 # ``name`` → most recently spawned Popen handle.  Used so ``status`` can
@@ -2147,6 +2152,219 @@ def _spawn_gateway_restart() -> Tuple[subprocess.Popen, bool]:
     if existing is not None and existing.poll() is None:
         return existing, True
     return _spawn_hermes_action(["gateway", "restart"], "gateway-restart"), False
+
+
+@dataclass(frozen=True)
+class LaunchpadProject:
+    id: str
+    name: str
+    cwd: Path
+    command: List[str]
+    url: str
+    action_name: str
+
+
+def _launchpad_projects() -> Dict[str, LaunchpadProject]:
+    dev_root = Path.home() / "Dev"
+    agent_arena_live_cmd = " && ".join(
+        [
+            "mkdir -p var/live",
+            "if [ ! -s var/live/poker-live.jsonl ]; then ./.venv/bin/python -m agent_arena.cli poker --hands 1 --seed 1 --jsonl var/live/poker-live.jsonl; fi",
+            "exec ./.venv/bin/python -m agent_arena.cli live-html --jsonl var/live/poker-live.jsonl --host 127.0.0.1 --port 8787 --queue-cmd './.venv/bin/python -m agent_arena.cli poker --hands {hands} --append --jsonl var/live/poker-live.jsonl' --knockout-cmd './.venv/bin/python -m agent_arena.cli poker --until-winner --max-hands 200 --append --jsonl var/live/poker-live.jsonl'",
+        ]
+    )
+    return {
+        "juror-research": LaunchpadProject(
+            id="juror-research",
+            name="Juror Research",
+            cwd=dev_root / "juror-research",
+            command=["npm", "run", "dev", "--", "--hostname", "127.0.0.1", "--port", "3000"],
+            url="http://127.0.0.1:3000",
+            action_name="project-launch-juror-research",
+        ),
+        "agent-arena": LaunchpadProject(
+            id="agent-arena",
+            name="Agent Arena",
+            cwd=dev_root / "agent-arena",
+            command=["/bin/bash", "-lc", agent_arena_live_cmd],
+            url="http://127.0.0.1:8787",
+            action_name="project-launch-agent-arena",
+        ),
+        "hermes-team-ui": LaunchpadProject(
+            id="hermes-team-ui",
+            name="Hermes Team UI",
+            cwd=PROJECT_ROOT,
+            command=["npm", "run", "dev", "--workspace", "web", "--", "--host", "127.0.0.1", "--port", "5177"],
+            url="http://127.0.0.1:5177/launchpad",
+            action_name="project-launch-hermes-team-ui",
+        ),
+        "home-hub": LaunchpadProject(
+            id="home-hub",
+            name="Home Hub",
+            cwd=dev_root / "personal-home-ui",
+            command=["npm", "run", "dev"],
+            url="http://127.0.0.1:4317",
+            action_name="project-launch-home-hub",
+        ),
+    }
+
+
+def _localhost_url_responding(url: str) -> bool:
+    try:
+        request = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            return 200 <= response.status < 500
+    except Exception:
+        return False
+
+
+def _spawn_project_launch(project: LaunchpadProject) -> Tuple[subprocess.Popen | None, bool]:
+    if not project.cwd.exists():
+        raise FileNotFoundError(f"Project directory not found: {project.cwd}")
+
+    if _localhost_url_responding(project.url):
+        return None, True
+
+    existing = _ACTION_PROCS.get(project.action_name)
+    if existing is not None and existing.poll() is None:
+        return existing, True
+
+    log_file_name = _ACTION_LOG_FILES[project.action_name]
+    _ACTION_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = _ACTION_LOG_DIR / log_file_name
+    log_file = open(log_path, "ab", buffering=0)
+    log_file.write(
+        f"\n=== {project.action_name} started {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n".encode()
+    )
+    log_file.write(f"cwd: {project.cwd}\nurl: {project.url}\ncmd: {' '.join(project.command)}\n".encode())
+    popen_kwargs: Dict[str, Any] = {
+        "cwd": str(project.cwd),
+        "stdin": subprocess.DEVNULL,
+        "stdout": log_file,
+        "stderr": subprocess.STDOUT,
+        "env": {
+            **os.environ,
+            "HERMES_NONINTERACTIVE": "1",
+            "HOST": "127.0.0.1",
+            **({"PORT": "4317"} if project.id == "home-hub" else {}),
+        },
+    }
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+    proc = subprocess.Popen(project.command, **popen_kwargs)
+    log_file.close()
+    _ACTION_RESULTS.pop(project.action_name, None)
+    _ACTION_PROCS[project.action_name] = proc
+    return proc, False
+
+
+def _stop_project_launch(project: LaunchpadProject) -> Tuple[bool, str]:
+    proc = _ACTION_PROCS.get(project.action_name)
+    if proc is None:
+        if _localhost_url_responding(project.url):
+            return False, "Project is responding, but it was not started by this launchpad session."
+        return True, "Project is already stopped."
+
+    if proc.poll() is not None:
+        _ACTION_PROCS.pop(project.action_name, None)
+        return True, "Project is already stopped."
+
+    log_file_name = _ACTION_LOG_FILES[project.action_name]
+    _ACTION_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = _ACTION_LOG_DIR / log_file_name
+    with open(log_path, "ab", buffering=0) as log_file:
+        log_file.write(
+            f"\n=== {project.action_name} stop requested {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n".encode()
+        )
+
+    try:
+        if sys.platform == "win32":
+            proc.terminate()
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            if sys.platform == "win32":
+                proc.kill()
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
+    finally:
+        _ACTION_PROCS.pop(project.action_name, None)
+
+    return True, "Project stopped."
+
+
+@app.get("/api/launchpad/projects")
+async def get_launchpad_projects():
+    projects = []
+    for project in _launchpad_projects().values():
+        proc = _ACTION_PROCS.get(project.action_name)
+        proc_running = proc is not None and proc.poll() is None
+        projects.append({
+            "id": project.id,
+            "name": project.name,
+            "url": project.url,
+            "action_name": project.action_name,
+            "installed": project.cwd.exists(),
+            "running": proc_running or _localhost_url_responding(project.url),
+            "pid": proc.pid if proc_running else None,
+        })
+    return {"projects": projects}
+
+
+@app.post("/api/launchpad/projects/{project_id}/launch")
+async def launch_project(project_id: str):
+    project = _launchpad_projects().get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail=f"Unknown launchpad project: {project_id}")
+    try:
+        proc, reused = _spawn_project_launch(project)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        _log.exception("Failed to launch project %s", project_id)
+        raise HTTPException(status_code=500, detail=f"Failed to launch {project.name}: {exc}")
+    return {
+        "ok": True,
+        "project_id": project.id,
+        "name": project.name,
+        "url": project.url,
+        "action_name": project.action_name,
+        "pid": proc.pid if proc is not None else None,
+        "reused": reused,
+        "running": True,
+    }
+
+
+@app.post("/api/launchpad/projects/{project_id}/stop")
+async def stop_project(project_id: str):
+    project = _launchpad_projects().get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail=f"Unknown launchpad project: {project_id}")
+    try:
+        stopped, message = _stop_project_launch(project)
+    except Exception as exc:
+        _log.exception("Failed to stop project %s", project_id)
+        raise HTTPException(status_code=500, detail=f"Failed to stop {project.name}: {exc}")
+    if not stopped:
+        raise HTTPException(status_code=409, detail=message)
+    return {
+        "ok": True,
+        "project_id": project.id,
+        "name": project.name,
+        "url": project.url,
+        "action_name": project.action_name,
+        "pid": None,
+        "running": False,
+        "message": message,
+    }
 
 
 def _restart_gateway_after_webhook_enable() -> dict[str, Any]:

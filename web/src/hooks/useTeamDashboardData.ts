@@ -23,11 +23,19 @@ import {
 const LIVE_EVENT_KINDS = new Set(["claimed", "heartbeat", "completed", "blocked", "status", "spawned", "gave_up", "promoted"]);
 const TEAM_SELECTED_BOARD_STORAGE_KEY = "hermes.team.selectedBoard";
 
-function readCachedSelectedBoard(): string {
+function readUrlSelectedBoard(): string {
   try {
-    return window.localStorage.getItem(TEAM_SELECTED_BOARD_STORAGE_KEY) ?? "";
+    return new URLSearchParams(window.location.search).get("board") ?? "";
   } catch {
     return "";
+  }
+}
+
+function readCachedSelectedBoard(): string {
+  try {
+    return readUrlSelectedBoard() || window.localStorage.getItem(TEAM_SELECTED_BOARD_STORAGE_KEY) || "";
+  } catch {
+    return readUrlSelectedBoard();
   }
 }
 

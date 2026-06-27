@@ -93,6 +93,8 @@ export interface Translations {
       cron: string;
       documentation: string;
       keys: string;
+      /** Optional — fall back to the nav item's label until translated. */
+      launchpad?: string;
       logs: string;
       /** Optional — fall back to the nav item's label until translated. */
       missionControl?: string;

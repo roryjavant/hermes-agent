@@ -76,6 +76,7 @@ export const en: Translations = {
       cron: "Cron",
       documentation: "Documentation",
       keys: "Keys",
+      launchpad: "Launchpad",
       logs: "Logs",
       missionControl: "Mission Control",
       models: "Models",
