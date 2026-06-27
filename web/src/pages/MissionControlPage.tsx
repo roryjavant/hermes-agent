@@ -1691,9 +1691,9 @@ function ActiveOperationsBoard({
                       {segmentItems.length === 0 ? (
                         <p className="text-xs text-muted-foreground">No live {segment.label.toLowerCase()}.</p>
                       ) : (
-                        <div className="space-y-4">
+                        <div className="space-y-5">
                           {groupedRows.map((row) => (
-                            <div key={row.label} className="grid gap-2 border-t border-border/60 pt-4 md:grid-cols-[minmax(12rem,18rem)_1fr]">
+                            <div key={row.label} className="grid gap-2 border-t border-border/60 pt-5 md:grid-cols-[minmax(12rem,18rem)_1fr]">
                               <div className="min-w-0">
                                 <p className="truncate text-xs font-medium text-foreground">{row.label.split(" · ")[0]}</p>
                                 {row.label.includes(" · ") && (
@@ -1718,7 +1718,7 @@ function ActiveOperationsBoard({
                                   const ariaLabel = `${row.label} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${riskTitle}`;
                                   const lightClassName = cn(
                                     "group relative flex items-center justify-center rounded-full border transition-all duration-200",
-                                    isTeamFlow ? "h-[4.75rem] w-[4.75rem]" : "h-10 w-10",
+                                    isTeamFlow ? "h-20 w-20" : "h-10 w-10",
                                     "hover:-translate-y-0.5 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                     item.tone === "ready" && "border-success/50 bg-success/10 text-success shadow-[0_0_16px_color-mix(in_srgb,var(--color-success)_22%,transparent)]",
                                     item.tone === "working" && "border-warning/50 bg-warning/10 text-warning shadow-[0_0_16px_color-mix(in_srgb,var(--color-warning)_24%,transparent)]",
@@ -1733,7 +1733,7 @@ function ActiveOperationsBoard({
                                         item.tone === "review" && "animate-pulse",
                                       )} />
                                       {item.roleGlyph ? (
-                                        <span className="relative z-10 max-w-[4rem] whitespace-nowrap text-center font-mono-ui text-[0.5rem] font-semibold uppercase leading-none tracking-[-0.04em] text-foreground">
+                                        <span className="relative z-10 max-w-[4.5rem] whitespace-nowrap text-center font-mono-ui text-[0.56rem] font-semibold uppercase leading-none tracking-[-0.04em] text-foreground">
                                           {item.roleGlyph}
                                         </span>
                                       ) : (
@@ -1769,7 +1769,7 @@ function ActiveOperationsBoard({
                                       {isTeamFlow && !isLastTeamLight && (
                                         <span
                                           className={cn(
-                                            "relative flex h-[4.75rem] w-10 shrink-0 items-center justify-center",
+                                            "relative flex h-20 w-12 shrink-0 items-center justify-center",
                                             "before:absolute before:left-0 before:right-0 before:top-1/2 before:h-px before:-translate-y-1/2 before:bg-current/35",
                                             item.tone === "ready" && "text-success",
                                             item.tone === "working" && "text-warning",
