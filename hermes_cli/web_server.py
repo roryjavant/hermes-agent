@@ -11219,6 +11219,27 @@ _PROFILE_TEAM_DEFINITIONS = [
         "project_path": "/Users/roryavant/Dev/agent-arena",
         "profiles": ["aaplanner", "aaimplementor", "aadesigner", "aavisionqa", "aacurator"],
     },
+    {
+        "team_id": "hermes-marketing",
+        "label": "Hermes Marketing",
+        "project_path": "/Users/roryavant/Dev/hermes-marketing",
+        "profiles": [
+            "hmarketingstrategist",
+            "hmarketingideation",
+            "hmarketingcopywriter",
+            "hmarketingcalendar",
+            "hmarketinganalytics",
+            "hmarketinggrowth",
+            "hmarketingbrand",
+            "hmarketingassets",
+        ],
+    },
+    {
+        "team_id": "hermes-marketing-dev",
+        "label": "Hermes Marketing Dev",
+        "project_path": "/Users/roryavant/Dev/hermes-marketing",
+        "profiles": ["hmarketingplanner", "hmarketingbuilder", "hmarketingreviewer"],
+    },
 ]
 
 
@@ -11229,6 +11250,14 @@ def _profile_role(profile: str) -> str:
         "designer": "designer",
         "visionqa": "vision qa",
         "visionreviewer": "vision qa",
+        "strategist": "strategist",
+        "ideation": "ideation",
+        "copywriter": "copywriter",
+        "calendar": "calendar",
+        "analytics": "analytics",
+        "growth": "growth",
+        "brand": "brand",
+        "assets": "assets",
         "planner": "planner",
         "builder": "builder",
         "reviewer": "reviewer",

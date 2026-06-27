@@ -1131,6 +1131,45 @@ class TestMissionControlActivityEndpoint:
             "curator",
         ]
 
+    def test_profile_teams_include_hermes_marketing_project_roster(self):
+        from hermes_cli import web_server
+
+        teams = web_server._snapshot_profile_teams([])
+        by_id = {team["team_id"]: team for team in teams}
+
+        assert by_id["hermes-marketing"]["label"] == "Hermes Marketing"
+        assert by_id["hermes-marketing"]["project_path"] == "/Users/roryavant/Dev/hermes-marketing"
+        assert [agent["profile"] for agent in by_id["hermes-marketing"]["agents"]] == [
+            "hmarketingstrategist",
+            "hmarketingideation",
+            "hmarketingcopywriter",
+            "hmarketingcalendar",
+            "hmarketinganalytics",
+            "hmarketinggrowth",
+            "hmarketingbrand",
+            "hmarketingassets",
+        ]
+        assert [agent["role"] for agent in by_id["hermes-marketing"]["agents"]] == [
+            "strategist",
+            "ideation",
+            "copywriter",
+            "calendar",
+            "analytics",
+            "growth",
+            "brand",
+            "assets",
+        ]
+        assert [agent["profile"] for agent in by_id["hermes-marketing-dev"]["agents"]] == [
+            "hmarketingplanner",
+            "hmarketingbuilder",
+            "hmarketingreviewer",
+        ]
+        assert [agent["role"] for agent in by_id["hermes-marketing-dev"]["agents"]] == [
+            "planner",
+            "builder",
+            "reviewer",
+        ]
+
     def test_activity_dedupe_keeps_non_terminal_sources_separate(self):
         from hermes_cli import web_server
 
