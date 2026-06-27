@@ -552,16 +552,16 @@ function ResearchFlowNode({ data, selected }: NodeProps<ResearchNode>) {
     <div
       className={cn(
         "group relative h-32 w-[268px] overflow-hidden rounded-[1.35rem] border px-3.5 py-3",
-        "bg-[linear-gradient(145deg,rgba(15,23,42,0.98),rgba(2,6,23,0.9)_60%,rgba(15,23,42,0.94))] text-left shadow-2xl backdrop-blur-md transition-transform duration-150",
+        "bg-[linear-gradient(145deg,rgba(15,23,42,0.97),rgba(3,7,18,0.92)_58%,rgba(2,6,23,0.97))] text-left shadow-2xl backdrop-blur-xl transition-transform duration-150",
         feedbackTraceDimmed && "opacity-35 saturate-50",
         feedbackTraceRoute && "scale-[1.03]",
         selected && "scale-[1.04]",
       )}
       style={{
-        borderColor: feedbackTraceRoute ? "#ef4444" : color,
+        borderColor: feedbackTraceRoute ? "#ef4444" : `${color}cc`,
         boxShadow: feedbackTraceRoute
           ? "0 0 0 1px rgba(255,255,255,0.1) inset, 0 20px 42px rgba(0,0,0,0.36), 0 0 54px rgba(248,113,113,0.9)"
-          : `0 0 0 1px rgba(255,255,255,0.08) inset, 0 20px 42px rgba(0,0,0,0.34), 0 0 ${selected ? 52 : 30}px ${phase?.ring ?? "rgba(148,163,184,0.25)"}`,
+          : `0 0 0 1px rgba(255,255,255,0.1) inset, 0 18px 36px rgba(0,0,0,0.38), 0 0 ${selected ? 48 : 24}px ${phase?.ring ?? "rgba(148,163,184,0.25)"}`,
       }}
     >
       <Handle className="!size-2 !border-0" position={Position.Left} style={{ background: color }} type="target" />
@@ -570,8 +570,9 @@ function ResearchFlowNode({ data, selected }: NodeProps<ResearchNode>) {
       <Handle className="!size-2 !border-0" id="top-target" position={Position.Top} style={{ background: color }} type="target" />
       <Handle className="!size-2 !border-0" id="bottom-source" position={Position.Bottom} style={{ background: color }} type="source" />
       <Handle className="!size-2 !border-0" id="bottom-target" position={Position.Bottom} style={{ background: color }} type="target" />
-      <div className="pointer-events-none absolute inset-0 opacity-90" style={{ background: `radial-gradient(circle at 18% 8%, ${phase?.ring ?? "rgba(148,163,184,0.24)"}, transparent 44%), linear-gradient(180deg, rgba(255,255,255,0.07), transparent 34%)` }} />
-      <div className="pointer-events-none absolute -right-10 -top-10 size-24 rounded-full blur-2xl opacity-28" style={{ backgroundColor: color }} />
+      <div className="pointer-events-none absolute inset-0 opacity-90" style={{ background: `radial-gradient(circle at 16% 4%, ${phase?.ring ?? "rgba(148,163,184,0.24)"}, transparent 42%), linear-gradient(180deg, rgba(255,255,255,0.08), transparent 34%)` }} />
+      <div className="pointer-events-none absolute -right-10 -top-10 size-24 rounded-full blur-2xl opacity-22" style={{ backgroundColor: color }} />
+      <div className="pointer-events-none absolute inset-x-3 top-0 h-px opacity-80" style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }} />
       <div className="pointer-events-none absolute inset-x-4 bottom-0 h-8 bg-gradient-to-t from-slate-950/88 to-transparent" />
       <div className="relative flex items-center justify-between gap-3">
         <span className="max-w-[10.5rem] truncate rounded-full border border-white/10 bg-black/35 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-slate-200/78">
@@ -893,8 +894,9 @@ function JurorResearchMapContent() {
 
   return (
     <div className="flex min-h-[calc(100dvh-3.5rem)] w-full flex-col gap-4 p-4 lg:p-6">
-      <section className="relative overflow-hidden rounded-3xl border border-current/15 bg-slate-950/72 px-4 py-3 shadow-2xl shadow-black/30">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(125,211,252,0.14),transparent_30%),radial-gradient(circle_at_74%_12%,rgba(167,139,250,0.12),transparent_28%),radial-gradient(circle_at_62%_80%,rgba(52,211,153,0.1),transparent_32%)]" />
+      <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.88),rgba(2,6,23,0.78)_54%,rgba(8,13,28,0.9))] px-4 py-3 shadow-2xl shadow-black/35 backdrop-blur-xl">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_24%,rgba(103,232,249,0.18),transparent_30%),radial-gradient(circle_at_44%_18%,rgba(251,191,36,0.12),transparent_24%),radial-gradient(circle_at_78%_20%,rgba(52,211,153,0.14),transparent_28%)]" />
+        <div className="pointer-events-none absolute inset-x-8 bottom-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
         <div className="relative flex flex-wrap items-center gap-2">
           {PHASES.map((phase, index) => (
             <div className="flex items-center gap-2" key={phase.id}>
@@ -971,11 +973,22 @@ function JurorResearchMapContent() {
       </section>
 
       <div className={cn("grid min-h-[780px] flex-1 gap-4", detailsCollapsed ? "xl:grid-cols-[minmax(0,1fr)_52px]" : "xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_400px]")}>
-        <section className="relative min-h-[700px] overflow-hidden rounded-3xl border border-cyan-200/15 bg-[#020617] shadow-2xl shadow-black/30">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_44%_36%,rgba(59,130,246,0.22),transparent_38%),radial-gradient(circle_at_82%_28%,rgba(250,204,21,0.12),transparent_28%),radial-gradient(circle_at_30%_82%,rgba(20,184,166,0.16),transparent_34%),linear-gradient(90deg,rgba(34,211,238,0.052)_1px,transparent_1px),linear-gradient(rgba(34,211,238,0.052)_1px,transparent_1px)] bg-[size:100%_100%,100%_100%,100%_100%,80px_80px,80px_80px]" />
-          <div className="pointer-events-none absolute inset-0 opacity-60 [background-image:radial-gradient(circle,rgba(148,220,255,0.46)_1px,transparent_1.5px)] [background-size:42px_42px]" />
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_42%,rgba(2,6,23,0.62)_100%)]" />
-          <div className="pointer-events-none absolute bottom-5 left-5 z-10 rounded-full border border-cyan-200/15 bg-black/35 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-cyan-100/78 shadow-lg backdrop-blur">
+        <section className="relative min-h-[700px] overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(135deg,#050817_0%,#07111f_46%,#061713_100%)] shadow-2xl shadow-black/35 ring-1 ring-white/5">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-80"
+            style={{
+              background: `radial-gradient(ellipse at 12% 42%, rgba(103, 232, 249, 0.14), transparent 34%),
+                radial-gradient(ellipse at 32% 32%, rgba(167, 139, 250, 0.11), transparent 32%),
+                radial-gradient(ellipse at 50% 48%, rgba(251, 191, 36, 0.09), transparent 34%),
+                radial-gradient(ellipse at 66% 46%, rgba(251, 113, 133, 0.075), transparent 32%),
+                radial-gradient(ellipse at 84% 44%, rgba(52, 211, 153, 0.13), transparent 36%)`,
+            }}
+          />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_26%,rgba(103,232,249,0.12),transparent_30%),radial-gradient(circle_at_48%_36%,rgba(251,191,36,0.08),transparent_32%),radial-gradient(circle_at_82%_35%,rgba(52,211,153,0.1),transparent_30%),linear-gradient(90deg,rgba(148,163,184,0.07)_1px,transparent_1px),linear-gradient(rgba(148,163,184,0.07)_1px,transparent_1px)] bg-[size:100%_100%,100%_100%,100%_100%,72px_72px,72px_72px]" />
+          <div className="pointer-events-none absolute inset-0 opacity-35 [background-image:radial-gradient(circle,rgba(203,213,225,0.55)_1px,transparent_1.5px)] [background-size:46px_46px]" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_50%,rgba(2,6,23,0.74)_100%),linear-gradient(180deg,rgba(255,255,255,0.06),transparent_18%,transparent_82%,rgba(0,0,0,0.24))]" />
+          <div className="pointer-events-none absolute inset-x-8 top-0 z-10 h-px bg-gradient-to-r from-transparent via-cyan-100/30 to-transparent" />
+          <div className="pointer-events-none absolute bottom-5 left-5 z-10 rounded-full border border-white/12 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-100/78 shadow-lg shadow-black/30 backdrop-blur-md">
             Drag canvas · scroll to zoom · click a node
           </div>
           <ReactFlow
@@ -992,7 +1005,7 @@ function JurorResearchMapContent() {
             panOnScroll
             proOptions={{ hideAttribution: true }}
           >
-            <Background color="rgba(125, 211, 252, 0.18)" gap={46} />
+            <Background color="rgba(203, 213, 225, 0.12)" gap={46} />
           </ReactFlow>
         </section>
 
