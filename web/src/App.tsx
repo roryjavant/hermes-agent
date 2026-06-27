@@ -179,6 +179,12 @@ function ChatRouteSink() {
 
 const BUILTIN_NAV_REST: NavItem[] = [
   {
+    path: "/mission-control",
+    labelKey: "missionControl",
+    label: "Mission Control",
+    icon: Gauge,
+  },
+  {
     path: "/launchpad",
     labelKey: "launchpad",
     label: "Launchpad",
@@ -189,12 +195,6 @@ const BUILTIN_NAV_REST: NavItem[] = [
     labelKey: "marketing",
     label: "Marketing",
     icon: Sparkles,
-  },
-  {
-    path: "/mission-control",
-    labelKey: "missionControl",
-    label: "Mission Control",
-    icon: Gauge,
   },
   {
     path: "/repos",
