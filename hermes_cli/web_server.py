@@ -11240,6 +11240,19 @@ _PROFILE_TEAM_DEFINITIONS = [
         "project_path": "/Users/roryavant/Dev/hermes-marketing",
         "profiles": ["hmarketingplanner", "hmarketingbuilder", "hmarketingreviewer"],
     },
+    {
+        "team_id": "hermes-research",
+        "label": "Hermes Research",
+        "project_path": "/Users/roryavant/Dev/hermes-research",
+        "profiles": [
+            "hresearchstrategist",
+            "hresearchscout",
+            "hresearchanalyst",
+            "hresearchsynth",
+            "hresearchfactcheck",
+            "hresearchcurator",
+        ],
+    },
 ]
 
 
@@ -11258,6 +11271,9 @@ def _profile_role(profile: str) -> str:
         "growth": "growth",
         "brand": "brand",
         "assets": "assets",
+        "scout": "source scout",
+        "analyst": "analyst",
+        "factcheck": "fact checker",
         "planner": "planner",
         "builder": "builder",
         "reviewer": "reviewer",

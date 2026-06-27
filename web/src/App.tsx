@@ -84,6 +84,7 @@ import LaunchpadPage from "@/pages/LaunchpadPage";
 import MarketingPage from "@/pages/MarketingPage";
 import MissionControlPage from "@/pages/MissionControlPage";
 import ReposPage from "@/pages/ReposPage";
+import ResearchPage from "@/pages/ResearchPage";
 import JurorResearchMapPage from "@/pages/JurorResearchMapPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import ModelsPage from "@/pages/ModelsPage";
@@ -143,6 +144,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
   "/launchpad": LaunchpadPage,
   "/marketing": MarketingPage,
+  "/research": ResearchPage,
   "/mission-control": MissionControlPage,
   "/repos": ReposPage,
   "/flow": JurorResearchMapPage,
@@ -195,6 +197,12 @@ const BUILTIN_NAV_REST: NavItem[] = [
     labelKey: "marketing",
     label: "Marketing",
     icon: Sparkles,
+  },
+  {
+    path: "/research",
+    labelKey: "research",
+    label: "Research",
+    icon: Globe,
   },
   {
     path: "/repos",

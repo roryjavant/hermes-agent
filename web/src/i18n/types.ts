@@ -104,6 +104,8 @@ export interface Translations {
       profiles: string;
       plugins: string;
       /** Optional — fall back to the nav item's label until translated. */
+      research?: string;
+      /** Optional — fall back to the nav item's label until translated. */
       repos?: string;
       sessions: string;
       skills: string;
