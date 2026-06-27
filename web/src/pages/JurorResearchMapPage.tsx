@@ -878,6 +878,15 @@ function JurorResearchMapContent() {
         <section className="relative min-h-[700px] overflow-hidden rounded-3xl border border-current/15 bg-background-base shadow-2xl shadow-black/35 ring-1 ring-current/5">
           <div className="pointer-events-none absolute inset-0 opacity-75 [background-image:linear-gradient(90deg,color-mix(in_srgb,var(--midground-base)_7%,transparent)_1px,transparent_1px),linear-gradient(color-mix(in_srgb,var(--midground-base)_7%,transparent)_1px,transparent_1px)] [background-size:72px_72px]" />
           <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:radial-gradient(circle,color-mix(in_srgb,var(--midground-base)_42%,transparent)_1px,transparent_1.5px)] [background-size:46px_46px]" />
+          <div className="pointer-events-none absolute left-5 top-5 z-10 flex max-w-[calc(100%-2.5rem)] flex-wrap items-center gap-2 rounded-xl border border-current/10 bg-background-base/78 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-text-secondary shadow-lg shadow-black/20 backdrop-blur-md">
+            <span className="mr-1 text-text-tertiary">Legend</span>
+            {PHASES.map((phase) => (
+              <span className="inline-flex items-center gap-1.5" key={phase.id}>
+                <span className="size-2 rounded-full" style={{ backgroundColor: phase.color }} />
+                {phase.label}
+              </span>
+            ))}
+          </div>
           <div className="pointer-events-none absolute bottom-5 left-5 z-10 rounded-full border border-current/15 bg-background-base/70 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-midground/78 shadow-lg shadow-black/30 backdrop-blur-md">
             Drag canvas · scroll to zoom · click a node
           </div>
