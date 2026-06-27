@@ -114,12 +114,20 @@ type OperationsItem = {
   tone: ReadinessTone;
   href: string;
   icon: LucideIcon;
+  performanceRisk?: PerformanceRisk;
   popoverTitle?: string;
   popoverSubtitle?: string;
   profileName?: string;
   roleName?: string;
+  roleGlyph?: string;
   teamName?: string;
   projectPath?: string;
+};
+
+type PerformanceRisk = {
+  level: "warning" | "critical";
+  label: string;
+  detail: string;
 };
 
 type LightAgentModalState = {
@@ -141,6 +149,7 @@ const MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS = 6000;
 const MISSION_CONTROL_TEAM_FILTER_KEY = "missionControl.teamFilter";
 const ALL_TEAMS_FILTER = "all";
 const TEAM_FEED_RECENT_SESSION_SECONDS = 60 * 60;
+const MISSION_QUEUE_ATTENTION_STATUSES = new Set(["blocked", "review", "running"]);
 
 const emptyState: LoadState = {
   status: null,
@@ -283,13 +292,17 @@ function scoreColor(score: number): string {
 
 function computeMissionScore(data: LoadState): number {
   const tasks = allTasks(data);
+  const activeCronErrors = data.cronJobs.filter((job) => job.enabled && job.last_error).length;
+  const missingTeamProfiles = (data.activity?.profile_teams ?? [])
+    .flatMap((team) => team.agents)
+    .filter((agent) => !agent.configured).length;
   let score = 100;
   if (!data.status?.gateway_running) score -= 18;
   if (data.status?.gateway_exit_reason) score -= 25;
   if (data.kanbanUnavailable) score -= 12;
   score -= Math.min(tasks.filter((task) => task.status === "blocked").length * 14, 28);
-  score -= Math.min(data.cronJobs.filter((job) => job.last_error).length * 12, 24);
-  score -= Math.min(data.profiles.filter((profile) => !profile.has_env).length * 4, 16);
+  score -= Math.min(activeCronErrors * 12, 24);
+  score -= Math.min(missingTeamProfiles * 4, 16);
   return Math.max(0, Math.min(100, score));
 }
 
@@ -458,6 +471,36 @@ function readinessLabel(tone: ReadinessTone): string {
   return "Review";
 }
 
+function numberOrNull(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value;
+}
+
+function performanceRiskFromTelemetry(source: {
+  context_percent?: number | null;
+  context_tokens?: number | null;
+  context_length?: number | null;
+  compressions?: number | null;
+}): PerformanceRisk | undefined {
+  const contextPercent = numberOrNull(source.context_percent);
+  const compressions = numberOrNull(source.compressions);
+  const critical = (contextPercent !== null && contextPercent >= 95) || (compressions !== null && compressions >= 10);
+  const warning = critical || (contextPercent !== null && contextPercent >= 80) || (compressions !== null && compressions >= 5);
+  if (!warning) return undefined;
+
+  const label = compressions !== null && compressions >= 5 ? `C${compressions}` : `${Math.round(contextPercent ?? 0)}%`;
+  const parts = [
+    contextPercent !== null ? `${Math.round(contextPercent)}% context window` : null,
+    compressions !== null ? `${compressions} compression${compressions === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+
+  return {
+    level: critical ? "critical" : "warning",
+    label,
+    detail: `Likely degraded by ${parts.join(" + ")}.`,
+  };
+}
+
 function ActivityLightPopover({ item, rowLabel }: { item: OperationsItem; rowLabel: string }) {
   const title = item.popoverTitle || item.title;
   const subtitle = item.popoverSubtitle || item.kind;
@@ -481,6 +524,11 @@ function ActivityLightPopover({ item, rowLabel }: { item: OperationsItem; rowLab
         <span>{readinessLabel(item.tone)}</span>
       </span>
       <span className="mt-2 block text-xs leading-relaxed text-muted-foreground">{item.detail}</span>
+      {item.performanceRisk && (
+        <span className="mt-2 block text-xs leading-relaxed text-warning">
+          {item.performanceRisk.detail}
+        </span>
+      )}
       <span className="mt-2 block truncate text-[0.68rem] uppercase tracking-[0.1em] text-muted-foreground">
         {item.meta}
       </span>
@@ -702,6 +750,19 @@ function toneFromProfileStatus(status: string, configured: boolean): ReadinessTo
   return "ready";
 }
 
+function glyphForTeamRole(role: string): string {
+  const normalized = role.toLowerCase();
+  if (normalized.includes("planner")) return "planner";
+  if (normalized.includes("implementor")) return "implementor";
+  if (normalized.includes("builder")) return "builder";
+  if (normalized.includes("designer")) return "designer";
+  if (normalized.includes("vision") || normalized.includes("qa")) return "vision qa";
+  if (normalized.includes("reviewer")) return "reviewer";
+  if (normalized.includes("synth")) return "synth";
+  if (normalized.includes("curator")) return "curator";
+  return "agent";
+}
+
 function teamRowsFromProfileTeams(profileTeams: MissionControlProfileTeam[]) {
   return profileTeams.map((team) => ({
     label: `${team.label} · ${team.project_path}`,
@@ -720,8 +781,10 @@ function teamRowsFromProfileTeams(profileTeams: MissionControlProfileTeam[]) {
       popoverSubtitle: agent.profile,
       profileName: agent.profile,
       roleName: agent.role,
+      roleGlyph: glyphForTeamRole(agent.role),
       teamName: team.label,
       projectPath: team.project_path,
+      performanceRisk: performanceRiskFromTelemetry(agent),
     })),
   }));
 }
@@ -742,6 +805,7 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
       tone: record.status === "ready" ? "ready" : record.status === "working" ? "working" : "review",
       href: record.source === "kanban" ? "/team" : "/sessions",
       icon: record.source === "kanban" || record.source === "delegate" ? Users : Activity,
+      performanceRisk: performanceRiskFromTelemetry(record),
     }));
 
   // PTY sessions are already projected into activity rows by the backend so
@@ -1079,6 +1143,7 @@ function TaskDetailModal({
   const [draftReason, setDraftReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
     setDraftTitle(detailTask.title || "");
@@ -1088,6 +1153,7 @@ function TaskDetailModal({
     setDraftPriority(String(detailTask.priority ?? 0));
     setDraftReason("");
     setActionError(null);
+    setConfirmRemove(false);
   }, [detailTask.id, detailTask.title, detailTask.body, detailTask.assignee, detailTask.status, detailTask.priority]);
 
   const save = async (updates: KanbanTaskUpdate) => {
@@ -1105,14 +1171,17 @@ function TaskDetailModal({
   };
 
   const removeTask = async () => {
-    const ok = window.confirm(`Remove ${task.id} from ${task.boardName} altogether? This deletes the Kanban card.`);
-    if (!ok) return;
+    if (!confirmRemove) {
+      setConfirmRemove(true);
+      setActionError(null);
+      return;
+    }
     setSaving(true);
     setActionError(null);
     try {
       await api.deleteKanbanTask(task.id, task.boardSlug);
-      await onRefresh();
       onClose();
+      void Promise.resolve(onRefresh()).catch(() => undefined);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1257,10 +1326,25 @@ function TaskDetailModal({
                   type="button"
                   onClick={() => void removeTask()}
                   disabled={saving}
-                  className="border border-destructive/60 bg-destructive/10 px-3 py-2 font-mondwest text-display text-xs uppercase tracking-[0.16em] text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={cn(
+                    "border px-3 py-2 font-mondwest text-display text-xs uppercase tracking-[0.16em] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    confirmRemove
+                      ? "border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      : "border-destructive/60 bg-destructive/10 text-destructive hover:bg-destructive/20",
+                  )}
                 >
-                  Remove altogether
+                  {confirmRemove ? "Confirm remove" : "Remove altogether"}
                 </button>
+                {confirmRemove ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRemove(false)}
+                    disabled={saving}
+                    className="border border-border bg-background-base/40 px-3 py-2 font-mondwest text-display text-xs uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:border-current/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                ) : null}
               </div>
             </section>
 
@@ -1328,7 +1412,7 @@ function MissionQueue({
   const [selectedTaskError, setSelectedTaskError] = useState<string | null>(null);
   const tasks = allTasks(data, teamFilter);
   const visibleTasks = (filter === "attention"
-    ? tasks.filter((task) => ["blocked", "review", "running", "ready"].includes(task.status))
+    ? tasks.filter((task) => MISSION_QUEUE_ATTENTION_STATUSES.has(task.status))
     : tasks
   ).slice(0, 8);
 
@@ -1407,7 +1491,7 @@ function MissionQueue({
             icon={CheckCircle2}
             tone="success"
             title="No attention work"
-            body="No running, blocked, review, or ready task needs attention right now."
+            body="No running, blocked, or review task needs attention right now. Ready work is available under All."
           />
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
@@ -1607,9 +1691,9 @@ function ActiveOperationsBoard({
                       {segmentItems.length === 0 ? (
                         <p className="text-xs text-muted-foreground">No live {segment.label.toLowerCase()}.</p>
                       ) : (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                           {groupedRows.map((row) => (
-                            <div key={row.label} className="grid gap-2 border-t border-border/60 pt-3 md:grid-cols-[minmax(12rem,18rem)_1fr]">
+                            <div key={row.label} className="grid gap-2 border-t border-border/60 pt-4 md:grid-cols-[minmax(12rem,18rem)_1fr]">
                               <div className="min-w-0">
                                 <p className="truncate text-xs font-medium text-foreground">{row.label.split(" · ")[0]}</p>
                                 {row.label.includes(" · ") && (
@@ -1621,13 +1705,20 @@ function ActiveOperationsBoard({
                                   </p>
                                 )}
                               </div>
-                              <div className="flex flex-wrap gap-2.5">
-                                {row.items.map((item) => {
+                              <div className={cn(
+                                "flex flex-wrap items-center",
+                                segment.id === "teams" ? "gap-y-2" : "gap-2.5",
+                              )}>
+                                {row.items.map((item, index) => {
                                   const Icon = item.icon;
-                                  const title = `${row.label} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}`;
-                                  const ariaLabel = `${row.label} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}`;
+                                  const isTeamFlow = segment.id === "teams";
+                                  const isLastTeamLight = isTeamFlow && index === row.items.length - 1;
+                                  const riskTitle = item.performanceRisk ? ` · ${item.performanceRisk.detail}` : "";
+                                  const title = `${row.label} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}${riskTitle}`;
+                                  const ariaLabel = `${row.label} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${riskTitle}`;
                                   const lightClassName = cn(
-                                    "group relative flex h-10 w-10 items-center justify-center rounded-full border transition-all duration-200",
+                                    "group relative flex items-center justify-center rounded-full border transition-all duration-200",
+                                    isTeamFlow ? "h-[4.75rem] w-[4.75rem]" : "h-10 w-10",
                                     "hover:-translate-y-0.5 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                     item.tone === "ready" && "border-success/50 bg-success/10 text-success shadow-[0_0_16px_color-mix(in_srgb,var(--color-success)_22%,transparent)]",
                                     item.tone === "working" && "border-warning/50 bg-warning/10 text-warning shadow-[0_0_16px_color-mix(in_srgb,var(--color-warning)_24%,transparent)]",
@@ -1641,30 +1732,55 @@ function ActiveOperationsBoard({
                                         item.tone === "working" && "animate-pulse",
                                         item.tone === "review" && "animate-pulse",
                                       )} />
-                                      <Icon className="relative h-3.5 w-3.5" />
+                                      {item.roleGlyph ? (
+                                        <span className="relative z-10 max-w-[4rem] whitespace-nowrap text-center font-mono-ui text-[0.5rem] font-semibold uppercase leading-none tracking-[-0.04em] text-foreground">
+                                          {item.roleGlyph}
+                                        </span>
+                                      ) : (
+                                        <Icon className="relative h-3.5 w-3.5" />
+                                      )}
+                                      {item.performanceRisk && (
+                                        <span
+                                          className={cn(
+                                            "absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full border bg-background-base px-1 font-mono-ui text-[0.52rem] leading-none shadow-sm",
+                                            item.performanceRisk.level === "critical"
+                                              ? "border-destructive/70 text-destructive"
+                                              : "border-warning/70 text-warning",
+                                          )}
+                                          aria-label={item.performanceRisk.detail}
+                                        >
+                                          {item.performanceRisk.label}
+                                        </span>
+                                      )}
                                     </>
                                   );
-                                  return item.profileName ? (
-                                    <button
-                                      key={item.id}
-                                      type="button"
-                                      onClick={() => openLightAgent(item)}
-                                      title={title}
-                                      aria-label={ariaLabel}
-                                      className={lightClassName}
-                                    >
+                                  const lightElement = item.profileName ? (
+                                    <button type="button" onClick={() => openLightAgent(item)} title={title} aria-label={ariaLabel} className={lightClassName}>
                                       {lightContents}
                                     </button>
                                   ) : (
-                                    <Link
-                                      key={item.id}
-                                      to={item.href}
-                                      title={title}
-                                      aria-label={ariaLabel}
-                                      className={lightClassName}
-                                    >
+                                    <Link to={item.href} title={title} aria-label={ariaLabel} className={lightClassName}>
                                       {lightContents}
                                     </Link>
+                                  );
+                                  return (
+                                    <span key={item.id} className="flex items-center">
+                                      {lightElement}
+                                      {isTeamFlow && !isLastTeamLight && (
+                                        <span
+                                          className={cn(
+                                            "relative flex h-[4.75rem] w-10 shrink-0 items-center justify-center",
+                                            "before:absolute before:left-0 before:right-0 before:top-1/2 before:h-px before:-translate-y-1/2 before:bg-current/35",
+                                            item.tone === "ready" && "text-success",
+                                            item.tone === "working" && "text-warning",
+                                            item.tone === "review" && "text-destructive",
+                                          )}
+                                          aria-hidden="true"
+                                        >
+                                          <ArrowRight className="relative z-10 h-3.5 w-3.5 rounded-full bg-background-base/90 p-0.5 text-current" />
+                                        </span>
+                                      )}
+                                    </span>
                                   );
                                 })}
                               </div>

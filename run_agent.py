@@ -2714,10 +2714,49 @@ class AIAgent:
                 detail=detail,
                 session_id=str(getattr(self, "session_id", "") or ""),
                 cwd=os.getcwd(),
+                context_percent=self._runtime_context_percent(),
+                context_tokens=self._runtime_context_tokens(),
+                context_length=self._runtime_context_length(),
+                compressions=self._runtime_compressions(),
             )
         except Exception:
             # Mission Control activity is diagnostic only; never break a turn.
             pass
+
+    def _runtime_context_tokens(self) -> int | None:
+        compressor = getattr(self, "context_compressor", None)
+        if compressor is None:
+            return None
+        try:
+            return max(0, int(getattr(compressor, "last_prompt_tokens", 0) or 0))
+        except (TypeError, ValueError):
+            return None
+
+    def _runtime_context_length(self) -> int | None:
+        compressor = getattr(self, "context_compressor", None)
+        if compressor is None:
+            return None
+        try:
+            value = int(getattr(compressor, "context_length", 0) or 0)
+            return value if value > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def _runtime_context_percent(self) -> int | None:
+        tokens = self._runtime_context_tokens()
+        length = self._runtime_context_length()
+        if tokens is None or not length:
+            return None
+        return max(0, min(100, round((tokens / length) * 100)))
+
+    def _runtime_compressions(self) -> int | None:
+        compressor = getattr(self, "context_compressor", None)
+        if compressor is None:
+            return None
+        try:
+            return max(0, int(getattr(compressor, "compression_count", 0) or 0))
+        except (TypeError, ValueError):
+            return None
 
     def _touch_activity(self, desc: str) -> None:
         """Update the last-activity timestamp and description (thread-safe).

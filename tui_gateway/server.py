@@ -392,12 +392,18 @@ def _publish_session_activity(session: dict | None, status: str, detail: str = "
     try:
         from hermes_cli.active_sessions import publish_active_session_activity
 
+        usage = _get_usage(session.get("agent")) if session.get("agent") is not None else {}
+
         publish_active_session_activity(
             session.get("active_session_lease"),
             status=status,
             detail=detail,
             cwd=str(session.get("cwd") or "") or None,
             profile=str(session.get("profile") or "") or None,
+            context_percent=usage.get("context_percent"),
+            context_tokens=usage.get("context_used"),
+            context_length=usage.get("context_max"),
+            compressions=usage.get("compressions"),
         )
     except Exception:
         logger.debug("Failed to publish TUI runtime activity", exc_info=True)

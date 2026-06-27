@@ -97,10 +97,14 @@ export interface Translations {
       launchpad?: string;
       logs: string;
       /** Optional — fall back to the nav item's label until translated. */
+      marketing?: string;
+      /** Optional — fall back to the nav item's label until translated. */
       missionControl?: string;
       models: string;
       profiles: string;
       plugins: string;
+      /** Optional — fall back to the nav item's label until translated. */
+      repos?: string;
       sessions: string;
       skills: string;
       /** Optional — fall back to the nav item's label until translated. */

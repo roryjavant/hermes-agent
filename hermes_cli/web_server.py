@@ -2055,6 +2055,7 @@ _ACTION_LOG_FILES: Dict[str, str] = {
     "project-launch-agent-arena": "project-launch-agent-arena.log",
     "project-launch-hermes-team-ui": "project-launch-hermes-team-ui.log",
     "project-launch-home-hub": "project-launch-home-hub.log",
+    "project-launch-osint-lab": "project-launch-osint-lab.log",
 }
 
 # ``name`` → most recently spawned Popen handle.  Used so ``status`` can
@@ -2154,6 +2155,250 @@ def _spawn_gateway_restart() -> Tuple[subprocess.Popen, bool]:
     return _spawn_hermes_action(["gateway", "restart"], "gateway-restart"), False
 
 
+# ---------------------------------------------------------------------------
+# Dev repository dashboard
+# ---------------------------------------------------------------------------
+
+_DEV_REPOS_ROOT = Path.home() / "Dev"
+_REPO_SCAN_SKIP_DIRS = {
+    ".claude",
+    ".git",
+    ".hermes",
+    "Library",
+    "node_modules",
+    "Pods",
+    "venv",
+    ".venv",
+    "_archive",
+    "_repo-cleanup-backups",
+}
+
+
+def _run_repo_git(repo: Path, args: List[str], *, timeout: float = 4.0) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _resolve_dev_repo_root(entry: Path) -> Optional[Path]:
+    if (entry / ".git").exists():
+        return entry
+
+    nested = sorted(path.parent for path in entry.glob("*/.git") if path.exists())
+    if len(nested) == 1:
+        return nested[0]
+    return None
+
+
+def _iter_dev_repo_roots(dev_root: Optional[Path] = None) -> List[Path]:
+    dev_root = dev_root or _DEV_REPOS_ROOT
+    if not dev_root.exists():
+        return []
+
+    roots: List[Path] = []
+    seen: set[Path] = set()
+    for child in sorted(dev_root.iterdir(), key=lambda p: p.name.lower()):
+        if not child.is_dir() or child.name.startswith(".") or child.name in _REPO_SCAN_SKIP_DIRS:
+            continue
+        repo_root = _resolve_dev_repo_root(child)
+        if repo_root is None:
+            continue
+        try:
+            resolved = repo_root.resolve()
+        except OSError:
+            resolved = repo_root
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        roots.append(repo_root)
+    return roots
+
+
+def _get_dev_repo_by_name(repo_name: str) -> Path:
+    if not repo_name or "/" in repo_name or "\\" in repo_name or repo_name in {".", ".."}:
+        raise HTTPException(status_code=400, detail="Invalid repository name")
+    for repo in _iter_dev_repo_roots():
+        if repo.name == repo_name:
+            return repo
+    raise HTTPException(status_code=404, detail=f"Repository not found: {repo_name}")
+
+
+def _clean_git_message(message: str) -> str:
+    message = (message or "").strip()
+    message = re.sub(r"(https?://)([^/@\s]+)@", r"\1[REDACTED]@", message)
+    message = re.sub(r"(https?://[^:\s]+:)[^@\s]+@", r"\1[REDACTED]@", message)
+    return message[-1000:]
+
+
+def _repo_light_status(*, dirty: bool, ahead: int, behind: int, has_upstream: bool, error: Optional[str]) -> str:
+    if error or behind > 0:
+        return "red"
+    if dirty or ahead > 0:
+        return "yellow"
+    if not has_upstream:
+        return "blue"
+    return "green"
+
+
+def _scan_dev_repo(repo: Path, *, fetch: bool = False) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "name": repo.name,
+        "path": str(repo),
+        "branch": None,
+        "upstream": None,
+        "remote": None,
+        "ahead": 0,
+        "behind": 0,
+        "dirty": False,
+        "untracked": 0,
+        "changed": 0,
+        "status": "green",
+        "last_commit": None,
+        "error": None,
+    }
+
+    try:
+        branch = _run_repo_git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])
+        if branch.returncode != 0:
+            branch = _run_repo_git(repo, ["symbolic-ref", "--short", "HEAD"])
+        if branch.returncode == 0:
+            result["branch"] = (branch.stdout or "").strip()
+
+        status = _run_repo_git(repo, ["status", "--porcelain"])
+        if status.returncode == 0:
+            lines = [line for line in (status.stdout or "").splitlines() if line.strip()]
+            result["dirty"] = bool(lines)
+            result["untracked"] = sum(1 for line in lines if line.startswith("??"))
+            result["changed"] = max(0, len(lines) - int(result["untracked"]))
+
+        remote = _run_repo_git(repo, ["remote", "get-url", "origin"])
+        if remote.returncode == 0:
+            result["remote"] = (remote.stdout or "").strip() or None
+
+        upstream = _run_repo_git(repo, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+        has_upstream = upstream.returncode == 0 and bool((upstream.stdout or "").strip())
+        if has_upstream:
+            result["upstream"] = (upstream.stdout or "").strip()
+            if fetch:
+                _run_repo_git(repo, ["fetch", "--prune", "--quiet"], timeout=10.0)
+            counts = _run_repo_git(repo, ["rev-list", "--left-right", "--count", "HEAD...@{u}"])
+            if counts.returncode == 0:
+                parts = (counts.stdout or "").strip().split()
+                if len(parts) == 2:
+                    result["ahead"] = int(parts[0])
+                    result["behind"] = int(parts[1])
+        else:
+            has_upstream = False
+
+        commit = _run_repo_git(repo, ["log", "-1", "--format=%ct%x00%h%x00%s"])
+        if commit.returncode == 0 and commit.stdout.strip():
+            raw = commit.stdout.strip().split("\x00", 2)
+            if len(raw) == 3:
+                result["last_commit"] = {"timestamp": int(raw[0]), "sha": raw[1], "subject": raw[2]}
+
+        result["status"] = _repo_light_status(
+            dirty=bool(result["dirty"]),
+            ahead=int(result["ahead"]),
+            behind=int(result["behind"]),
+            has_upstream=has_upstream,
+            error=None,
+        )
+    except subprocess.TimeoutExpired:
+        result["error"] = "Git command timed out"
+        result["status"] = "red"
+    except Exception as exc:
+        result["error"] = str(exc)
+        result["status"] = "red"
+
+    return result
+
+
+def _sync_dev_repo(repo: Path) -> Dict[str, Any]:
+    operations: List[Dict[str, Any]] = []
+
+    def run_step(label: str, args: List[str], *, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
+        proc = _run_repo_git(repo, args, timeout=timeout)
+        operations.append(
+            {
+                "label": label,
+                "ok": proc.returncode == 0,
+                "output": _clean_git_message(proc.stderr or proc.stdout),
+            }
+        )
+        return proc
+
+    initial = _scan_dev_repo(repo, fetch=True)
+    if initial.get("error"):
+        return {"ok": False, "message": str(initial["error"]), "operations": operations, "repo": initial}
+    if not initial.get("upstream"):
+        return {"ok": False, "message": "No upstream branch configured", "operations": operations, "repo": initial}
+    if initial.get("dirty") and int(initial.get("behind") or 0) > 0:
+        return {
+            "ok": False,
+            "message": "Local changes present; commit/stash before pulling remote commits",
+            "operations": operations,
+            "repo": initial,
+        }
+    if int(initial.get("ahead") or 0) > 0 and int(initial.get("behind") or 0) > 0:
+        return {"ok": False, "message": "Branch has diverged; resolve manually", "operations": operations, "repo": initial}
+
+    if int(initial.get("behind") or 0) > 0:
+        pull = run_step("Fast-forward pull", ["pull", "--ff-only", "--quiet"], timeout=45.0)
+        if pull.returncode != 0:
+            repo_info = _scan_dev_repo(repo, fetch=False)
+            return {
+                "ok": False,
+                "message": _clean_git_message(pull.stderr or pull.stdout) or "Fast-forward pull failed",
+                "operations": operations,
+                "repo": repo_info,
+            }
+
+    after_pull = _scan_dev_repo(repo, fetch=False)
+    if int(after_pull.get("ahead") or 0) > 0:
+        push = run_step("Push", ["push", "--quiet"], timeout=45.0)
+        if push.returncode != 0:
+            repo_info = _scan_dev_repo(repo, fetch=False)
+            return {
+                "ok": False,
+                "message": _clean_git_message(push.stderr or push.stdout) or "Push failed",
+                "operations": operations,
+                "repo": repo_info,
+            }
+
+    final = _scan_dev_repo(repo, fetch=True)
+    if not operations:
+        message = "Already synced" if not final.get("dirty") else "Remote synced; local changes remain"
+    else:
+        message = "Synced" if not final.get("dirty") else "Remote synced; local changes remain"
+    return {"ok": True, "message": message, "operations": operations, "repo": final}
+
+
+@app.get("/api/dev-repos")
+async def get_dev_repos(fetch: bool = False):
+    repos = [_scan_dev_repo(repo, fetch=fetch) for repo in _iter_dev_repo_roots()]
+    summary = {
+        "total": len(repos),
+        "green": sum(1 for repo in repos if repo["status"] == "green"),
+        "yellow": sum(1 for repo in repos if repo["status"] == "yellow"),
+        "red": sum(1 for repo in repos if repo["status"] == "red"),
+        "blue": sum(1 for repo in repos if repo["status"] == "blue"),
+        "dirty": sum(1 for repo in repos if repo.get("dirty")),
+        "ahead": sum(1 for repo in repos if int(repo.get("ahead") or 0) > 0),
+        "behind": sum(1 for repo in repos if int(repo.get("behind") or 0) > 0),
+    }
+    return {"root": str(_DEV_REPOS_ROOT), "fetched": fetch, "summary": summary, "repos": repos}
+
+
+@app.post("/api/dev-repos/{repo_name}/sync")
+async def sync_dev_repo(repo_name: str):
+    repo = _get_dev_repo_by_name(repo_name)
+    return _sync_dev_repo(repo)
+
+
 @dataclass(frozen=True)
 class LaunchpadProject:
     id: str
@@ -2205,6 +2450,18 @@ def _launchpad_projects() -> Dict[str, LaunchpadProject]:
             command=["npm", "run", "dev"],
             url="http://127.0.0.1:4317",
             action_name="project-launch-home-hub",
+        ),
+        "osint-lab": LaunchpadProject(
+            id="osint-lab",
+            name="OSINT Lab",
+            cwd=dev_root / "osint-lab",
+            command=[
+                "/bin/bash",
+                "-lc",
+                "FOOTPRINT_LAB_PORT=4177 ./node_modules/.bin/concurrently \"./node_modules/.bin/vite --host 127.0.0.1 --port 5178\" \"node server/index.js\"",
+            ],
+            url="http://127.0.0.1:5178",
+            action_name="project-launch-osint-lab",
         ),
     }
 
@@ -11033,6 +11290,10 @@ def _snapshot_profile_teams(activities: List[Dict[str, Any]]) -> List[Dict[str, 
                 "cwd": str(record.get("cwd") or definition["project_path"]),
                 "detail": str(record.get("detail") or ("profile standby" if configured else "profile missing")),
                 "last_seen": record.get("last_seen"),
+                "context_percent": record.get("context_percent"),
+                "context_tokens": record.get("context_tokens"),
+                "context_length": record.get("context_length"),
+                "compressions": record.get("compressions"),
             })
         teams.append({**definition, "agents": agents})
     return teams

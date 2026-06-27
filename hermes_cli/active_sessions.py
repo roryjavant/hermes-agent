@@ -281,6 +281,10 @@ def publish_active_session_activity(
     detail: str = "",
     cwd: str | os.PathLike[str] | None = None,
     profile: str | None = None,
+    context_percent: int | float | None = None,
+    context_tokens: int | None = None,
+    context_length: int | None = None,
+    compressions: int | None = None,
 ) -> None:
     """Best-effort visible activity status update for an acquired local session.
 
@@ -301,6 +305,10 @@ def publish_active_session_activity(
             activity_id=lease.activity_id,
             cwd=cwd,
             profile=profile,
+            context_percent=context_percent,
+            context_tokens=context_tokens,
+            context_length=context_length,
+            compressions=compressions,
         )
         lease.activity_id = str(record.get("activity_id") or "") or lease.activity_id
     except Exception:

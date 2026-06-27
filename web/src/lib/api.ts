@@ -323,6 +323,12 @@ export const api = {
   getStatus: (options?: FetchJSONOptions) => fetchJSON<StatusResponse>("/api/status", undefined, options),
   getMissionControlActivity: (options?: FetchJSONOptions) =>
     fetchJSON<MissionControlActivityResponse>("/api/mission-control/activity", undefined, options),
+  getDevRepos: (fetch = false, options?: FetchJSONOptions) => {
+    const qs = fetch ? "?fetch=true" : "";
+    return fetchJSON<DevReposResponse>(`/api/dev-repos${qs}`, undefined, options);
+  },
+  syncDevRepo: (repoName: string, options?: FetchJSONOptions) =>
+    fetchJSON<DevRepoSyncResponse>(`/api/dev-repos/${encodeURIComponent(repoName)}/sync`, { method: "POST" }, options),
   getLaunchpadProjects: () => fetchJSON<LaunchpadProjectsResponse>("/api/launchpad/projects"),
   launchProject: (projectId: string) =>
     fetchJSON<LaunchpadLaunchResponse>(`/api/launchpad/projects/${encodeURIComponent(projectId)}/launch`, {
@@ -1704,6 +1710,10 @@ export interface MissionControlActivity {
   detail: string;
   started_at: number;
   last_seen: number;
+  context_percent?: number;
+  context_tokens?: number;
+  context_length?: number;
+  compressions?: number;
 }
 
 export interface MissionControlBackgroundProcess {
@@ -1743,6 +1753,10 @@ export interface MissionControlProfileTeamAgent {
   cwd: string;
   detail: string;
   last_seen?: number | null;
+  context_percent?: number;
+  context_tokens?: number;
+  context_length?: number;
+  compressions?: number;
 }
 
 export interface MissionControlProfileTeam {
@@ -1760,6 +1774,55 @@ export interface MissionControlActivityResponse {
   terminals: MissionControlTerminal[];
   background_processes: MissionControlBackgroundProcess[];
   subagents: MissionControlSubagent[];
+}
+
+export type DevRepoLightStatus = "green" | "yellow" | "red" | "blue" | string;
+
+export interface DevRepoSummary {
+  total: number;
+  green: number;
+  yellow: number;
+  red: number;
+  blue: number;
+  dirty: number;
+  ahead: number;
+  behind: number;
+}
+
+export interface DevRepoInfo {
+  name: string;
+  path: string;
+  branch: string | null;
+  upstream: string | null;
+  remote: string | null;
+  ahead: number;
+  behind: number;
+  dirty: boolean;
+  untracked: number;
+  changed: number;
+  status: DevRepoLightStatus;
+  last_commit: { timestamp: number; sha: string; subject: string } | null;
+  error: string | null;
+}
+
+export interface DevReposResponse {
+  root: string;
+  fetched: boolean;
+  summary: DevRepoSummary;
+  repos: DevRepoInfo[];
+}
+
+export interface DevRepoSyncOperation {
+  label: string;
+  ok: boolean;
+  output: string;
+}
+
+export interface DevRepoSyncResponse {
+  ok: boolean;
+  message: string;
+  operations: DevRepoSyncOperation[];
+  repo: DevRepoInfo;
 }
 
 export interface SessionInfo {

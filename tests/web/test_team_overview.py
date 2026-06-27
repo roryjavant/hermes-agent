@@ -450,3 +450,20 @@ def test_mission_control_keeps_projected_pty_activity_rows_visible():
 
     assert 'record.source !== "dashboard" && !record.activity_id.startsWith("pty:")' not in source
     assert "approval/review prompts turn" in source
+
+
+def test_mission_control_attention_queue_excludes_ready_work():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert 'const MISSION_QUEUE_ATTENTION_STATUSES = new Set(["blocked", "review", "running"]);' in source
+    assert 'tasks.filter((task) => ["blocked", "review", "running", "ready"].includes(task.status))' not in source
+    assert "Ready work is available under All." in source
+
+
+def test_mission_control_score_ignores_stale_disabled_cron_and_unassigned_profiles():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert "job.enabled && job.last_error" in source
+    assert "data.cronJobs.filter((job) => job.last_error)" not in source
+    assert "data.activity?.profile_teams" in source
+    assert "data.profiles.filter((profile) => !profile.has_env)" not in source

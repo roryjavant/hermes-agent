@@ -8,6 +8,7 @@ import {
   Loader2,
   Network,
   Rocket,
+  Search,
   ShieldCheck,
   Sparkles,
   Square,
@@ -63,6 +64,17 @@ const PROJECTS: LaunchpadProject[] = [
     accent: "from-amber-300/22 via-orange-400/14 to-yellow-500/8 text-amber-100 border-amber-200/25",
     icon: CircuitBoard,
     stats: ["Vite dev", "localhost:5177", "This repo"],
+  },
+  {
+    id: "osint-lab",
+    title: "OSINT Lab",
+    kicker: "Footprint lab",
+    description: "Start the defensive OSINT lab UI for local digital-footprint checks.",
+    launchLabel: "Start lab",
+    fallbackUrl: "http://127.0.0.1:5178",
+    accent: "from-lime-300/20 via-emerald-400/14 to-slate-500/8 text-lime-100 border-lime-200/25",
+    icon: Search,
+    stats: ["Vite + API", "localhost:5178", "OSINT Lab"],
   },
   {
     id: "home-hub",
@@ -238,7 +250,7 @@ export default function LaunchpadPage() {
         {errors.__load ? <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">Could not load project status: {errors.__load}</div> : null}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
         {featured.map((project) => (
           <ProjectSquare
             key={project.id}

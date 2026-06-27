@@ -137,6 +137,10 @@ def publish_activity(
     pid: int | None = None,
     now: float | None = None,
     activity_id: str | None = None,
+    context_percent: int | float | None = None,
+    context_tokens: int | None = None,
+    context_length: int | None = None,
+    compressions: int | None = None,
 ) -> dict[str, Any]:
     """Publish or refresh this process's runtime heartbeat record.
 
@@ -179,6 +183,26 @@ def publish_activity(
             "started_at": started,
             "last_seen": ts,
         }
+        if context_percent is not None:
+            try:
+                record["context_percent"] = max(0, min(100, round(float(context_percent))))
+            except (TypeError, ValueError):
+                pass
+        if context_tokens is not None:
+            try:
+                record["context_tokens"] = max(0, int(context_tokens))
+            except (TypeError, ValueError):
+                pass
+        if context_length is not None:
+            try:
+                record["context_length"] = max(0, int(context_length))
+            except (TypeError, ValueError):
+                pass
+        if compressions is not None:
+            try:
+                record["compressions"] = max(0, int(compressions))
+            except (TypeError, ValueError):
+                pass
         entries = [entry for entry in entries if str(entry.get("activity_id") or "") != ident]
         entries.append(record)
         _write_entries(state_path, entries)

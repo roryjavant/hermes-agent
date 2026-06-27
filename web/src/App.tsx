@@ -29,6 +29,7 @@ import {
   FolderOpen,
   FileText,
   Globe,
+  GitBranch,
   Gauge,
   Heart,
   KeyRound,
@@ -80,7 +81,9 @@ import FilesPage from "@/pages/FilesPage";
 import SessionsPage from "@/pages/SessionsPage";
 import LogsPage from "@/pages/LogsPage";
 import LaunchpadPage from "@/pages/LaunchpadPage";
+import MarketingPage from "@/pages/MarketingPage";
 import MissionControlPage from "@/pages/MissionControlPage";
+import ReposPage from "@/pages/ReposPage";
 import JurorResearchMapPage from "@/pages/JurorResearchMapPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import ModelsPage from "@/pages/ModelsPage";
@@ -139,7 +142,9 @@ const CHAT_NAV_ITEM: NavItem = {
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
   "/launchpad": LaunchpadPage,
+  "/marketing": MarketingPage,
   "/mission-control": MissionControlPage,
+  "/repos": ReposPage,
   "/flow": JurorResearchMapPage,
   "/juror-research-map": JurorResearchMapPage,
   "/sessions": SessionsPage,
@@ -180,10 +185,22 @@ const BUILTIN_NAV_REST: NavItem[] = [
     icon: LayoutGrid,
   },
   {
+    path: "/marketing",
+    labelKey: "marketing",
+    label: "Marketing",
+    icon: Sparkles,
+  },
+  {
     path: "/mission-control",
     labelKey: "missionControl",
     label: "Mission Control",
     icon: Gauge,
+  },
+  {
+    path: "/repos",
+    labelKey: "repos",
+    label: "Repos",
+    icon: GitBranch,
   },
   {
     path: "/flow",
@@ -247,6 +264,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Sparkles,
   Terminal,
   Globe,
+  GitBranch,
   Database,
   Shield,
   Users,

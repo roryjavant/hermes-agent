@@ -3597,12 +3597,18 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         try:
             from hermes_cli.active_sessions import publish_active_session_activity
 
+            snapshot = self._get_status_bar_snapshot()
+
             publish_active_session_activity(
                 getattr(self, "_active_session_lease", None),
                 status=status,
                 detail=detail,
                 cwd=os.getcwd(),
                 profile=os.getenv("HERMES_PROFILE") or None,
+                context_percent=snapshot.get("context_percent"),
+                context_tokens=snapshot.get("context_tokens"),
+                context_length=snapshot.get("context_length"),
+                compressions=snapshot.get("compressions"),
             )
         except Exception:
             logger.debug("Failed to publish CLI runtime activity", exc_info=True)

@@ -3,6 +3,7 @@
 import os
 import json
 import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
@@ -258,6 +259,7 @@ class TestWebServerEndpoints:
             "agent-arena",
             "hermes-team-ui",
             "home-hub",
+            "osint-lab",
         }
         assert all("url" in project for project in projects)
 
@@ -302,6 +304,87 @@ class TestWebServerEndpoints:
         assert resp.json()["running"] is False
         assert proc.terminated is True
         assert "project-launch-hermes-team-ui" not in web_server._ACTION_PROCS
+
+    def test_get_dev_repos_reports_git_lights(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        dev_root = tmp_path / "Dev"
+        repo = dev_root / "sample-app"
+        repo.mkdir(parents=True)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+        (repo / "README.md").write_text("hello\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+        (repo / "local.txt").write_text("dirty\n", encoding="utf-8")
+
+        monkeypatch.setattr(web_server, "_DEV_REPOS_ROOT", dev_root)
+
+        resp = self.client.get("/api/dev-repos")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["root"] == str(dev_root)
+        assert data["summary"]["total"] == 1
+        assert data["summary"]["dirty"] == 1
+        [project] = data["repos"]
+        assert project["name"] == "sample-app"
+        assert project["status"] == "yellow"
+        assert project["dirty"] is True
+        assert project["untracked"] == 1
+        assert project["branch"]
+
+    def test_sync_dev_repo_pushes_ahead_commits(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        dev_root = tmp_path / "Dev"
+        remote = tmp_path / "remote.git"
+        repo = dev_root / "sample-app"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "clone", str(remote), str(repo)], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+        (repo / "README.md").write_text("hello\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=repo, check=True, capture_output=True, text=True)
+        (repo / "local.txt").write_text("ahead\n", encoding="utf-8")
+        subprocess.run(["git", "add", "local.txt"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-m", "ahead"], cwd=repo, check=True, capture_output=True, text=True)
+
+        monkeypatch.setattr(web_server, "_DEV_REPOS_ROOT", dev_root)
+
+        resp = self.client.post("/api/dev-repos/sample-app/sync")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["repo"]["ahead"] == 0
+        assert data["repo"]["behind"] == 0
+        assert data["operations"][0]["label"] == "Push"
+
+    def test_sync_dev_repo_rejects_missing_upstream(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        dev_root = tmp_path / "Dev"
+        repo = dev_root / "sample-app"
+        repo.mkdir(parents=True)
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+        (repo / "README.md").write_text("hello\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+
+        monkeypatch.setattr(web_server, "_DEV_REPOS_ROOT", dev_root)
+
+        resp = self.client.post("/api/dev-repos/sample-app/sync")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert data["message"] == "No upstream branch configured"
 
     # ── GET /api/media (remote image display) ───────────────────────────
 
