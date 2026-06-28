@@ -50,6 +50,7 @@ import type {
   KanbanTaskUpdate,
   MissionControlActivityResponse,
   MissionControlProfileTeam,
+  MissionControlProfileTeamAgent,
   PaginatedSessions,
   ProfileInfo,
   SessionInfo,
@@ -1753,6 +1754,11 @@ function ActiveOperationsBoard({
                         <div className="space-y-5">
                           {groupedRows.map((row) => {
                             const isTeamFlow = segment.id === "teams";
+                            // orchestratorItem only exists on teamRows entries; access safely.
+                            const orchestratorItem: OperationsItem | null =
+                              isTeamFlow && "orchestratorItem" in row
+                                ? (row as { orchestratorItem: OperationsItem | null }).orchestratorItem
+                                : null;
 
                             const toneColors = {
                               ready:   { border: "border-cyan-400/55",    bg: "bg-cyan-500/8",     text: "text-cyan-300",    shadow: "shadow-[0_0_28px_rgba(34,211,238,0.45),inset_0_0_24px_rgba(34,211,238,0.10)]",  wire: "text-cyan-400",   ping: "bg-cyan-400" },
@@ -1835,11 +1841,11 @@ function ActiveOperationsBoard({
                                   )}
                                 </div>
 
-                                <div className={isTeamFlow && row.orchestratorItem ? "flex flex-col items-start gap-0" : cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
+                                <div className={isTeamFlow && orchestratorItem ? "flex flex-col items-start gap-0" : cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
 
                                   {/* Orchestrator (team lead) — shown above member row */}
-                                  {isTeamFlow && row.orchestratorItem && (() => {
-                                    const orch = row.orchestratorItem;
+                                  {isTeamFlow && orchestratorItem && (() => {
+                                    const orch = orchestratorItem;
                                     const orchTc = toneColors[orch.tone] ?? toneColors.ready;
                                     return (
                                       <div className="flex flex-col items-start">
