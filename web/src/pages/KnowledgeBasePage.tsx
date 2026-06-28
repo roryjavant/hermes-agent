@@ -86,10 +86,37 @@ function KnowledgeBaseCard({ base, onOpen }: { base: KnowledgeBaseSummary; onOpe
   );
 }
 
-function FileTree({ node, depth = 0 }: { node: KnowledgeBaseTreeNode; depth?: number }) {
+function folderPathFromRelativePath(relativePath: string) {
+  return relativePath.split("/").slice(1).join("/");
+}
+
+function collectFolderPaths(node: KnowledgeBaseTreeNode): string[] {
+  if (node.type === "file") return [];
+  return [node.relative_path, ...node.children.flatMap((child) => collectFolderPaths(child))];
+}
+
+function FileTree({
+  node,
+  depth = 0,
+  expandedFolders,
+  selectedFolder,
+  onToggleFolder,
+  onSelectFolder,
+}: {
+  node: KnowledgeBaseTreeNode;
+  depth?: number;
+  expandedFolders: Set<string>;
+  selectedFolder: string;
+  onToggleFolder: (path: string) => void;
+  onSelectFolder: (path: string) => void;
+}) {
   if (node.type === "file") {
     return (
-      <div className="grid grid-cols-[auto_1fr_auto] items-start gap-3 border-b border-border/45 px-3 py-3 last:border-b-0" style={{ paddingLeft: `${12 + depth * 18}px` }}>
+      <button
+        type="button"
+        className="grid w-full grid-cols-[auto_1fr_auto] items-start gap-3 border-b border-border/45 px-3 py-3 text-left transition-colors hover:bg-midground/8 last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
+        style={{ paddingLeft: `${12 + depth * 18}px` }}
+      >
         <FileText className="mt-0.5 size-4 text-midground" />
         <div className="min-w-0">
           <div className="truncate text-sm font-bold text-foreground">{node.entry.title}</div>
@@ -97,23 +124,53 @@ function FileTree({ node, depth = 0 }: { node: KnowledgeBaseTreeNode; depth?: nu
           {node.entry.excerpt ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-text-secondary">{node.entry.excerpt}</p> : null}
         </div>
         <span className="rounded-full border border-border/60 bg-black/20 px-2 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">.md</span>
-      </div>
+      </button>
     );
   }
 
+  const isRoot = depth === 0;
+  const folderPath = folderPathFromRelativePath(node.relative_path);
+  const isExpanded = isRoot || expandedFolders.has(node.relative_path);
+  const isSelected = Boolean(folderPath) && selectedFolder === folderPath;
+
   return (
-    <div className={depth === 0 ? "" : "border-b border-border/45 last:border-b-0"}>
-      {depth > 0 ? (
-        <div className="flex items-center gap-2 bg-black/16 px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-text-secondary" style={{ paddingLeft: `${12 + depth * 18}px` }}>
-          <ChevronRight className="size-3 text-text-tertiary" />
+    <div className={isRoot ? "" : "border-b border-border/45 last:border-b-0"}>
+      {!isRoot ? (
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          onClick={() => {
+            onSelectFolder(folderPath);
+            onToggleFolder(node.relative_path);
+          }}
+          className={cn(
+            "flex w-full items-center gap-2 bg-black/16 px-3 py-2 text-left text-xs font-black uppercase tracking-[0.14em] text-text-secondary transition-colors hover:bg-midground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60",
+            isSelected ? "bg-midground/12 text-foreground" : "",
+          )}
+          style={{ paddingLeft: `${12 + depth * 18}px` }}
+        >
+          <ChevronRight className={cn("size-3 text-text-tertiary transition-transform", isExpanded ? "rotate-90" : "")} />
           <FolderOpen className="size-4 text-midground" />
-          {node.name}
-        </div>
+          <span className="min-w-0 flex-1 truncate">{node.name}</span>
+          <span className="text-[10px] text-text-tertiary">{isSelected ? "selected" : "open"}</span>
+        </button>
       ) : null}
-      {node.children.length ? (
-        node.children.map((child) => <FileTree key={child.relative_path} node={child} depth={depth + 1} />)
-      ) : depth > 0 ? (
-        <div className="px-3 py-3 text-xs text-text-tertiary" style={{ paddingLeft: `${30 + depth * 18}px` }}>Empty folder</div>
+      {isExpanded ? (
+        node.children.length ? (
+          node.children.map((child) => (
+            <FileTree
+              key={child.relative_path}
+              node={child}
+              depth={depth + 1}
+              expandedFolders={expandedFolders}
+              selectedFolder={selectedFolder}
+              onToggleFolder={onToggleFolder}
+              onSelectFolder={onSelectFolder}
+            />
+          ))
+        ) : !isRoot ? (
+          <div className="px-3 py-3 text-xs text-text-tertiary" style={{ paddingLeft: `${30 + depth * 18}px` }}>Empty folder</div>
+        ) : null
       ) : null}
     </div>
   );
@@ -126,6 +183,7 @@ export default function KnowledgeBasePage() {
   const [data, setData] = useState<KnowledgeBaseSummary[]>([]);
   const [root, setRoot] = useState("");
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
   const [folder, setFolder] = useState("research-briefs");
   const [body, setBody] = useState("");
@@ -144,6 +202,28 @@ export default function KnowledgeBasePage() {
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!active?.tree) return;
+    setExpandedFolders(new Set(collectFolderPaths(active.tree).filter((path) => path !== active.tree.relative_path)));
+    setFolder("research-briefs");
+  }, [active?.slug]);
+
+  const toggleFolder = (path: string) => {
+    setExpandedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
+  const selectFolder = (path: string) => {
+    if (path) setFolder(path);
+  };
 
   const handleSave = async () => {
     if (!active) return;
@@ -212,7 +292,13 @@ export default function KnowledgeBasePage() {
                 </div>
               </div>
               <div className="max-h-[34rem] overflow-auto border border-border/60 bg-background-base/45">
-                <FileTree node={active.tree} />
+                <FileTree
+                  node={active.tree}
+                  expandedFolders={expandedFolders}
+                  selectedFolder={folder}
+                  onToggleFolder={toggleFolder}
+                  onSelectFolder={selectFolder}
+                />
               </div>
             </CardContent>
           </Card>

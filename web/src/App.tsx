@@ -194,6 +194,7 @@ const BUILTIN_NAV_REST: NavItem[] = [
     label: "Launchpad",
     icon: LayoutGrid,
   },
+  { path: "/team", labelKey: "team", label: "Team", icon: Users },
   {
     path: "/knowledge-base",
     labelKey: "knowledgeBase",
@@ -251,7 +252,6 @@ const BUILTIN_NAV_REST: NavItem[] = [
   { path: "/webhooks", label: "Webhooks", icon: Webhook },
   { path: "/pairing", label: "Pairing", icon: ShieldCheck },
   { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
-  { path: "/team", labelKey: "team", label: "Team", icon: Users },
   { path: "/config", labelKey: "config", label: "Config", icon: Settings },
   { path: "/env", labelKey: "keys", label: "Keys", icon: KeyRound },
   { path: "/system", label: "System", icon: Wrench },

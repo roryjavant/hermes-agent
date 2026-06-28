@@ -36,6 +36,11 @@ def test_knowledge_base_page_is_markdown_first_and_seeded_with_research_bases():
     assert "Folder tree" in source
     assert "Back to knowledge bases" in source
     assert "Organized Markdown files" in source
+    assert "aria-expanded={isExpanded}" in source
+    assert "onToggleFolder(node.relative_path)" in source
+    assert "onSelectFolder(folderPath)" in source
+    assert "setExpandedFolders" in source
+    assert "selected" in source
     assert "Save Markdown note" in source
     assert "folder" in source
     assert "api.getKnowledgeBases" in source

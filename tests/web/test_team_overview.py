@@ -426,6 +426,16 @@ def test_team_presentation_route_is_unlisted_read_only_and_uses_shared_hook():
     assert "__HERMES_SESSION_TOKEN__" not in present_source
 
 
+def test_team_sidebar_item_sits_directly_under_launchpad():
+    app_source = (REPO_ROOT / "web" / "src" / "App.tsx").read_text()
+
+    launchpad_index = app_source.index('path: "/launchpad"')
+    team_index = app_source.index('path: "/team"')
+    knowledge_index = app_source.index('path: "/knowledge-base"')
+
+    assert launchpad_index < team_index < knowledge_index
+
+
 def test_team_page_does_not_render_profile_paths_or_env_values():
     source = (REPO_ROOT / "web" / "src" / "pages" / "TeamPage.tsx").read_text()
 
