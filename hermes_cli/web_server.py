@@ -744,6 +744,12 @@ class KnowledgeBaseEntryCreate(BaseModel):
     folder: str = ""
 
 
+class KnowledgeBaseResearchJobCreate(BaseModel):
+    subject: str
+    instructions: str = ""
+    folder_hint: str = ""
+
+
 _KNOWLEDGE_BASE_ROOT_ENV = "HERMES_KNOWLEDGE_BASE_ROOT"
 _KNOWLEDGE_BASES = [
     {
@@ -881,6 +887,26 @@ def _knowledge_tree(directory: Path, root: Path) -> Dict[str, Any]:
         }
 
     return build(directory)
+
+
+def _knowledge_research_prompt(base: Dict[str, str], subject: str, instructions: str, folder_hint: str) -> str:
+    directory = _ensure_knowledge_base_seed(base)
+    hint = (folder_hint or "").strip() or "decide the appropriate folder structure"
+    extra = (instructions or "").strip()
+    return (
+        "You are a Hermes research agent launched from the Knowledge Base dashboard.\n\n"
+        f"Research subject: {subject}\n"
+        f"Destination knowledge base: {base['title']} ({base['slug']})\n"
+        f"Destination folder root: {directory}\n"
+        f"Folder guidance: {hint}\n\n"
+        "Task:\n"
+        "1. Research the subject using available tools and cite source URLs when web sources are used.\n"
+        "2. Decide the appropriate markdown folder structure under the destination root.\n"
+        "3. Write one or more durable Markdown files directly under that root. Use folders such as research-briefs, sources, synthesis, or a subject-specific nested folder when appropriate.\n"
+        "4. Include frontmatter-style metadata or a short header with subject, created time, source notes, and open questions.\n"
+        "5. Do not ask the user to continue in chat. Complete the first useful research pass autonomously and summarize the files written in your final response.\n"
+        + (f"\nAdditional instructions from Rory:\n{extra}\n" if extra else "")
+    )
 
 
 _AUDIO_MIME_EXTENSIONS: Dict[str, str] = {
@@ -1689,6 +1715,35 @@ async def create_knowledge_base_entry(slug: str, payload: KnowledgeBaseEntryCrea
     }
 
 
+@app.post("/api/knowledge-bases/{slug}/research-jobs")
+async def start_knowledge_base_research_job(slug: str, payload: KnowledgeBaseResearchJobCreate):
+    base = _known_knowledge_base(slug)
+    subject = (payload.subject or "").strip()
+    if not subject:
+        raise HTTPException(status_code=400, detail="Research subject is required")
+
+    action_name = "knowledge-base-research-job"
+    existing = _ACTION_PROCS.get(action_name)
+    if existing is not None and existing.poll() is None:
+        raise HTTPException(status_code=409, detail="A Knowledge Base research job is already running")
+
+    prompt = _knowledge_research_prompt(base, subject, payload.instructions, payload.folder_hint)
+    profile = "hresearchstrategist"
+    proc = _spawn_hermes_action(
+        ["-p", profile, "chat", "--source", "knowledge-base", "--quiet", "-q", prompt],
+        action_name,
+    )
+    return {
+        "ok": True,
+        "base": base["slug"],
+        "subject": subject,
+        "profile": profile,
+        "action_name": action_name,
+        "pid": proc.pid,
+        "message": "Research agent started. It will decide folders and write Markdown files into this knowledge base.",
+    }
+
+
 @app.delete("/api/files")
 async def delete_managed_file(payload: ManagedFileDelete, request: Request):
     policy, target, display_path = _resolve_managed_path(payload.path, request)
@@ -2261,6 +2316,7 @@ _ACTION_LOG_FILES: Dict[str, str] = {
     "project-launch-hermes-team-ui": "project-launch-hermes-team-ui.log",
     "project-launch-home-hub": "project-launch-home-hub.log",
     "project-launch-osint-lab": "project-launch-osint-lab.log",
+    "knowledge-base-research-job": "knowledge-base-research-job.log",
 }
 
 # ``name`` → most recently spawned Popen handle.  Used so ``status`` can

@@ -25,7 +25,7 @@ def test_marketing_dashboard_route_nav_title_and_i18n_are_wired():
     assert 'marketing?: string' in types_source
 
 
-def test_marketing_page_is_read_only_local_fixture_workspace():
+def test_marketing_page_is_read_only_workspace_with_live_team_panel():
     source = read("web/src/pages/MarketingPage.tsx")
 
     for section in ["Strategy", "Campaigns", "Content Pipeline", "Assets", "Metrics"]:
@@ -44,10 +44,32 @@ def test_marketing_page_is_read_only_local_fixture_workspace():
     assert "Manual placeholder" in source
     assert "Fixture data" in source
     assert "No CRM, email, or analytics integration connected" in source
+    assert "MarketingAgentTeamPanel" in source
 
     assert "fetch(" not in source
-    assert "api." not in source
-    assert "useEffect" not in source
+    assert "window.open" not in source
+
+
+def test_marketing_agent_team_panel_uses_mission_control_profile_teams():
+    source = read("web/src/pages/MarketingPage.tsx")
+
+    assert 'import { api } from "@/lib/api";' in source
+    assert "api.getMissionControlActivity" in source
+    assert "useEffect" in source
+    assert "profile_teams" in source
+    assert '"hermes-marketing"' in source
+    assert '"hermes-marketing-dev"' in source
+    assert "Project path:" in source
+    assert "Configured {configuredCount} / {team.agents.length}" in source
+    assert "Active {activeCount}" in source
+    assert "Status: {statusLabel}" in source
+    assert "Launch chat" in source
+    assert 'to={`/chat?profile=${encodeURIComponent(agent.profile)}`}' in source
+    assert "Configure profile before launch" in source
+    assert "Refresh" in source
+    assert "MARKETING_TEAM_POLL_MS = 15_000" in source
+
+    assert "fetch(" not in source
     assert "window.open" not in source
 
 

@@ -187,6 +187,10 @@ export default function KnowledgeBasePage() {
   const [title, setTitle] = useState("");
   const [folder, setFolder] = useState("research-briefs");
   const [body, setBody] = useState("");
+  const [researchSubject, setResearchSubject] = useState("");
+  const [researchInstructions, setResearchInstructions] = useState("");
+  const [launchingResearch, setLaunchingResearch] = useState(false);
+  const [researchStatus, setResearchStatus] = useState("");
 
   const active = useMemo(() => data.find((base) => base.slug === activeSlug) ?? null, [data, activeSlug]);
 
@@ -243,6 +247,27 @@ export default function KnowledgeBasePage() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleStartResearch = async () => {
+    if (!active) return;
+    setLaunchingResearch(true);
+    setError("");
+    setResearchStatus("");
+    try {
+      const result = await api.startKnowledgeBaseResearchJob(active.slug, {
+        subject: researchSubject,
+        instructions: researchInstructions,
+        folder_hint: folder,
+      });
+      setResearchStatus(`${result.message} Profile: ${result.profile}. Log: ${result.action_name}.`);
+      setResearchSubject("");
+      setResearchInstructions("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLaunchingResearch(false);
     }
   };
 
@@ -303,43 +328,81 @@ export default function KnowledgeBasePage() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-none border-border/70 bg-card/72 shadow-2xl shadow-black/15">
-            <CardContent className="p-5">
-              <div className="mb-4 flex items-start gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-midground/25 bg-midground/10 text-midground"><Plus className="size-5" /></span>
-                <div>
-                  <div className="text-[0.68rem] font-black uppercase tracking-[0.18em] text-text-tertiary">Add Markdown</div>
-                  <h3 className="font-expanded text-lg font-black uppercase tracking-[0.08em] text-foreground">Save into {active.title}</h3>
-                  <p className="mt-1 text-sm leading-6 text-text-secondary">Pick a folder path like `research-briefs`, `sources`, or `synthesis`. New folders are created safely inside this knowledge base.</p>
+          <div className="flex flex-col gap-5">
+            <Card className="rounded-none border-midground/35 bg-card/72 shadow-2xl shadow-black/15">
+              <CardContent className="p-5">
+                <div className="mb-4 flex items-start gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-cyan-200/25 bg-cyan-500/10 text-cyan-100"><Search className="size-5" /></span>
+                  <div>
+                    <div className="text-[0.68rem] font-black uppercase tracking-[0.18em] text-text-tertiary">Research agent</div>
+                    <h3 className="font-expanded text-lg font-black uppercase tracking-[0.08em] text-foreground">Start research into {active.title}</h3>
+                    <p className="mt-1 text-sm leading-6 text-text-secondary">Kick off a background research agent from this page. It will research the subject, choose an appropriate folder structure, and write Markdown directly into this knowledge base.</p>
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-3">
-                <input
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="Note title"
-                  className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 text-sm text-foreground outline-none focus:border-midground/60"
-                />
-                <input
-                  value={folder}
-                  onChange={(event) => setFolder(event.target.value)}
-                  placeholder="Folder path, e.g. research-briefs"
-                  className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 font-mono text-sm text-foreground outline-none focus:border-midground/60"
-                />
-                <textarea
-                  value={body}
-                  onChange={(event) => setBody(event.target.value)}
-                  placeholder="Markdown body…"
-                  rows={12}
-                  className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 font-mono text-sm leading-6 text-foreground outline-none focus:border-midground/60"
-                />
-                <Button onClick={handleSave} disabled={saving || !title.trim() || !body.trim()} className="w-full justify-center gap-2">
-                  {saving ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
-                  {saving ? "Saving Markdown…" : "Save Markdown note"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                <div className="space-y-3">
+                  <input
+                    value={researchSubject}
+                    onChange={(event) => setResearchSubject(event.target.value)}
+                    placeholder="Research subject"
+                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 text-sm text-foreground outline-none focus:border-midground/60"
+                  />
+                  <textarea
+                    value={researchInstructions}
+                    onChange={(event) => setResearchInstructions(event.target.value)}
+                    placeholder="Optional directions: sources to check, questions to answer, depth, constraints…"
+                    rows={5}
+                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 text-sm leading-6 text-foreground outline-none focus:border-midground/60"
+                  />
+                  <div className="rounded-none border border-border/60 bg-black/20 px-3 py-2 text-xs leading-5 text-text-secondary">
+                    Folder hint: <span className="font-mono text-text-tertiary">{folder || "agent decides"}</span>
+                  </div>
+                  <Button onClick={handleStartResearch} disabled={launchingResearch || !researchSubject.trim()} className="w-full justify-center gap-2">
+                    {launchingResearch ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                    {launchingResearch ? "Starting research agent…" : "Start research job"}
+                  </Button>
+                  {researchStatus ? <div className="rounded-none border border-emerald-300/25 bg-emerald-500/10 p-3 text-xs leading-5 text-emerald-100">{researchStatus}</div> : null}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-none border-border/70 bg-card/72 shadow-2xl shadow-black/15">
+              <CardContent className="p-5">
+                <div className="mb-4 flex items-start gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-midground/25 bg-midground/10 text-midground"><Plus className="size-5" /></span>
+                  <div>
+                    <div className="text-[0.68rem] font-black uppercase tracking-[0.18em] text-text-tertiary">Add Markdown</div>
+                    <h3 className="font-expanded text-lg font-black uppercase tracking-[0.08em] text-foreground">Save into {active.title}</h3>
+                    <p className="mt-1 text-sm leading-6 text-text-secondary">Pick a folder path like `research-briefs`, `sources`, or `synthesis`. New folders are created safely inside this knowledge base.</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <input
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="Note title"
+                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 text-sm text-foreground outline-none focus:border-midground/60"
+                  />
+                  <input
+                    value={folder}
+                    onChange={(event) => setFolder(event.target.value)}
+                    placeholder="Folder path, e.g. research-briefs"
+                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 font-mono text-sm text-foreground outline-none focus:border-midground/60"
+                  />
+                  <textarea
+                    value={body}
+                    onChange={(event) => setBody(event.target.value)}
+                    placeholder="Markdown body…"
+                    rows={8}
+                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 font-mono text-sm leading-6 text-foreground outline-none focus:border-midground/60"
+                  />
+                  <Button onClick={handleSave} disabled={saving || !title.trim() || !body.trim()} className="w-full justify-center gap-2">
+                    {saving ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+                    {saving ? "Saving Markdown…" : "Save Markdown note"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </section>
       ) : (
         <>

@@ -345,6 +345,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
+  startKnowledgeBaseResearchJob: (slug: string, payload: KnowledgeBaseResearchJobCreate) =>
+    fetchJSON<KnowledgeBaseResearchJobResponse>(`/api/knowledge-bases/${encodeURIComponent(slug)}/research-jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
   /**
    * Identity probe for the dashboard auth gate (Phase 7).
    *
@@ -1324,6 +1330,22 @@ export interface KnowledgeBaseEntryCreateResponse {
   ok: boolean;
   base: string;
   entry: KnowledgeBaseEntrySummary;
+}
+
+export interface KnowledgeBaseResearchJobCreate {
+  subject: string;
+  instructions?: string;
+  folder_hint?: string;
+}
+
+export interface KnowledgeBaseResearchJobResponse {
+  ok: boolean;
+  base: string;
+  subject: string;
+  profile: string;
+  action_name: string;
+  pid: number;
+  message: string;
 }
 
 export interface DebugShareResponse {

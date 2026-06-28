@@ -339,6 +339,43 @@ class TestWebServerEndpoints:
         assert resp.status_code == 404
         assert "Unknown knowledge base" in resp.json()["detail"]
 
+    def test_knowledge_base_research_job_spawns_research_agent(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        class DummyProc:
+            pid = 6789
+
+            def poll(self):
+                return None
+
+        captured = {}
+
+        def fake_spawn(subcommand, name):
+            captured["subcommand"] = subcommand
+            captured["name"] = name
+            return DummyProc()
+
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+        monkeypatch.setattr(web_server, "_spawn_hermes_action", fake_spawn)
+        web_server._ACTION_PROCS.pop("knowledge-base-research-job", None)
+
+        resp = self.client.post(
+            "/api/knowledge-bases/juror-research/research-jobs",
+            json={"subject": "trial theme patterns", "instructions": "focus on durable source-backed notes", "folder_hint": "trial-themes"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["profile"] == "hresearchstrategist"
+        assert data["action_name"] == "knowledge-base-research-job"
+        assert captured["name"] == "knowledge-base-research-job"
+        assert captured["subcommand"][:3] == ["-p", "hresearchstrategist", "chat"]
+        prompt = captured["subcommand"][-1]
+        assert "Research subject: trial theme patterns" in prompt
+        assert "Destination knowledge base: Juror Research" in prompt
+        assert "Folder guidance: trial-themes" in prompt
+
     def test_launchpad_stop_terminates_spawned_project(self, monkeypatch):
         from hermes_cli import web_server
 

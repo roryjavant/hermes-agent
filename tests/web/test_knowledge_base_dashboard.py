@@ -42,10 +42,17 @@ def test_knowledge_base_page_is_markdown_first_and_seeded_with_research_bases():
     assert "setExpandedFolders" in source
     assert "selected" in source
     assert "Save Markdown note" in source
+    assert "Start research job" in source
+    assert "api.startKnowledgeBaseResearchJob" in source
+    assert "handleStartResearch" in source
+    assert "Folder hint:" in source
     assert "folder" in source
     assert "api.getKnowledgeBases" in source
     assert "api.createKnowledgeBaseEntry" in source
     assert 'fetchJSON<KnowledgeBasesResponse>("/api/knowledge-bases")' in api_source
+    assert "startKnowledgeBaseResearchJob" in api_source
+    assert "KnowledgeBaseResearchJobResponse" in api_source
+    assert 'research-jobs' in api_source
     assert 'storage: "markdown"' in api_source
     assert "KnowledgeBaseTreeNode" in api_source
     assert "folder_count" in api_source

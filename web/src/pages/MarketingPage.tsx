@@ -1,16 +1,21 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import {
   ArrowRight,
   BarChart3,
   FileText,
   Image,
   Megaphone,
+  RefreshCw,
   Sparkles,
   Target,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@nous-research/ui/ui/components/badge";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
+import { api } from "@/lib/api";
+import type { MissionControlProfileTeam, MissionControlProfileTeamAgent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Tone = "cyan" | "amber" | "violet" | "emerald" | "rose";
@@ -251,6 +256,37 @@ const TONE_CLASSES: Record<Tone, string> = {
   violet: "border-violet-300/30 bg-violet-500/10 text-violet-100",
 };
 
+const MARKETING_PROFILE_TEAM_IDS = ["hermes-marketing", "hermes-marketing-dev"];
+const MARKETING_TEAM_POLL_MS = 15_000;
+const MARKETING_TEAM_TIMEOUT_MS = 8_000;
+
+function marketingAgentStatusLabel(agent: MissionControlProfileTeamAgent): string {
+  if (!agent.configured) return "missing profile";
+  if (!agent.active && agent.status === "ready") return "standby";
+  return agent.status || "ready";
+}
+
+function marketingAgentStatusClass(agent: MissionControlProfileTeamAgent): string {
+  if (!agent.configured || agent.status === "missing") return "border-rose-300/25 bg-rose-500/10 text-rose-100";
+  if (agent.status === "working") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
+  if (agent.status === "review") return "border-violet-300/25 bg-violet-500/10 text-violet-100";
+  if (agent.active) return "border-success/25 bg-success/10 text-success";
+  return "border-cyan-300/25 bg-cyan-400/10 text-cyan-100";
+}
+
+function formatMarketingTeamCheckedAt(checkedAt: number | null): string {
+  if (!checkedAt) return "Not loaded yet";
+  return new Date(checkedAt * 1000).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function filterMarketingProfileTeams(teams: MissionControlProfileTeam[] | undefined): MissionControlProfileTeam[] {
+  return (teams ?? []).filter((team) => MARKETING_PROFILE_TEAM_IDS.includes(team.team_id));
+}
+
 function SectionHeader({ icon: Icon, kicker, title, description }: { icon: LucideIcon; kicker: string; title: string; description: string }) {
   return (
     <div className="mb-4 flex items-start gap-3">
@@ -271,6 +307,178 @@ function MarketingCard({ children, className }: { children: ReactNode; className
     <Card className={cn("overflow-hidden border-border/70 bg-card/72 shadow-2xl shadow-black/15", className)}>
       <CardContent className="p-5">{children}</CardContent>
     </Card>
+  );
+}
+
+function MarketingAgentRow({ agent }: { agent: MissionControlProfileTeamAgent }) {
+  const statusLabel = marketingAgentStatusLabel(agent);
+  const canLaunch = agent.configured && agent.profile.trim().length > 0;
+
+  return (
+    <article className="rounded-2xl border border-border/60 bg-background-base/45 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-text-tertiary">Role</div>
+          <h4 className="mt-1 font-expanded text-sm font-black uppercase tracking-[0.08em] text-foreground">{agent.role}</h4>
+          <div className="mt-3 text-[0.68rem] font-black uppercase tracking-[0.16em] text-text-tertiary">Profile</div>
+          <code className="mt-1 block truncate rounded-xl border border-current/10 bg-black/18 px-2.5 py-1.5 font-mono-ui text-xs text-midground">
+            {agent.profile}
+          </code>
+        </div>
+        <Badge className={cn("border text-[0.68rem] uppercase tracking-[0.12em]", marketingAgentStatusClass(agent))}>
+          Status: {statusLabel}
+        </Badge>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-current/10 bg-black/12 px-3 py-2 text-xs leading-5 text-text-secondary">
+        {agent.detail || (agent.configured ? "Profile configured and standing by." : "Profile missing from local Hermes profiles.")}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3">
+        <div className="flex flex-wrap gap-2 text-[0.68rem] font-black uppercase tracking-[0.12em] text-text-tertiary">
+          <span>{agent.active ? "Active runtime" : "No active runtime"}</span>
+          {agent.pid ? <span>PID {agent.pid}</span> : null}
+          {agent.source ? <span>{agent.source}</span> : null}
+        </div>
+        {canLaunch ? (
+          <Link
+            to={`/chat?profile=${encodeURIComponent(agent.profile)}`}
+            className="inline-flex items-center gap-1 rounded-full border border-midground/30 bg-midground/10 px-3 py-1.5 text-xs font-bold text-midground transition-colors hover:border-midground/60 hover:bg-midground/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70"
+          >
+            Launch chat
+            <ArrowRight className="size-3.5" />
+          </Link>
+        ) : (
+          <span className="inline-flex cursor-not-allowed items-center rounded-full border border-rose-300/20 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-100" aria-disabled="true">
+            Configure profile before launch
+          </span>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function MarketingAgentTeamPanel() {
+  const [teams, setTeams] = useState<MissionControlProfileTeam[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
+
+  const loadMarketingTeams = useCallback(async () => {
+    try {
+      const response = await api.getMissionControlActivity({ timeoutMs: MARKETING_TEAM_TIMEOUT_MS });
+      setTeams(filterMarketingProfileTeams(response.profile_teams));
+      setCheckedAt(response.checked_at);
+      setError(null);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const initialLoad = window.setTimeout(() => {
+      void loadMarketingTeams();
+    }, 0);
+    const poll = window.setInterval(() => {
+      void loadMarketingTeams();
+    }, MARKETING_TEAM_POLL_MS);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(poll);
+    };
+  }, [loadMarketingTeams]);
+
+  const summary = useMemo(() => {
+    const agents = teams.flatMap((team) => team.agents);
+    return {
+      active: agents.filter((agent) => agent.active).length,
+      configured: agents.filter((agent) => agent.configured).length,
+      total: agents.length,
+    };
+  }, [teams]);
+
+  return (
+    <MarketingCard className="border-fuchsia-200/18 bg-card/78">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <SectionHeader
+          icon={Users}
+          kicker="Marketing agent team"
+          title="Live Hermes Marketing roster"
+          description="Read-only Mission Control view of the profile-backed Marketing agents. Use Launch chat to open a configured profile in the Hermes chat surface."
+        />
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Badge className="border-cyan-300/25 bg-cyan-400/10 text-cyan-100">15s auto-refresh</Badge>
+          <button
+            type="button"
+            onClick={() => {
+              setRefreshing(true);
+              void loadMarketingTeams();
+            }}
+            disabled={loading || refreshing}
+            className="inline-flex items-center gap-2 rounded-full border border-midground/30 bg-midground/10 px-3 py-1.5 text-xs font-black uppercase tracking-[0.12em] text-midground transition-colors hover:border-midground/60 hover:bg-midground/15 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
+            {refreshing ? "Refreshing" : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2 text-xs">
+        <Badge className="border-fuchsia-300/25 bg-fuchsia-500/10 text-fuchsia-100">{teams.length} teams</Badge>
+        <Badge className="border-success/25 bg-success/10 text-success">{summary.configured} / {summary.total} configured</Badge>
+        <Badge className="border-amber-300/25 bg-amber-300/10 text-amber-100">{summary.active} active</Badge>
+        <Badge className="border-border/70 bg-background-base/55 text-text-secondary">Updated {formatMarketingTeamCheckedAt(checkedAt)}</Badge>
+      </div>
+
+      {error ? (
+        <div role="alert" className="mb-4 rounded-2xl border border-rose-300/25 bg-rose-500/10 p-4 text-sm leading-6 text-rose-100">
+          Could not load Marketing profile teams from Mission Control: {error}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="rounded-2xl border border-border/60 bg-background-base/45 p-4 text-sm text-text-secondary">
+          Loading Marketing profile teams…
+        </div>
+      ) : teams.length === 0 ? (
+        <div className="rounded-2xl border border-border/60 bg-background-base/45 p-4 text-sm leading-6 text-text-secondary">
+          Mission Control did not return the hermes-marketing or hermes-marketing-dev profile teams yet. Refresh after the dashboard server has the current backend definitions loaded.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {teams.map((team) => {
+            const configuredCount = team.agents.filter((agent) => agent.configured).length;
+            const activeCount = team.agents.filter((agent) => agent.active).length;
+            return (
+              <article key={team.team_id} className="rounded-2xl border border-border/60 bg-background-base/35 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-text-tertiary">{team.team_id}</div>
+                    <h3 className="mt-1 font-expanded text-lg font-black uppercase tracking-[0.08em] text-foreground">{team.label}</h3>
+                    <p className="mt-2 truncate text-xs text-text-tertiary">
+                      <span className="font-bold text-midground">Project path:</span> {team.project_path}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <Badge className="border-success/25 bg-success/10 text-success">Configured {configuredCount} / {team.agents.length}</Badge>
+                    <Badge className="border-amber-300/25 bg-amber-300/10 text-amber-100">Active {activeCount}</Badge>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  {team.agents.map((agent) => (
+                    <MarketingAgentRow key={`${team.team_id}-${agent.profile}`} agent={agent} />
+                  ))}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </MarketingCard>
   );
 }
 
@@ -574,6 +782,8 @@ export default function MarketingPage() {
         </div>
         Select a project square above to launch that project's marketing portal in-place below. These are read-only local cards, not live publishing or analytics integrations.
       </section>
+
+      <MarketingAgentTeamPanel />
 
       <MarketingPortal key={selected.id} project={selected} />
     </main>
