@@ -689,6 +689,7 @@ function LightAgentModal({
 function runtimeSourceLabel(source: string): string {
   if (source === "cli") return "Local Hermes CLI";
   if (source === "tui") return "Local Hermes TUI";
+  if (source === "claude") return "Claude Code";
   if (source === "dashboard") return "Dashboard backend";
   if (source === "kanban") return "Kanban worker";
   if (source === "delegate") return "Delegate agent";
@@ -822,13 +823,13 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
     .filter((record) => record.source !== "dashboard")
     .map((record) => ({
       id: `activity:${record.activity_id}`,
-      kind: profileTeamProfiles.has(record.profile) ? "Profile agent" : runtimeSourceLabel(record.source) === "Local Hermes CLI" || runtimeSourceLabel(record.source) === "Local Hermes TUI" ? "Hermes terminal" : runtimeSourceLabel(record.source),
+      kind: profileTeamProfiles.has(record.profile) ? "Profile agent" : record.source === "claude" ? "Claude Code terminal" : runtimeSourceLabel(record.source) === "Local Hermes CLI" || runtimeSourceLabel(record.source) === "Local Hermes TUI" ? "Hermes terminal" : runtimeSourceLabel(record.source),
       title: record.detail || record.session_id || `${record.source} activity`,
       detail: [record.profile, record.cwd].filter(Boolean).join(" · ") || "Local Hermes runtime heartbeat",
       meta: record.pid ? `pid ${record.pid} · ${formatTime(record.last_seen)}` : formatTime(record.last_seen),
       tone: record.status === "ready" ? "ready" : record.status === "working" ? "working" : "review",
       href: record.source === "kanban" ? "/team" : "/sessions",
-      icon: record.source === "kanban" || record.source === "delegate" ? Users : Activity,
+      icon: record.source === "kanban" || record.source === "delegate" ? Users : record.source === "claude" ? Terminal : Activity,
       performanceRisk: performanceRiskFromTelemetry(record),
     }));
 
@@ -999,29 +1000,29 @@ function MetricCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "mission-metric-card group relative overflow-hidden border p-3 text-left transition-all duration-200",
-        "bg-card/70 hover:-translate-y-0.5 hover:bg-card/90",
+        "mission-metric-card group relative overflow-hidden border p-5 text-left transition-all duration-300",
+        "bg-card/70",
         selected
-          ? "border-midground/70 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-primary)_40%,transparent)]"
-          : "border-border hover:border-current/30",
+          ? "border-midground/60 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-primary)_35%,transparent),0_0_52px_color-mix(in_srgb,var(--color-primary)_10%,transparent)]"
+          : "border-border hover:border-current/25 hover:bg-card/85 hover:-translate-y-1",
       )}
     >
-      <div className={`absolute inset-0 bg-gradient-to-br ${metric.accent} opacity-80`} />
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-success/60 to-transparent" />
-      <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-current/5 blur-2xl transition-opacity group-hover:opacity-100" />
-      <div className="relative flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-current/20 bg-background-base/65 shadow-[0_0_18px_rgba(0,0,0,0.25)]">
-          <Icon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="font-mondwest text-display text-xs uppercase tracking-[0.14em] text-muted-foreground">
-              {metric.label}
-            </p>
-            <Badge tone={metric.tone}>{metric.tone === "success" ? "live" : metric.tone}</Badge>
+      <div className={`absolute inset-0 bg-gradient-to-br ${metric.accent} opacity-60`} />
+      <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-success/55 to-transparent" />
+      <div className="absolute -right-14 -top-14 h-40 w-40 rounded-full bg-current/4 blur-3xl transition-all duration-500 group-hover:bg-current/7 group-hover:scale-110" />
+      <div className="relative flex flex-col gap-5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-current/20 bg-background-base/65 shadow-[0_0_18px_rgba(0,0,0,0.3)]">
+            <Icon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
           </div>
-          <p className="mt-1.5 truncate font-mono-ui text-2xl leading-none text-foreground">{metric.value}</p>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{metric.detail}</p>
+          <Badge tone={metric.tone}>{metric.tone === "success" ? "live" : metric.tone}</Badge>
+        </div>
+        <div>
+          <p className="font-mondwest text-display text-[0.62rem] uppercase tracking-[0.2em] text-muted-foreground">
+            {metric.label}
+          </p>
+          <p className="mt-2 font-mono-ui text-[2.6rem] leading-none text-foreground tracking-tight">{metric.value}</p>
+          <p className="mt-2.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{metric.detail}</p>
         </div>
       </div>
     </button>
@@ -1527,22 +1528,23 @@ function MissionQueue({
                 key={task.id}
                 type="button"
                 onClick={() => setSelectedTask(task)}
-                className="group border border-border bg-muted/10 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-current/30 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group relative overflow-hidden border border-border bg-background-base/30 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-current/25 hover:bg-card/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`Open ${task.id} details`}
               >
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-current/20 to-transparent" />
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-mono-ui text-sm text-foreground">{task.title || task.id}</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{task.title || task.id}</p>
+                    <p className="mt-1 text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground">
                       {task.boardName} · {task.column}{task.assignee ? ` · ${task.assignee}` : ""}
                     </p>
                   </div>
                   <Badge tone={taskTone(task)}>{task.status}</Badge>
                 </div>
-                <p className="mt-3 line-clamp-2 text-xs text-muted-foreground">
+                <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                   {task.latest_summary || task.body || "No worker summary captured yet."}
                 </p>
-                <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground group-hover:text-foreground">
+                <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
                   Open details <ChevronRight className="h-3.5 w-3.5" />
                 </div>
               </button>
@@ -1976,9 +1978,9 @@ function OpsDeck({ data }: { data: LoadState }) {
 
 function CommandDock() {
   const commands = [
-    { label: "Launch chat", detail: "Start hands-on agent work", href: "/chat", icon: Rocket },
-    { label: "System doctor", detail: "Health, credentials, hooks", href: "/system", icon: ShieldCheck },
-    { label: "Channels", detail: "Gateway and platforms", href: "/channels", icon: Radio },
+    { label: "Launch chat", detail: "Start hands-on agent work", href: "/chat", icon: Rocket, accent: "from-emerald-400/15 via-transparent to-transparent" },
+    { label: "System doctor", detail: "Health, credentials, hooks", href: "/system", icon: ShieldCheck, accent: "from-sky-400/15 via-transparent to-transparent" },
+    { label: "Channels", detail: "Gateway and platforms", href: "/channels", icon: Radio, accent: "from-violet-400/15 via-transparent to-transparent" },
   ];
 
   return (
@@ -1989,16 +1991,19 @@ function CommandDock() {
           <Link
             key={command.href}
             to={command.href}
-            className="group relative overflow-hidden border border-border bg-card/65 p-4 transition-all hover:-translate-y-0.5 hover:border-current/30 hover:bg-card/90"
+            className="group relative overflow-hidden border border-border bg-card/60 p-5 transition-all hover:-translate-y-0.5 hover:border-current/25 hover:bg-card/85"
           >
-            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-midground/50 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-            <div className="flex items-start justify-between gap-3">
+            <div className={`absolute inset-0 bg-gradient-to-br ${command.accent} opacity-0 transition-opacity group-hover:opacity-100`} />
+            <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-midground/40 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+            <div className="relative flex items-start justify-between gap-3">
               <div>
-                <Icon className="mb-3 h-5 w-5 text-muted-foreground transition-colors group-hover:text-foreground" />
-                <p className="text-sm font-medium text-foreground">{command.label}</p>
+                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full border border-current/15 bg-background-base/50">
+                  <Icon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                </div>
+                <p className="font-medium text-foreground">{command.label}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{command.detail}</p>
               </div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-foreground" />
+              <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-all group-hover:translate-x-1 group-hover:text-foreground" />
             </div>
           </Link>
         );
@@ -2010,11 +2015,11 @@ function CommandDock() {
 function SectionLink({ to, label }: { to: string; label: string }) {
   return (
     <Link
-      className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+      className="inline-flex items-center gap-1.5 border border-border bg-background-base/40 px-3 py-1.5 text-xs text-muted-foreground transition-all hover:border-current/30 hover:bg-card/60 hover:text-foreground"
       to={to}
     >
       {label}
-      <ChevronRight className="h-3.5 w-3.5" />
+      <ArrowRight className="h-3 w-3" />
     </Link>
   );
 }
@@ -2032,16 +2037,18 @@ function EmptySignal({
 }) {
   const toneClass =
     tone === "success"
-      ? "text-success border-success/30 bg-success/5"
+      ? "border-success/25 bg-success/5 text-success"
       : tone === "warning"
-        ? "text-warning border-warning/30 bg-warning/5"
-        : "text-muted-foreground border-border bg-muted/20";
+        ? "border-warning/25 bg-warning/5 text-warning"
+        : "border-border bg-muted/15 text-muted-foreground";
   return (
-    <div className={cn("flex items-center gap-3 border p-4 text-sm", toneClass)}>
-      <Icon className="h-5 w-5 shrink-0" />
+    <div className={cn("relative flex items-center gap-4 border p-5 text-sm", toneClass)}>
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-current/25 bg-background-base/50">
+        <Icon className="h-5 w-5" />
+      </div>
       <div>
         <p className="font-medium text-foreground">{title}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{body}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{body}</p>
       </div>
     </div>
   );
@@ -2049,11 +2056,12 @@ function EmptySignal({
 
 function MiniMetric({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="border border-border bg-background-base/35 p-2.5 backdrop-blur-sm">
-      <p className="font-mondwest text-display text-[0.65rem] uppercase tracking-[0.12em] text-muted-foreground">
+    <div className="relative overflow-hidden border border-border bg-background-base/40 p-3 backdrop-blur-sm">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-success/30 to-transparent" />
+      <p className="font-mondwest text-display text-[0.6rem] uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </p>
-      <p className="mt-0.5 truncate font-mono-ui text-lg text-foreground">{value}</p>
+      <p className="mt-1 truncate font-mono-ui text-2xl leading-none text-foreground">{value}</p>
     </div>
   );
 }
@@ -2239,11 +2247,11 @@ export default function MissionControlPage() {
   }
 
   return (
-    <div className="mission-control-surface relative isolate flex flex-col gap-3">
+    <div className="mission-control-surface relative isolate flex flex-col gap-4">
       <PluginSlot name="mission-control:top" />
 
       <section
-        className="mission-hero group relative overflow-hidden border border-current/15 bg-card/70 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-sm sm:p-5"
+        className="mission-hero group relative overflow-hidden border border-current/15 bg-card/70 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.32)] backdrop-blur-sm sm:p-8 md:p-10"
         style={heroStyle}
         onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
@@ -2256,8 +2264,9 @@ export default function MissionControlPage() {
         <div className="mission-hero__glow absolute inset-0 transition-opacity" />
         <div className="mission-hero__grid absolute inset-0" />
         <div className="mission-hero__scan absolute inset-x-0 top-0 h-28" />
-        <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full border border-success/20" />
-        <div className="absolute -right-6 top-16 h-24 w-24 rounded-full border border-current/15" />
+        <div className="absolute -right-20 -top-20 h-72 w-72 rounded-full border border-success/15 shadow-[inset_0_0_60px_color-mix(in_srgb,var(--color-success)_8%,transparent)]" />
+        <div className="absolute -right-8 top-12 h-36 w-36 rounded-full border border-current/10 shadow-[inset_0_0_30px_color-mix(in_srgb,var(--color-success)_5%,transparent)]" />
+        <div className="absolute right-10 -top-6 h-16 w-16 rounded-full border border-success/20" />
 
         <div className="relative grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-center">
           <div className="max-w-4xl">
@@ -2274,16 +2283,16 @@ export default function MissionControlPage() {
                 <Sparkles className="h-5 w-5 text-midground" />
               </div>
               <div>
-                <h2 className="mission-title font-mondwest text-display text-4xl uppercase leading-none tracking-[0.08em] text-foreground sm:text-5xl">
+                <h2 className="mission-title font-mondwest text-display text-5xl uppercase leading-none tracking-[0.08em] text-foreground sm:text-6xl">
                   Mission Control
                 </h2>
-                <p className="mt-2 max-w-2xl text-sm leading-5 text-muted-foreground">
-                  A live command surface for Hermes: system health, current conversations,
-                  team queue, automations, profile readiness, and the next thing that needs you.
+                <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground/80">
+                  Live command surface — system health, conversations, team queue,
+                  automations, profile readiness, and the next thing that needs you.
                 </p>
               </div>
             </div>
-            <div className="mission-mini-grid mt-4 grid gap-2 sm:grid-cols-4">
+            <div className="mission-mini-grid mt-6 grid gap-2 sm:grid-cols-4">
               <MiniMetric label="Platforms" value={Object.keys(data.status?.gateway_platforms ?? {}).length} />
               <MiniMetric label="Profiles" value={data.profiles.length} />
               <MiniMetric label="Cron" value={data.cronJobs.length} />
@@ -2308,9 +2317,11 @@ export default function MissionControlPage() {
         </Card>
       )}
 
-      <div className="mission-control-strip flex flex-col gap-2 border border-current/15 bg-card/55 p-2.5 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="mission-control-strip relative flex flex-col gap-2 overflow-hidden border border-current/15 bg-card/60 px-4 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-transparent via-success/50 to-transparent" />
+        <div className="flex flex-wrap items-center gap-3 pl-2">
           <ViewSwitch view={view} onChange={setView} />
+          <span className="hidden h-4 w-px bg-border sm:block" />
           <TeamFilterSelect data={data} value={effectiveTeamFilter} onChange={updateTeamFilter} label="Queue team" />
           {selectedMetricData && (
             <Badge tone={selectedMetricData.tone}>
@@ -2321,7 +2332,7 @@ export default function MissionControlPage() {
         {selectedMetricData && (
           <Link
             to={selectedMetricData.href}
-            className="inline-flex items-center justify-center gap-2 border border-current/20 bg-background-base/35 px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-success/40 hover:bg-success/10 hover:text-foreground"
+            className="inline-flex items-center justify-center gap-2 border border-current/20 bg-background-base/40 px-4 py-2 font-mondwest text-display text-xs uppercase tracking-[0.12em] text-muted-foreground transition-all hover:border-success/40 hover:bg-success/8 hover:text-foreground"
           >
             Open {selectedMetricData.label}
             <ArrowRight className="h-3.5 w-3.5" />
@@ -2329,7 +2340,7 @@ export default function MissionControlPage() {
         )}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
           <MetricCard
             key={metric.id}

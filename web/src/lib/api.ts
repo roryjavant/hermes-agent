@@ -1788,7 +1788,7 @@ export interface MissionControlActivity {
   activity_id: string;
   pid: number;
   profile: string;
-  source: "cli" | "tui" | "dashboard" | "kanban" | "delegate";
+  source: "cli" | "tui" | "dashboard" | "kanban" | "delegate" | "claude";
   session_id: string;
   cwd: string;
   status: "ready" | "working" | "review";

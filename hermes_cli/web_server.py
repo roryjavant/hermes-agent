@@ -11266,31 +11266,76 @@ def _has_dashboard_ancestor(pid: int, process_table: Dict[int, Dict[str, Any]]) 
     return False
 
 
+def _is_claude_code_command(command: str) -> bool:
+    """Return True when the command is a Claude Code CLI session (not login/setup)."""
+    if not (command == "claude" or command.startswith("claude ") or "claude.exe" in command or "@anthropic-ai/claude-code" in command):
+        return False
+    # Skip auth/setup sub-commands — not a working session
+    sub = command.split(None, 1)[1].lstrip() if " " in command else ""
+    if sub.startswith(("/login", "--setup", "update", "doctor")):
+        return False
+    return True
+
+
+def _local_claude_busy_reason(pid: int, process_table: Dict[int, Dict[str, Any]]) -> str:
+    """Return a non-empty description when the Claude Code process is executing tools."""
+    tool_markers = {
+        "bash": "running bash",
+        "python": "running python",
+        "node": "running node",
+        "git ": "running git",
+        "npm ": "running npm",
+        "npx ": "running npx",
+    }
+    for child in process_table.values():
+        if int(child.get("ppid") or -1) != pid:
+            continue
+        cmd = str(child.get("command") or "").lower()
+        # Skip the child claude processes themselves and common shell wrappers
+        if cmd.startswith("claude") or "sh -c" == cmd[:4]:
+            continue
+        for marker, label in tool_markers.items():
+            if marker in cmd:
+                return label
+        # Any non-trivial child process indicates tool execution
+        if cmd and not cmd.startswith("("):
+            return "executing tool"
+    return ""
+
+
 def _snapshot_local_agent_processes(process_table: Optional[Dict[int, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
-    """Best-effort local Hermes CLI/TUI presence with stable per-process rows."""
+    """Best-effort local Hermes CLI/TUI and Claude Code presence with stable per-process rows."""
     process_table = process_table if process_table is not None else _local_process_table()
     if not process_table:
         return []
-    candidates: List[Tuple[int, Dict[str, Any], bool, bool]] = []
+
+    HermesCandidate = Tuple[int, Dict[str, Any], bool, bool]
+    hermes_candidates: List[HermesCandidate] = []
+    claude_pids: List[int] = []
+
     for pid, process in process_table.items():
         command = process["command"]
-        if "hermes" not in command:
-            continue
-        is_cli = "/bin/hermes" in command or "-m hermes_cli.main" in command or command.startswith("hermes ")
-        is_tui = "ui-tui/dist/entry.js" in command
-        if not is_cli and not is_tui:
-            continue
-        if (
-            _is_dashboard_process_command(command)
-            or _has_dashboard_ancestor(pid, process_table)
-            or any(token in command for token in ["slash_worker", "tools_mcp_server"])
-        ):
-            continue
-        candidates.append((pid, process, is_cli, is_tui))
-    cwds = _local_process_cwds([pid for pid, _, _, _ in candidates])
+        # --- Hermes ---
+        if "hermes" in command:
+            is_cli = "/bin/hermes" in command or "-m hermes_cli.main" in command or command.startswith("hermes ")
+            is_tui = "ui-tui/dist/entry.js" in command
+            if (is_cli or is_tui) and not (
+                _is_dashboard_process_command(command)
+                or _has_dashboard_ancestor(pid, process_table)
+                or any(token in command for token in ["slash_worker", "tools_mcp_server"])
+            ):
+                hermes_candidates.append((pid, process, is_cli, is_tui))
+        # --- Claude Code ---
+        elif _is_claude_code_command(command):
+            if not _has_dashboard_ancestor(pid, process_table):
+                claude_pids.append(pid)
+
+    all_pids = [pid for pid, _, _, _ in hermes_candidates] + claude_pids
+    cwds = _local_process_cwds(all_pids)
     rows: List[Dict[str, Any]] = []
     now = time.time()
-    for pid, process, is_cli, is_tui in candidates:
+
+    for pid, process, is_cli, is_tui in hermes_candidates:
         command = process["command"]
         cwd = cwds.get(pid, "")
         busy_reason = _local_hermes_busy_reason(pid, process_table)
@@ -11306,6 +11351,28 @@ def _snapshot_local_agent_processes(process_table: Optional[Dict[int, Dict[str, 
             "started_at": now,
             "last_seen": now,
         })
+
+    for pid in claude_pids:
+        process = process_table[pid]
+        command = process["command"]
+        cwd = cwds.get(pid, "")
+        busy_reason = _local_claude_busy_reason(pid, process_table)
+        # Extract the subcommand/flags as a label hint (e.g. "--profile foo")
+        sub = command[len("claude"):].strip() if command.startswith("claude") else ""
+        profile = _parse_process_profile(sub) if sub else "default"
+        rows.append({
+            "activity_id": f"local-process:{pid}",
+            "pid": pid,
+            "profile": profile,
+            "source": "claude",
+            "session_id": "",
+            "cwd": cwd,
+            "status": "working" if busy_reason else "ready",
+            "detail": busy_reason or "Claude Code terminal",
+            "started_at": now,
+            "last_seen": now,
+        })
+
     return rows
 
 
