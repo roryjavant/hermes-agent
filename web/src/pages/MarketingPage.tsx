@@ -310,51 +310,117 @@ function MarketingCard({ children, className }: { children: ReactNode; className
   );
 }
 
-function MarketingAgentRow({ agent }: { agent: MissionControlProfileTeamAgent }) {
+function agentOrbTone(agent: MissionControlProfileTeamAgent): "ready" | "working" | "review" {
+  if (!agent.configured) return "review";
+  if (agent.status === "working" || agent.active) return "working";
+  return "ready";
+}
+
+function agentRoleGlyph(role: string): string {
+  const n = role.toLowerCase();
+  if (n.includes("strategist")) return "strategy";
+  if (n.includes("ideation")) return "ideation";
+  if (n.includes("copywriter") || n.includes("copy")) return "copy";
+  if (n.includes("calendar")) return "calendar";
+  if (n.includes("analytics")) return "analytics";
+  if (n.includes("growth")) return "growth";
+  if (n.includes("brand")) return "brand";
+  if (n.includes("assets")) return "assets";
+  if (n.includes("planner")) return "planner";
+  if (n.includes("builder")) return "builder";
+  if (n.includes("designer")) return "designer";
+  if (n.includes("curator")) return "curator";
+  if (n.includes("scout")) return "scout";
+  if (n.includes("analyst")) return "analyst";
+  return role.split(/\s+/)[0].toLowerCase().slice(0, 8);
+}
+
+function MarketingAgentOrb({ agent, isLast }: { agent: MissionControlProfileTeamAgent; isLast: boolean }) {
+  const tone = agentOrbTone(agent);
+  const glyph = agentRoleGlyph(agent.role);
   const statusLabel = marketingAgentStatusLabel(agent);
   const canLaunch = agent.configured && agent.profile.trim().length > 0;
 
-  return (
-    <article className="rounded-2xl border border-border/60 bg-background-base/45 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-text-tertiary">Role</div>
-          <h4 className="mt-1 font-expanded text-sm font-black uppercase tracking-[0.08em] text-foreground">{agent.role}</h4>
-          <div className="mt-3 text-[0.68rem] font-black uppercase tracking-[0.16em] text-text-tertiary">Profile</div>
-          <code className="mt-1 block truncate rounded-xl border border-current/10 bg-black/18 px-2.5 py-1.5 font-mono-ui text-xs text-midground">
-            {agent.profile}
-          </code>
-        </div>
-        <Badge className={cn("border text-[0.68rem] uppercase tracking-[0.12em]", marketingAgentStatusClass(agent))}>
-          Status: {statusLabel}
-        </Badge>
-      </div>
+  const orbClass = cn(
+    "group relative flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-full border transition-all duration-200",
+    "hover:-translate-y-0.5 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    tone === "ready" && "border-success/50 bg-success/10 text-success shadow-[0_0_16px_color-mix(in_srgb,var(--color-success)_22%,transparent)]",
+    tone === "working" && "border-warning/50 bg-warning/10 text-warning shadow-[0_0_16px_color-mix(in_srgb,var(--color-warning)_24%,transparent)]",
+    tone === "review" && "border-destructive/55 bg-destructive/10 text-destructive shadow-[0_0_16px_color-mix(in_srgb,var(--color-destructive)_24%,transparent)]",
+  );
 
-      <div className="mt-3 rounded-xl border border-current/10 bg-black/12 px-3 py-2 text-xs leading-5 text-text-secondary">
-        {agent.detail || (agent.configured ? "Profile configured and standing by." : "Profile missing from local Hermes profiles.")}
-      </div>
+  const popover = (
+    <span
+      className={cn(
+        "pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-56 -translate-x-1/2",
+        "border border-current/20 bg-popover/95 p-3 text-left text-popover-foreground shadow-2xl backdrop-blur-md",
+        "group-hover:block group-focus:block",
+      )}
+      role="tooltip"
+    >
+      <span className="block text-xs font-bold uppercase tracking-[0.14em] text-foreground">{agent.role}</span>
+      <span className="mt-1 block truncate font-mono-ui text-xs text-midground">{agent.profile}</span>
+      <span className="mt-2 block text-[0.68rem] uppercase tracking-[0.1em] text-muted-foreground">
+        {statusLabel}
+        {agent.pid ? ` · pid ${agent.pid}` : ""}
+      </span>
+      {agent.detail && (
+        <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground">{agent.detail}</span>
+      )}
+      {canLaunch && (
+        <span className="mt-2 block text-[0.68rem] uppercase tracking-[0.1em] text-current/70">
+          Click to launch chat →
+        </span>
+      )}
+      <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-current/20 bg-popover/95" />
+    </span>
+  );
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3">
-        <div className="flex flex-wrap gap-2 text-[0.68rem] font-black uppercase tracking-[0.12em] text-text-tertiary">
-          <span>{agent.active ? "Active runtime" : "No active runtime"}</span>
-          {agent.pid ? <span>PID {agent.pid}</span> : null}
-          {agent.source ? <span>{agent.source}</span> : null}
-        </div>
-        {canLaunch ? (
-          <Link
-            to={`/chat?profile=${encodeURIComponent(agent.profile)}`}
-            className="inline-flex items-center gap-1 rounded-full border border-midground/30 bg-midground/10 px-3 py-1.5 text-xs font-bold text-midground transition-colors hover:border-midground/60 hover:bg-midground/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70"
-          >
-            Launch chat
-            <ArrowRight className="size-3.5" />
-          </Link>
-        ) : (
-          <span className="inline-flex cursor-not-allowed items-center rounded-full border border-rose-300/20 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-100" aria-disabled="true">
-            Configure profile before launch
-          </span>
+  const inner = (
+    <>
+      {popover}
+      <span
+        className={cn(
+          "absolute inset-1 rounded-full border border-current/20 opacity-60",
+          tone === "working" && "animate-pulse",
         )}
-      </div>
-    </article>
+      />
+      <span className="relative z-10 max-w-[4rem] whitespace-nowrap text-center font-mono-ui text-[0.55rem] font-semibold uppercase leading-none tracking-[-0.03em] text-foreground">
+        {glyph}
+      </span>
+    </>
+  );
+
+  return (
+    <span className="flex items-center">
+      {canLaunch ? (
+        <Link
+          to={`/chat?profile=${encodeURIComponent(agent.profile)}`}
+          className={orbClass}
+          aria-label={`${agent.role} · ${statusLabel} · Launch chat`}
+        >
+          {inner}
+        </Link>
+      ) : (
+        <span className={orbClass} role="img" aria-label={`${agent.role} · ${statusLabel}`}>
+          {inner}
+        </span>
+      )}
+      {!isLast && (
+        <span
+          className={cn(
+            "relative flex h-[4.5rem] w-8 shrink-0 items-center justify-center",
+            "before:absolute before:left-0 before:right-0 before:top-1/2 before:h-px before:-translate-y-1/2 before:bg-current/30",
+            tone === "ready" && "text-success",
+            tone === "working" && "text-warning",
+            tone === "review" && "text-destructive",
+          )}
+          aria-hidden="true"
+        >
+          <ArrowRight className="relative z-10 h-3.5 w-3.5 rounded-full bg-background-base/90 p-0.5 text-current" />
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -468,9 +534,13 @@ function MarketingAgentTeamPanel() {
                     <Badge className="border-amber-300/25 bg-amber-300/10 text-amber-100">Active {activeCount}</Badge>
                   </div>
                 </div>
-                <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                  {team.agents.map((agent) => (
-                    <MarketingAgentRow key={`${team.team_id}-${agent.profile}`} agent={agent} />
+                <div className="mt-5 flex flex-wrap items-center gap-y-4">
+                  {team.agents.map((agent, index) => (
+                    <MarketingAgentOrb
+                      key={`${team.team_id}-${agent.profile}`}
+                      agent={agent}
+                      isLast={index === team.agents.length - 1}
+                    />
                   ))}
                 </div>
               </article>
