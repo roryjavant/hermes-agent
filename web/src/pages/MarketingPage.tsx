@@ -343,10 +343,10 @@ function MarketingAgentOrb({ agent, isLast }: { agent: MissionControlProfileTeam
 
   const orbClass = cn(
     "group relative flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-full border transition-all duration-200",
-    "hover:-translate-y-0.5 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-    tone === "ready" && "border-success/50 bg-success/10 text-success shadow-[0_0_16px_color-mix(in_srgb,var(--color-success)_22%,transparent)]",
-    tone === "working" && "border-warning/50 bg-warning/10 text-warning shadow-[0_0_16px_color-mix(in_srgb,var(--color-warning)_24%,transparent)]",
-    tone === "review" && "border-destructive/55 bg-destructive/10 text-destructive shadow-[0_0_16px_color-mix(in_srgb,var(--color-destructive)_24%,transparent)]",
+    "hover:-translate-y-0.5 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60",
+    tone === "ready" && "border-cyan-400/50 bg-cyan-500/10 text-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.28)]",
+    tone === "working" && "border-amber-400/55 bg-amber-500/10 text-amber-300 shadow-[0_0_20px_rgba(251,191,36,0.32)]",
+    tone === "review" && "border-rose-500/55 bg-rose-500/10 text-rose-300 shadow-[0_0_16px_rgba(239,68,68,0.22)]",
   );
 
   const popover = (
@@ -411,9 +411,9 @@ function MarketingAgentOrb({ agent, isLast }: { agent: MissionControlProfileTeam
           className={cn(
             "relative flex h-[4.5rem] w-8 shrink-0 items-center justify-center",
             "before:absolute before:left-0 before:right-0 before:top-1/2 before:h-px before:-translate-y-1/2 before:bg-current/30",
-            tone === "ready" && "text-success",
-            tone === "working" && "text-warning",
-            tone === "review" && "text-destructive",
+            tone === "ready" && "text-cyan-400",
+            tone === "working" && "text-amber-400",
+            tone === "review" && "text-rose-400",
           )}
           aria-hidden="true"
         >
