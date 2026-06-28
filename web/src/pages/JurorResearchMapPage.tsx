@@ -123,13 +123,11 @@ const BASE_EDGES: ResearchEdge[] = [
   researchEdge("news-local", "evidence-capture", "local source artifact"),
   researchEdge("evidence-capture", "fact-extraction", "captured evidence"),
   researchEdge("fact-extraction", "dedupe-corroborate", "candidate facts"),
-  researchEdge("fact-extraction", "potential-fact-pool", "candidate facts"),
-  researchEdge("dedupe-corroborate", "potential-fact-pool", "potential"),
+  researchEdge("dedupe-corroborate", "potential-fact-pool", "screened facts"),
   researchEdge("potential-fact-pool", "box-eligible-leads", "screen"),
   researchEdge("potential-fact-pool", "signal-model", "case-adjacent"),
   researchEdge("opposing-counsel-lens", "signal-model", "OC pressure"),
   researchEdge("signal-model", "human-review", "triage"),
-  researchEdge("dedupe-corroborate", "human-review", "conflicts"),
   researchEdge("box-eligible-leads", "backend-box-handoff", "box-ready"),
   researchEdge("box-eligible-leads", "box-live-cockpit", "active leads", true),
   researchEdge("human-review", "backend-box-handoff", "reviewed"),
@@ -156,7 +154,6 @@ const BASE_EDGES: ResearchEdge[] = [
   researchEdge("courtroom-decisions", "live-feedback-sync", "decision sync", true),
   researchEdge("courtroom-decisions", "facesheet", "trial action notes"),
   researchEdge("live-feedback-sync", "coverage-eval", "audit loop", true),
-  researchEdge("human-review", "facesheet", "approved"),
   researchEdge("strike-signals", "facesheet", "report signals"),
   researchEdge("facesheet", "coverage-eval", "artifact"),
   researchEdge("coverage-eval", "source-planner", "gap loop", true),
@@ -198,7 +195,8 @@ const VISIBLE_EDGE_CHIP_IDS = new Set([
   "source-planner-web-social",
   "web-social-evidence-capture",
   "evidence-capture-fact-extraction",
-  "fact-extraction-potential-fact-pool",
+  "fact-extraction-dedupe-corroborate",
+  "dedupe-corroborate-potential-fact-pool",
   "potential-fact-pool-box-eligible-leads",
   "box-eligible-leads-backend-box-handoff",
   "backend-box-handoff-box-live-cockpit",
@@ -219,7 +217,8 @@ const EDGE_CHIP_PLACEMENTS: Record<string, EdgeChipPlacement> = {
   "source-planner-web-social": { segment: "middle", t: 0.5, dy: -46 },
   "web-social-evidence-capture": { segment: "middle", t: 0.5, dy: -46 },
   "evidence-capture-fact-extraction": { segment: "middle", t: 0.5, dy: -46 },
-  "fact-extraction-potential-fact-pool": { segment: "middle", t: 0.5, dy: -46 },
+  "fact-extraction-dedupe-corroborate": { segment: "middle", t: 0.5, dy: -46 },
+  "dedupe-corroborate-potential-fact-pool": { segment: "middle", t: 0.5, dx: 58 },
   "potential-fact-pool-box-eligible-leads": { segment: "middle", t: 0.5, dy: -46 },
   "box-eligible-leads-backend-box-handoff": { segment: "middle", t: 0.5, dy: -46 },
   "backend-box-handoff-box-live-cockpit": { segment: "middle", t: 0.5, dy: -46 },
@@ -442,19 +441,25 @@ function ResearchFlowEdge({
   });
   const isDedupeConflictReviewEdge = id === "dedupe-corroborate-human-review";
   const isCoverageGapLoopEdge = id === "coverage-eval-source-planner";
+  const isSignalToStrikeEdge = id === "signal-model-strike-signals";
   const conflictLaneY = Math.max(sourceY, targetY) + 120;
   const conflictSourceDoglegX = sourceX + 120;
   const conflictTargetDoglegX = targetX - 120;
   const gapLoopLaneY = Math.max(sourceY, targetY) + 260;
   const gapLoopSourceDoglegX = sourceX + 180;
   const gapLoopTargetDoglegX = targetX - 180;
+  const signalToStrikeLaneY = Math.max(sourceY, targetY) + 180;
+  const signalToStrikeSourceDoglegX = sourceX + 150;
+  const signalToStrikeTargetDoglegX = targetX - 150;
   const edgePath = isCoverageGapLoopEdge
     ? `M ${sourceX},${sourceY} L ${gapLoopSourceDoglegX},${sourceY} L ${gapLoopSourceDoglegX},${gapLoopLaneY} L ${gapLoopTargetDoglegX},${gapLoopLaneY} L ${gapLoopTargetDoglegX},${targetY} L ${targetX},${targetY}`
+    : isSignalToStrikeEdge
+      ? `M ${sourceX},${sourceY} L ${signalToStrikeSourceDoglegX},${sourceY} L ${signalToStrikeSourceDoglegX},${signalToStrikeLaneY} L ${signalToStrikeTargetDoglegX},${signalToStrikeLaneY} L ${signalToStrikeTargetDoglegX},${targetY} L ${targetX},${targetY}`
     : isDedupeConflictReviewEdge
       ? `M ${sourceX},${sourceY} L ${conflictSourceDoglegX},${sourceY} L ${conflictSourceDoglegX},${conflictLaneY} L ${conflictTargetDoglegX},${conflictLaneY} L ${conflictTargetDoglegX},${targetY} L ${targetX},${targetY}`
       : smoothEdgePath;
-  const labelX = isCoverageGapLoopEdge ? (gapLoopSourceDoglegX + gapLoopTargetDoglegX) / 2 : isDedupeConflictReviewEdge ? (conflictSourceDoglegX + conflictTargetDoglegX) / 2 : smoothLabelX;
-  const labelY = isCoverageGapLoopEdge ? gapLoopLaneY : isDedupeConflictReviewEdge ? conflictLaneY : smoothLabelY;
+  const labelX = isCoverageGapLoopEdge ? (gapLoopSourceDoglegX + gapLoopTargetDoglegX) / 2 : isSignalToStrikeEdge ? (signalToStrikeSourceDoglegX + signalToStrikeTargetDoglegX) / 2 : isDedupeConflictReviewEdge ? (conflictSourceDoglegX + conflictTargetDoglegX) / 2 : smoothLabelX;
+  const labelY = isCoverageGapLoopEdge ? gapLoopLaneY : isSignalToStrikeEdge ? signalToStrikeLaneY : isDedupeConflictReviewEdge ? conflictLaneY : smoothLabelY;
   const feedbackTraceActive = Boolean(data?.feedbackTraceActive);
   const feedbackTraceRoute = Boolean(data?.feedbackTraceRoute);
   const visibleStyle = feedbackTraceActive

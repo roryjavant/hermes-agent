@@ -479,3 +479,25 @@ def test_mission_control_team_role_glyphs_cover_domain_specialists():
     assert 'normalized.includes("analytics")' in source
     assert "Profile-backed role agents per project team" in source
     assert "Five profile-backed role agents per coding team" not in source
+
+
+def test_mission_control_team_role_lights_open_dossier_with_profile_chat_launch():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert "function profileChatPath" in source
+    assert "Launch chat" in source
+    assert "onClick={() => openLightAgent(item)}" in source
+    assert "to={launchHref}" in source
+    assert "Launch ${item.profileName} in Chat" not in source
+    assert "to={profileChatPath(item.profileName)}" not in source
+    assert "Details\n" not in source
+    assert "/chat?profile=" in source
+
+
+def test_mission_control_active_sessions_metric_uses_terminal_lights():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert 'const terminalLights = buildOperationsItems(data).filter((item) => activitySegment(item) === "terminals").length;' in source
+    assert "value: formatCount(terminalLights)" in source
+    assert "tone: terminalLights > 0 ? \"success\" : \"secondary\"" in source
+    assert "const activeSessions =" not in source

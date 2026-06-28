@@ -310,10 +310,8 @@ function buildMetrics(data: LoadState): MissionMetric[] {
   const tasks = allTasks(data);
   const blockedTasks = tasks.filter((task) => task.status === "blocked").length;
   const liveWorkers = tasks.filter((task) => task.status === "running").length;
-  const activeSessions =
-    data.status?.active_sessions ??
-    data.sessions?.sessions.filter((session) => session.is_active).length ??
-    0;
+  const terminalLights = buildOperationsItems(data).filter((item) => activitySegment(item) === "terminals").length;
+  const trackedConversations = data.sessions?.total ?? data.sessions?.sessions.length ?? 0;
   const nextCron = data.cronJobs
     .filter((job) => job.enabled && job.next_run_at)
     .sort((a, b) => String(a.next_run_at).localeCompare(String(b.next_run_at)))[0];
@@ -336,9 +334,9 @@ function buildMetrics(data: LoadState): MissionMetric[] {
     {
       id: "sessions",
       label: "Active sessions",
-      value: formatCount(activeSessions),
-      detail: `${formatCount(data.sessions?.total)} total conversations tracked`,
-      tone: activeSessions > 0 ? "success" : "secondary",
+      value: formatCount(terminalLights),
+      detail: `${formatCount(trackedConversations)} total conversations tracked`,
+      tone: terminalLights > 0 ? "success" : "secondary",
       icon: MessageSquare,
       href: "/sessions",
       accent: "from-sky-400/25 via-indigo-300/10 to-transparent",
@@ -537,6 +535,10 @@ function ActivityLightPopover({ item, rowLabel }: { item: OperationsItem; rowLab
   );
 }
 
+function profileChatPath(profileName: string | null | undefined): string {
+  return profileName ? `/chat?profile=${encodeURIComponent(profileName)}` : "/chat";
+}
+
 function LightAgentModal({
   details,
   modal,
@@ -550,6 +552,7 @@ function LightAgentModal({
   const enabledSkills = details.skills.filter((skill) => skill.enabled);
   const disabledSkills = details.skills.filter((skill) => !skill.enabled);
   const soulText = details.soul?.content.trim();
+  const launchHref = profileChatPath(item.profileName || profile?.name);
 
   return (
     <div
@@ -576,14 +579,24 @@ function LightAgentModal({
               {item.profileName || profile?.name || item.popoverSubtitle || item.kind}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background-base/60 text-muted-foreground transition-colors hover:border-current/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label="Close agent details"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              to={launchHref}
+              onClick={onClose}
+              className="inline-flex h-9 items-center gap-2 border border-success/45 bg-success/10 px-3 font-mondwest text-display text-xs uppercase tracking-[0.14em] text-success transition-colors hover:border-success/70 hover:bg-success/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Rocket className="h-3.5 w-3.5" />
+              Launch chat
+            </Link>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background-base/60 text-muted-foreground transition-colors hover:border-current/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Close agent details"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="max-h-[calc(86vh-5rem)] overflow-y-auto p-4">

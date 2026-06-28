@@ -31,6 +31,13 @@ def test_marketing_page_is_read_only_local_fixture_workspace():
     for section in ["Strategy", "Campaigns", "Content Pipeline", "Assets", "Metrics"]:
         assert section in source
 
+    assert "Marketing project launchpad" in source
+    assert "MARKETING_PROJECTS" in source
+    assert "ProjectSquare" in source
+    assert "Marketing portal" in source
+    assert "Marketing project launchpad" in source
+    assert "Portal sections" in source
+    assert "Interactive portal view" in source
     assert "Read-only Milestone 1" in source
     assert "local fixture/manual data only" in source
     assert "No integrations connected" in source
@@ -42,4 +49,39 @@ def test_marketing_page_is_read_only_local_fixture_workspace():
     assert "api." not in source
     assert "useEffect" not in source
     assert "window.open" not in source
-    assert "<button" not in source
+
+
+def test_marketing_launchpad_cards_are_projects_that_open_in_place_portal():
+    source = read("web/src/pages/MarketingPage.tsx")
+
+    for project_id in ["savant-ai-systems", "hermes-marketing", "automation-case-studies", "home-hub-systems"]:
+        assert f'id: "{project_id}"' in source
+
+    for project_title in ["Savant AI Systems", "Hermes Marketing", "Automation Case Studies", "Home Hub Systems"]:
+        assert project_title in source
+
+    for component in [
+        "StrategyWorkspace",
+        "CampaignsWorkspace",
+        "ContentWorkspace",
+        "AssetsWorkspace",
+        "MetricsWorkspace",
+    ]:
+        assert component in source
+
+    assert 'const [selectedProject, setSelectedProject] = useState<MarketingProjectId>("savant-ai-systems");' in source
+    assert "<MarketingPortal key={selected.id} project={selected} />" in source
+    assert "Select a project square above to launch that project's marketing portal in-place below" in source
+
+
+def test_marketing_portal_has_interactive_section_picker():
+    source = read("web/src/pages/MarketingPage.tsx")
+
+    assert "PORTAL_SECTIONS" in source
+    assert 'const [activeSection, setActiveSection] = useState<PortalSectionId>("strategy");' in source
+    assert "<PortalPanel sectionId={activeSection} />" in source
+    assert "aria-pressed={active}" in source
+    assert "onClick={() => setActiveSection(section.id)}" in source
+
+    for section_id in ["strategy", "campaigns", "content", "assets", "metrics"]:
+        assert f'id: "{section_id}"' in source
