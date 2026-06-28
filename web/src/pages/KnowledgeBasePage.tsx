@@ -418,10 +418,12 @@ export default function KnowledgeBasePage() {
                       rows={5}
                       className="w-full resize-none border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
                     />
-                    <div className="flex items-center gap-2 border border-border/50 bg-black/20 px-3 py-2 text-xs text-text-tertiary">
-                      <FolderClosed className="size-3 shrink-0" />
-                      <span>Folder hint:</span>
-                      <code className="ml-1 font-mono text-text-secondary">{folder || "agent decides"}</code>
+                    <div className="flex select-none items-center gap-2 border border-border/60 bg-background-base/60 px-3 py-2 text-xs text-text-secondary">
+                      <FolderClosed className="size-3 shrink-0 text-text-tertiary" />
+                      <span className="text-text-tertiary">Folder hint:</span>
+                      <code className="ml-1 rounded border border-border/60 bg-card/80 px-2 py-0.5 font-mono text-midground shadow-inner shadow-black/20">
+                        {folder || "agent decides"}
+                      </code>
                     </div>
                     <Button
                       onClick={handleStartResearch}

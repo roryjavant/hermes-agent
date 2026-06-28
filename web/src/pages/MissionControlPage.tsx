@@ -22,7 +22,6 @@ import {
   RefreshCw,
   Rocket,
   ShieldCheck,
-  Sparkles,
   Terminal,
   Users,
   X,
@@ -1762,36 +1761,54 @@ function ActiveOperationsBoard({
                                   const riskTitle = item.performanceRisk ? ` · ${item.performanceRisk.detail}` : "";
                                   const title = `${row.label} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}${riskTitle}`;
                                   const ariaLabel = `${row.label} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${riskTitle}`;
+                                  const toneColors = {
+                                    ready:   { border: "border-cyan-400/55",    bg: "bg-cyan-500/8",     text: "text-cyan-300",    shadow: "shadow-[0_0_28px_rgba(34,211,238,0.45),inset_0_0_24px_rgba(34,211,238,0.10)]",  wire: "text-cyan-400",   ping: "bg-cyan-400" },
+                                    working: { border: "border-amber-400/55",   bg: "bg-amber-500/8",    text: "text-amber-300",   shadow: "shadow-[0_0_28px_rgba(251,191,36,0.45),inset_0_0_24px_rgba(251,191,36,0.10)]",  wire: "text-amber-400",  ping: "bg-amber-400" },
+                                    review:  { border: "border-rose-400/55",    bg: "bg-rose-500/8",     text: "text-rose-300",    shadow: "shadow-[0_0_28px_rgba(244,63,94,0.45),inset_0_0_24px_rgba(244,63,94,0.10)]",    wire: "text-rose-400",   ping: "bg-rose-400" },
+                                  } as const;
+                                  const tc = toneColors[item.tone] ?? toneColors.ready;
+
                                   const lightClassName = cn(
-                                    "group relative flex items-center justify-center rounded-full border transition-all duration-200",
-                                    isTeamFlow ? "h-[4.5rem] w-[4.5rem]" : "h-10 w-10",
-                                    "hover:-translate-y-0.5 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    item.tone === "ready" && "border-success/50 bg-success/10 text-success shadow-[0_0_16px_color-mix(in_srgb,var(--color-success)_22%,transparent)]",
-                                    item.tone === "working" && "border-warning/50 bg-warning/10 text-warning shadow-[0_0_16px_color-mix(in_srgb,var(--color-warning)_24%,transparent)]",
-                                    item.tone === "review" && "border-destructive/55 bg-destructive/10 text-destructive shadow-[0_0_16px_color-mix(in_srgb,var(--color-destructive)_24%,transparent)]",
+                                    "agent-light group relative flex items-center justify-center rounded-full transition-all duration-300",
+                                    isTeamFlow ? "h-[5rem] w-[5rem]" : "h-12 w-12",
+                                    "border-2",
+                                    tc.border, tc.bg, tc.text, tc.shadow,
+                                    "hover:-translate-y-1 hover:scale-110 focus-visible:outline-none",
                                   );
                                   const lightContents = (
                                     <>
                                       <ActivityLightPopover item={item} rowLabel={row.label} />
-                                      <span className={cn(
-                                        "absolute inset-1 rounded-full border border-current/20 opacity-60",
-                                        item.tone === "working" && "animate-pulse",
-                                        item.tone === "review" && "animate-pulse",
-                                      )} />
+
+                                      {/* Outer ping ring — active states */}
+                                      {(item.tone === "working" || item.tone === "review") && (
+                                        <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", tc.border)} />
+                                      )}
+                                      {/* Middle concentric ring */}
+                                      <span className="absolute inset-[5px] rounded-full border border-current/20" />
+                                      {/* Inner ring — team lights only */}
+                                      {isTeamFlow && <span className="absolute inset-[14px] rounded-full border border-current/12" />}
+
                                       {item.roleGlyph ? (
-                                        <span className="relative z-10 max-w-[4.5rem] whitespace-nowrap text-center font-mono-ui text-[0.56rem] font-semibold uppercase leading-none tracking-[-0.04em] text-foreground">
+                                        <span className={cn(
+                                          "relative z-10 text-center font-mono-ui font-bold uppercase leading-tight",
+                                          isTeamFlow
+                                            ? "text-[0.58rem] tracking-[0.1em] text-white/80"
+                                            : "text-[0.5rem] tracking-[0.06em] text-white/70",
+                                        )}>
                                           {item.roleGlyph}
                                         </span>
                                       ) : (
-                                        <Icon className="relative h-3.5 w-3.5" />
+                                        <Icon className="relative z-10 h-4 w-4 text-white/70" />
                                       )}
+
                                       {item.performanceRisk && (
                                         <span
                                           className={cn(
-                                            "absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full border bg-background-base px-1 font-mono-ui text-[0.52rem] leading-none shadow-sm",
+                                            "absolute -right-1 -top-1 z-20 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 font-mono-ui text-[0.5rem] leading-none",
+                                            "bg-[rgb(3,5,18)]",
                                             item.performanceRisk.level === "critical"
-                                              ? "border-destructive/70 text-destructive"
-                                              : "border-warning/70 text-warning",
+                                              ? "border-rose-400/70 text-rose-400"
+                                              : "border-amber-400/70 text-amber-400",
                                           )}
                                           aria-label={item.performanceRisk.detail}
                                         >
@@ -1814,16 +1831,13 @@ function ActiveOperationsBoard({
                                       {lightElement}
                                       {isTeamFlow && !isLastTeamLight && (
                                         <span
-                                          className={cn(
-                                            "relative flex h-[4.5rem] w-8 shrink-0 items-center justify-center",
-                                            "before:absolute before:left-0 before:right-0 before:top-1/2 before:h-px before:-translate-y-1/2 before:bg-current/35",
-                                            item.tone === "ready" && "text-success",
-                                            item.tone === "working" && "text-warning",
-                                            item.tone === "review" && "text-destructive",
-                                          )}
+                                          className={cn("relative flex h-[5rem] w-10 shrink-0 items-center justify-center", tc.wire)}
                                           aria-hidden="true"
                                         >
-                                          <ArrowRight className="relative z-10 h-3.5 w-3.5 rounded-full bg-background-base/90 p-0.5 text-current" />
+                                          {/* Wire */}
+                                          <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
+                                          {/* Traveling dot */}
+                                          <span className="agent-wire__dot absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
                                         </span>
                                       )}
                                     </span>
@@ -2291,9 +2305,9 @@ export default function MissionControlPage() {
         <div className="mission-hero__scan absolute inset-x-0 top-0 h-40" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[rgb(3,5,18)] to-transparent" />
 
-        <div className="relative flex flex-col px-6 pt-10 pb-8 sm:px-10 sm:pt-14 sm:pb-10">
+        <div className="relative flex flex-col px-6 pt-8 pb-6 sm:px-10 sm:pt-10 sm:pb-8">
           {/* HUD status line */}
-          <div className="mb-6 flex items-center gap-3">
+          <div className="mb-5 flex items-center gap-3">
             <span className="mission-kicker">Orbital command online</span>
             <span className="h-px flex-1 bg-white/8" />
             <span className="font-mono text-[0.62rem] uppercase tracking-[0.2em] text-white/25">
@@ -2301,16 +2315,16 @@ export default function MissionControlPage() {
             </span>
           </div>
 
-          <div className="grid gap-8 xl:grid-cols-[1fr_22rem] xl:items-end">
+          <div className="grid gap-6 xl:grid-cols-[1fr_22rem] xl:items-center">
             <div>
               <h2
-                className="mission-title font-mondwest text-display uppercase leading-[0.88] tracking-[0.04em] text-white"
-                style={{ fontSize: "clamp(4.5rem, 11vw, 9.5rem)" }}
+                className="mission-title font-light uppercase leading-[0.9] tracking-[0.18em] text-white"
+                style={{ fontSize: "clamp(2.2rem, 4.5vw, 3.6rem)" }}
               >
-                Mission<br />Control
+                Mission Control
               </h2>
               {/* Inline HUD metrics */}
-              <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2">
+              <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2">
                 {[
                   { label: "Platforms", value: Object.keys(data.status?.gateway_platforms ?? {}).length },
                   { label: "Profiles", value: data.profiles.length },
@@ -2318,8 +2332,8 @@ export default function MissionControlPage() {
                   { label: "Signals", value: timeline.length },
                 ].map((stat) => (
                   <div key={stat.label} className="flex items-baseline gap-2">
-                    <span className="font-mono-ui text-2xl leading-none text-white/70">{stat.value}</span>
-                    <span className="text-[0.6rem] uppercase tracking-[0.2em] text-white/25">{stat.label}</span>
+                    <span className="font-mono-ui text-xl leading-none text-white/70">{stat.value}</span>
+                    <span className="text-[0.58rem] uppercase tracking-[0.2em] text-white/25">{stat.label}</span>
                   </div>
                 ))}
               </div>

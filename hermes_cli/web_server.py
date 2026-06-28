@@ -93,6 +93,19 @@ except ImportError:
 WEB_DIST = Path(os.environ["HERMES_WEB_DIST"]) if "HERMES_WEB_DIST" in os.environ else Path(__file__).parent / "web_dist"
 _log = logging.getLogger(__name__)
 
+
+class ReminderCreate(BaseModel):
+    title: str
+    notes: str = ""
+    due_at: Optional[str] = None
+
+
+class ReminderUpdate(BaseModel):
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    due_at: Optional[str] = None
+    completed: Optional[bool] = None
+
 # ---------------------------------------------------------------------------
 # Per-channel subscriber registry used by /api/pub (PTY-side gateway → dashboard)
 # and /api/events (dashboard → browser sidebar).  Keyed by an opaque channel id
@@ -2642,6 +2655,116 @@ def _sync_dev_repo(repo: Path) -> Dict[str, Any]:
     else:
         message = "Synced" if not final.get("dirty") else "Remote synced; local changes remain"
     return {"ok": True, "message": message, "operations": operations, "repo": final}
+
+
+def _reminders_path() -> Path:
+    return get_hermes_home() / "dashboard_reminders.json"
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _read_reminders() -> List[Dict[str, Any]]:
+    path = _reminders_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Reminder store is not valid JSON: {path}") from exc
+    if not isinstance(data, list):
+        raise HTTPException(status_code=500, detail=f"Reminder store must contain a list: {path}")
+    reminders: List[Dict[str, Any]] = []
+    for item in data:
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            reminders.append(item)
+    return reminders
+
+
+def _write_reminders(reminders: List[Dict[str, Any]]) -> None:
+    path = _reminders_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(reminders, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _serialize_reminder(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(item.get("id") or secrets.token_hex(8)),
+        "title": str(item.get("title") or "Untitled reminder"),
+        "notes": str(item.get("notes") or ""),
+        "due_at": item.get("due_at") if item.get("due_at") else None,
+        "completed": bool(item.get("completed")),
+        "created_at": str(item.get("created_at") or _utc_now_iso()),
+        "updated_at": str(item.get("updated_at") or _utc_now_iso()),
+    }
+
+
+def _find_reminder(reminders: List[Dict[str, Any]], reminder_id: str) -> Tuple[int, Dict[str, Any]]:
+    for index, reminder in enumerate(reminders):
+        if reminder.get("id") == reminder_id:
+            return index, reminder
+    raise HTTPException(status_code=404, detail="Reminder not found")
+
+
+@app.get("/api/reminders")
+async def get_reminders():
+    reminders = [_serialize_reminder(item) for item in _read_reminders()]
+    return {"reminders": reminders}
+
+
+@app.post("/api/reminders")
+async def create_reminder(payload: ReminderCreate):
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Reminder title is required")
+    reminders = [_serialize_reminder(item) for item in _read_reminders()]
+    now = _utc_now_iso()
+    reminder = {
+        "id": secrets.token_hex(8),
+        "title": title,
+        "notes": payload.notes.strip(),
+        "due_at": payload.due_at or None,
+        "completed": False,
+        "created_at": now,
+        "updated_at": now,
+    }
+    reminders.append(reminder)
+    _write_reminders(reminders)
+    return {"reminder": reminder}
+
+
+@app.patch("/api/reminders/{reminder_id}")
+async def update_reminder(reminder_id: str, payload: ReminderUpdate):
+    reminders = [_serialize_reminder(item) for item in _read_reminders()]
+    index, reminder = _find_reminder(reminders, reminder_id)
+    updates = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    if "title" in updates:
+        title = str(updates["title"]).strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Reminder title is required")
+        reminder["title"] = title
+    if "notes" in updates:
+        reminder["notes"] = str(updates["notes"] or "").strip()
+    if "due_at" in updates:
+        reminder["due_at"] = updates["due_at"] or None
+    if "completed" in updates:
+        reminder["completed"] = bool(updates["completed"])
+    reminder["updated_at"] = _utc_now_iso()
+    reminders[index] = reminder
+    _write_reminders(reminders)
+    return {"reminder": reminder}
+
+
+@app.delete("/api/reminders/{reminder_id}")
+async def delete_reminder(reminder_id: str):
+    reminders = [_serialize_reminder(item) for item in _read_reminders()]
+    index, _reminder = _find_reminder(reminders, reminder_id)
+    del reminders[index]
+    _write_reminders(reminders)
+    return {"ok": True}
 
 
 @app.get("/api/dev-repos")

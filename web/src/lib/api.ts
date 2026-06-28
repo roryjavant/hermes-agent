@@ -329,6 +329,21 @@ export const api = {
   },
   syncDevRepo: (repoName: string, options?: FetchJSONOptions) =>
     fetchJSON<DevRepoSyncResponse>(`/api/dev-repos/${encodeURIComponent(repoName)}/sync`, { method: "POST" }, options),
+  getReminders: (options?: FetchJSONOptions) => fetchJSON<RemindersResponse>("/api/reminders", undefined, options),
+  createReminder: (payload: ReminderCreate, options?: FetchJSONOptions) =>
+    fetchJSON<ReminderMutationResponse>("/api/reminders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  updateReminder: (reminderId: string, payload: ReminderUpdate, options?: FetchJSONOptions) =>
+    fetchJSON<ReminderMutationResponse>(`/api/reminders/${encodeURIComponent(reminderId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  deleteReminder: (reminderId: string, options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean }>(`/api/reminders/${encodeURIComponent(reminderId)}`, { method: "DELETE" }, options),
   getLaunchpadProjects: () => fetchJSON<LaunchpadProjectsResponse>("/api/launchpad/projects"),
   launchProject: (projectId: string) =>
     fetchJSON<LaunchpadLaunchResponse>(`/api/launchpad/projects/${encodeURIComponent(projectId)}/launch`, {
@@ -1908,6 +1923,37 @@ export interface DevRepoSyncResponse {
   message: string;
   operations: DevRepoSyncOperation[];
   repo: DevRepoInfo;
+}
+
+export interface ReminderItem {
+  id: string;
+  title: string;
+  notes: string;
+  due_at: string | null;
+  completed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReminderCreate {
+  title: string;
+  notes?: string;
+  due_at?: string | null;
+}
+
+export interface ReminderUpdate {
+  title?: string;
+  notes?: string;
+  due_at?: string | null;
+  completed?: boolean;
+}
+
+export interface RemindersResponse {
+  reminders: ReminderItem[];
+}
+
+export interface ReminderMutationResponse {
+  reminder: ReminderItem;
 }
 
 export interface SessionInfo {

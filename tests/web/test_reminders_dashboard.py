@@ -1,0 +1,44 @@
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def read(path: str) -> str:
+    return (REPO_ROOT / path).read_text()
+
+
+def test_reminders_route_nav_title_and_i18n_are_wired_under_repos():
+    app_source = read("web/src/App.tsx")
+    title_source = read("web/src/lib/resolve-page-title.ts")
+    en_source = read("web/src/i18n/en.ts")
+    types_source = read("web/src/i18n/types.ts")
+
+    assert 'import RemindersPage from "@/pages/RemindersPage";' in app_source
+    assert '"/reminders": RemindersPage' in app_source
+    assert 'path: "/reminders"' in app_source
+    assert 'labelKey: "reminders"' in app_source
+    assert app_source.index('path: "/repos"') < app_source.index('path: "/reminders"') < app_source.index('path: "/flow"')
+    assert '"/reminders": "reminders"' in title_source
+    assert 'reminders: "Reminders"' in title_source
+    assert 'reminders: "Reminders"' in en_source
+    assert 'reminders?: string' in types_source
+
+
+def test_reminders_page_supports_crud_and_due_date_light_language():
+    source = read("web/src/pages/RemindersPage.tsx")
+    api_source = read("web/src/lib/api.ts")
+
+    assert "Personal reminder lights" in source
+    assert "Past due" in source
+    assert "Due soon" in source
+    assert "Upcoming" in source
+    assert "48 * 60 * 60 * 1000" in source
+    assert 'type="datetime-local"' in source
+    assert "api.getReminders" in source
+    assert "api.createReminder" in source
+    assert "api.updateReminder" in source
+    assert "api.deleteReminder" in source
+    assert 'fetchJSON<RemindersResponse>("/api/reminders"' in api_source
+    assert "ReminderCreate" in api_source
+    assert "ReminderUpdate" in api_source

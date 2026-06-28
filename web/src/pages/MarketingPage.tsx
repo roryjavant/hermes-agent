@@ -266,14 +266,6 @@ function marketingAgentStatusLabel(agent: MissionControlProfileTeamAgent): strin
   return agent.status || "ready";
 }
 
-function marketingAgentStatusClass(agent: MissionControlProfileTeamAgent): string {
-  if (!agent.configured || agent.status === "missing") return "border-rose-300/25 bg-rose-500/10 text-rose-100";
-  if (agent.status === "working") return "border-amber-300/25 bg-amber-300/10 text-amber-100";
-  if (agent.status === "review") return "border-violet-300/25 bg-violet-500/10 text-violet-100";
-  if (agent.active) return "border-success/25 bg-success/10 text-success";
-  return "border-cyan-300/25 bg-cyan-400/10 text-cyan-100";
-}
-
 function formatMarketingTeamCheckedAt(checkedAt: number | null): string {
   if (!checkedAt) return "Not loaded yet";
   return new Date(checkedAt * 1000).toLocaleTimeString([], {

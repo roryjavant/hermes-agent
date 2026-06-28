@@ -109,6 +109,8 @@ export interface Translations {
       research?: string;
       /** Optional — fall back to the nav item's label until translated. */
       repos?: string;
+      /** Optional — fall back to the nav item's label until translated. */
+      reminders?: string;
       sessions: string;
       skills: string;
       /** Optional — fall back to the nav item's label until translated. */

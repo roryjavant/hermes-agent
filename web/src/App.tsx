@@ -19,6 +19,7 @@ import {
 import {
   Activity,
   BarChart3,
+  BellRing,
   BookOpen,
   Clock,
   Code,
@@ -85,6 +86,7 @@ import LaunchpadPage from "@/pages/LaunchpadPage";
 import MarketingPage from "@/pages/MarketingPage";
 import MissionControlPage from "@/pages/MissionControlPage";
 import ReposPage from "@/pages/ReposPage";
+import RemindersPage from "@/pages/RemindersPage";
 import ResearchPage from "@/pages/ResearchPage";
 import JurorResearchMapPage from "@/pages/JurorResearchMapPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
@@ -149,6 +151,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/research": ResearchPage,
   "/mission-control": MissionControlPage,
   "/repos": ReposPage,
+  "/reminders": RemindersPage,
   "/flow": JurorResearchMapPage,
   "/juror-research-map": JurorResearchMapPage,
   "/sessions": SessionsPage,
@@ -220,6 +223,12 @@ const BUILTIN_NAV_REST: NavItem[] = [
     icon: GitBranch,
   },
   {
+    path: "/reminders",
+    labelKey: "reminders",
+    label: "Reminders",
+    icon: BellRing,
+  },
+  {
     path: "/flow",
     label: "Juror Research Flow",
     icon: Network,
@@ -266,6 +275,7 @@ const BUILTIN_NAV_REST: NavItem[] = [
 const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Activity,
   BarChart3,
+  BellRing,
   Clock,
   Cpu,
   FileText,

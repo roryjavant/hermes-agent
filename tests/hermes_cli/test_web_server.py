@@ -487,6 +487,53 @@ class TestWebServerEndpoints:
         assert data["ok"] is False
         assert data["message"] == "No upstream branch configured"
 
+    def test_reminders_crud_persists_profile_local_json(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        reminder_store = tmp_path / "dashboard_reminders.json"
+        monkeypatch.setattr(web_server, "_reminders_path", lambda: reminder_store)
+
+        create = self.client.post(
+            "/api/reminders",
+            json={"title": "Pay renewal", "notes": "Before trial ends", "due_at": "2026-07-01T09:00"},
+        )
+
+        assert create.status_code == 200
+        reminder = create.json()["reminder"]
+        assert reminder["title"] == "Pay renewal"
+        assert reminder["completed"] is False
+        assert reminder_store.exists()
+
+        update = self.client.patch(
+            f"/api/reminders/{reminder['id']}",
+            json={"title": "Pay annual renewal", "completed": True, "due_at": None},
+        )
+
+        assert update.status_code == 200
+        updated = update.json()["reminder"]
+        assert updated["title"] == "Pay annual renewal"
+        assert updated["completed"] is True
+        assert updated["due_at"] is None
+
+        listed = self.client.get("/api/reminders")
+        assert listed.status_code == 200
+        assert listed.json()["reminders"] == [updated]
+
+        delete = self.client.delete(f"/api/reminders/{reminder['id']}")
+        assert delete.status_code == 200
+        assert delete.json()["ok"] is True
+        assert self.client.get("/api/reminders").json()["reminders"] == []
+
+    def test_reminders_reject_blank_title(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server, "_reminders_path", lambda: tmp_path / "dashboard_reminders.json")
+
+        resp = self.client.post("/api/reminders", json={"title": "   "})
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Reminder title is required"
+
     # ── GET /api/media (remote image display) ───────────────────────────
 
     def test_get_media_serves_image_in_root(self):
