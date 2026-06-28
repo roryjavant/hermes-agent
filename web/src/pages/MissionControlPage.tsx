@@ -329,7 +329,7 @@ function buildMetrics(data: LoadState): MissionMetric[] {
       tone: gatewayTone(data.status),
       icon: Radio,
       href: "/system",
-      accent: "from-emerald-400/25 via-cyan-300/10 to-transparent",
+      accent: "from-cyan-400/18 via-sky-300/6 to-transparent",
     },
     {
       id: "sessions",
@@ -339,7 +339,7 @@ function buildMetrics(data: LoadState): MissionMetric[] {
       tone: terminalLights > 0 ? "success" : "secondary",
       icon: MessageSquare,
       href: "/sessions",
-      accent: "from-sky-400/25 via-indigo-300/10 to-transparent",
+      accent: "from-indigo-500/18 via-indigo-300/6 to-transparent",
     },
     {
       id: "team",
@@ -351,7 +351,7 @@ function buildMetrics(data: LoadState): MissionMetric[] {
       tone: blockedTasks > 0 ? "destructive" : liveWorkers > 0 ? "success" : "secondary",
       icon: Users,
       href: "/team",
-      accent: "from-fuchsia-400/25 via-violet-300/10 to-transparent",
+      accent: "from-violet-500/18 via-purple-300/6 to-transparent",
     },
     {
       id: "automation",
@@ -361,7 +361,7 @@ function buildMetrics(data: LoadState): MissionMetric[] {
       tone: nextCron ? jobTone(nextCron) : "secondary",
       icon: CalendarClock,
       href: "/cron",
-      accent: "from-amber-300/25 via-orange-300/10 to-transparent",
+      accent: "from-amber-400/18 via-orange-300/6 to-transparent",
     },
   ];
 }
@@ -985,6 +985,13 @@ function MissionOrb({
   );
 }
 
+const METRIC_ACCENTS: Record<string, { top: string; glow: string; orb: string }> = {
+  gateway:    { top: "from-cyan-400 to-sky-400",     glow: "group-hover:shadow-[0_0_70px_rgba(34,211,238,0.18)]",  orb: "bg-cyan-400" },
+  sessions:   { top: "from-indigo-400 to-blue-400",  glow: "group-hover:shadow-[0_0_70px_rgba(99,102,241,0.18)]",  orb: "bg-indigo-400" },
+  team:       { top: "from-violet-400 to-purple-400", glow: "group-hover:shadow-[0_0_70px_rgba(167,139,250,0.18)]", orb: "bg-violet-400" },
+  automation: { top: "from-amber-400 to-orange-400", glow: "group-hover:shadow-[0_0_70px_rgba(251,191,36,0.18)]",  orb: "bg-amber-400" },
+};
+
 function MetricCard({
   metric,
   selected,
@@ -995,34 +1002,42 @@ function MetricCard({
   onSelect: () => void;
 }) {
   const Icon = metric.icon;
+  const accent = METRIC_ACCENTS[metric.id] ?? METRIC_ACCENTS.gateway;
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        "mission-metric-card group relative overflow-hidden border p-5 text-left transition-all duration-300",
-        "bg-card/70",
+        "mission-metric-card group relative overflow-hidden border p-6 text-left transition-all duration-300",
+        "bg-white/[0.03] backdrop-blur-2xl",
+        accent.glow,
         selected
-          ? "border-midground/60 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-primary)_35%,transparent),0_0_52px_color-mix(in_srgb,var(--color-primary)_10%,transparent)]"
-          : "border-border hover:border-current/25 hover:bg-card/85 hover:-translate-y-1",
+          ? "border-white/20 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
+          : "border-white/[0.07] hover:border-white/15 hover:-translate-y-1",
       )}
     >
-      <div className={`absolute inset-0 bg-gradient-to-br ${metric.accent} opacity-60`} />
-      <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-success/55 to-transparent" />
-      <div className="absolute -right-14 -top-14 h-40 w-40 rounded-full bg-current/4 blur-3xl transition-all duration-500 group-hover:bg-current/7 group-hover:scale-110" />
+      {/* ambient fill */}
+      <div className={`absolute inset-0 bg-gradient-to-br ${metric.accent} opacity-100`} />
+      {/* vivid top line */}
+      <div className={`absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r ${accent.top} opacity-90`} />
+      {/* corner orb */}
+      <div className={`absolute -right-8 -top-8 h-40 w-40 rounded-full ${accent.orb} opacity-[0.08] blur-3xl transition-opacity duration-500 group-hover:opacity-[0.14]`} />
+      {/* inner glass sheen */}
+      <div className="absolute inset-0 bg-gradient-to-b from-white/[0.04] to-transparent pointer-events-none" />
+
       <div className="relative flex flex-col gap-5">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-current/20 bg-background-base/65 shadow-[0_0_18px_rgba(0,0,0,0.3)]">
-            <Icon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5">
+            <Icon className="h-3.5 w-3.5 text-white/40 transition-colors group-hover:text-white/70" />
           </div>
           <Badge tone={metric.tone}>{metric.tone === "success" ? "live" : metric.tone}</Badge>
         </div>
         <div>
-          <p className="font-mondwest text-display text-[0.62rem] uppercase tracking-[0.2em] text-muted-foreground">
+          <p className="text-[0.6rem] font-medium uppercase tracking-[0.28em] text-white/30">
             {metric.label}
           </p>
-          <p className="mt-2 font-mono-ui text-[2.6rem] leading-none text-foreground tracking-tight">{metric.value}</p>
-          <p className="mt-2.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{metric.detail}</p>
+          <p className="mt-2 font-mono-ui text-[3rem] leading-none text-white tracking-tight">{metric.value}</p>
+          <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-white/35">{metric.detail}</p>
         </div>
       </div>
     </button>
@@ -1037,7 +1052,7 @@ function ViewSwitch({ view, onChange }: { view: MissionView; onChange: (view: Mi
   ];
 
   return (
-    <div className="inline-flex rounded-full border border-current/15 bg-background-base/55 p-1 backdrop-blur-md">
+    <div className="inline-flex rounded-full border border-white/[0.08] bg-white/[0.04] p-1 backdrop-blur-xl">
       {items.map((item) => {
         const Icon = item.icon;
         const active = view === item.id;
@@ -1047,10 +1062,10 @@ function ViewSwitch({ view, onChange }: { view: MissionView; onChange: (view: Mi
             type="button"
             onClick={() => onChange(item.id)}
             className={cn(
-              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs transition-colors",
+              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs transition-all duration-200",
               active
-                ? "bg-midground text-background-base shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-white/10 text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
+                : "text-white/30 hover:text-white/60",
             )}
           >
             <Icon className="h-3.5 w-3.5" />
@@ -1978,9 +1993,9 @@ function OpsDeck({ data }: { data: LoadState }) {
 
 function CommandDock() {
   const commands = [
-    { label: "Launch chat", detail: "Start hands-on agent work", href: "/chat", icon: Rocket, accent: "from-emerald-400/15 via-transparent to-transparent" },
-    { label: "System doctor", detail: "Health, credentials, hooks", href: "/system", icon: ShieldCheck, accent: "from-sky-400/15 via-transparent to-transparent" },
-    { label: "Channels", detail: "Gateway and platforms", href: "/channels", icon: Radio, accent: "from-violet-400/15 via-transparent to-transparent" },
+    { label: "Launch chat", detail: "Start hands-on agent work", href: "/chat", icon: Rocket, glow: "hover:shadow-[0_0_60px_rgba(34,211,238,0.12)]", topLine: "from-cyan-400 to-sky-400", orb: "bg-cyan-400" },
+    { label: "System doctor", detail: "Health, credentials, hooks", href: "/system", icon: ShieldCheck, glow: "hover:shadow-[0_0_60px_rgba(99,102,241,0.12)]", topLine: "from-indigo-400 to-blue-400", orb: "bg-indigo-400" },
+    { label: "Channels", detail: "Gateway and platforms", href: "/channels", icon: Radio, glow: "hover:shadow-[0_0_60px_rgba(167,139,250,0.12)]", topLine: "from-violet-400 to-purple-400", orb: "bg-violet-400" },
   ];
 
   return (
@@ -1991,19 +2006,23 @@ function CommandDock() {
           <Link
             key={command.href}
             to={command.href}
-            className="group relative overflow-hidden border border-border bg-card/60 p-5 transition-all hover:-translate-y-0.5 hover:border-current/25 hover:bg-card/85"
+            className={cn(
+              "group relative overflow-hidden border border-white/[0.07] bg-white/[0.03] p-6 backdrop-blur-2xl transition-all hover:-translate-y-0.5 hover:border-white/14",
+              command.glow,
+            )}
           >
-            <div className={`absolute inset-0 bg-gradient-to-br ${command.accent} opacity-0 transition-opacity group-hover:opacity-100`} />
-            <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-midground/40 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+            <div className={`absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r ${command.topLine} opacity-0 transition-opacity group-hover:opacity-80`} />
+            <div className={`absolute -right-8 -top-8 h-36 w-36 rounded-full ${command.orb} opacity-0 blur-3xl transition-opacity group-hover:opacity-[0.08]`} />
+            <div className="absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent" />
             <div className="relative flex items-start justify-between gap-3">
               <div>
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full border border-current/15 bg-background-base/50">
-                  <Icon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                  <Icon className="h-4 w-4 text-white/40 transition-colors group-hover:text-white/70" />
                 </div>
-                <p className="font-medium text-foreground">{command.label}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{command.detail}</p>
+                <p className="font-medium text-white/70 transition-colors group-hover:text-white/90">{command.label}</p>
+                <p className="mt-1 text-xs text-white/30">{command.detail}</p>
               </div>
-              <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-all group-hover:translate-x-1 group-hover:text-foreground" />
+              <ArrowRight className="h-4 w-4 shrink-0 text-white/20 transition-all group-hover:translate-x-1 group-hover:text-white/50" />
             </div>
           </Link>
         );
@@ -2056,12 +2075,11 @@ function EmptySignal({
 
 function MiniMetric({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="relative overflow-hidden border border-border bg-background-base/40 p-3 backdrop-blur-sm">
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-success/30 to-transparent" />
-      <p className="font-mondwest text-display text-[0.6rem] uppercase tracking-[0.16em] text-muted-foreground">
+    <div className="relative overflow-hidden border border-white/[0.08] bg-white/[0.04] p-3 backdrop-blur-xl">
+      <p className="text-[0.58rem] font-medium uppercase tracking-[0.22em] text-white/30">
         {label}
       </p>
-      <p className="mt-1 truncate font-mono-ui text-2xl leading-none text-foreground">{value}</p>
+      <p className="mt-1.5 truncate font-mono-ui text-2xl leading-none text-white/80">{value}</p>
     </div>
   );
 }
@@ -2251,7 +2269,7 @@ export default function MissionControlPage() {
       <PluginSlot name="mission-control:top" />
 
       <section
-        className="mission-hero group relative overflow-hidden border border-current/15 bg-card/70 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.32)] backdrop-blur-sm sm:p-8 md:p-10"
+        className="mission-hero group relative overflow-hidden py-10 sm:py-14 md:py-16 px-6 sm:px-8 md:px-10"
         style={heroStyle}
         onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
@@ -2261,16 +2279,20 @@ export default function MissionControlPage() {
           });
         }}
       >
-        <div className="mission-hero__glow absolute inset-0 transition-opacity" />
+        {/* Ambient blobs */}
+        <div className="pointer-events-none absolute -left-32 -top-32 h-[32rem] w-[32rem] rounded-full bg-cyan-500/10 blur-[96px]" />
+        <div className="pointer-events-none absolute -right-32 -bottom-20 h-[28rem] w-[28rem] rounded-full bg-violet-600/12 blur-[80px]" />
+        <div className="pointer-events-none absolute right-1/3 -top-16 h-64 w-64 rounded-full bg-indigo-500/8 blur-[64px]" />
+        {/* Grid overlay */}
         <div className="mission-hero__grid absolute inset-0" />
-        <div className="mission-hero__scan absolute inset-x-0 top-0 h-28" />
-        <div className="absolute -right-20 -top-20 h-72 w-72 rounded-full border border-success/15 shadow-[inset_0_0_60px_color-mix(in_srgb,var(--color-success)_8%,transparent)]" />
-        <div className="absolute -right-8 top-12 h-36 w-36 rounded-full border border-current/10 shadow-[inset_0_0_30px_color-mix(in_srgb,var(--color-success)_5%,transparent)]" />
-        <div className="absolute right-10 -top-6 h-16 w-16 rounded-full border border-success/20" />
+        <div className="mission-hero__glow absolute inset-0 transition-opacity" />
+        <div className="mission-hero__scan absolute inset-x-0 top-0 h-32" />
+        {/* Bottom fade */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-background-base/60 to-transparent" />
 
-        <div className="relative grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-center">
-          <div className="max-w-4xl">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-center">
+          <div>
+            <div className="mb-5 flex flex-wrap items-center gap-2">
               <span className="mission-kicker">Orbital command online</span>
               <Badge tone={readiness.tone}>{readiness.label}</Badge>
               <Badge tone={data.status?.auth_required ? "success" : "outline"}>
@@ -2278,21 +2300,14 @@ export default function MissionControlPage() {
               </Badge>
               <Badge tone="outline">Config v{data.status?.config_version ?? "—"}</Badge>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="hidden h-10 w-10 items-center justify-center border border-current/20 bg-background-base/40 sm:flex">
-                <Sparkles className="h-5 w-5 text-midground" />
-              </div>
-              <div>
-                <h2 className="mission-title font-mondwest text-display text-5xl uppercase leading-none tracking-[0.08em] text-foreground sm:text-6xl">
-                  Mission Control
-                </h2>
-                <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground/80">
-                  Live command surface — system health, conversations, team queue,
-                  automations, profile readiness, and the next thing that needs you.
-                </p>
-              </div>
-            </div>
-            <div className="mission-mini-grid mt-6 grid gap-2 sm:grid-cols-4">
+            <h2 className="mission-title font-mondwest text-display uppercase leading-[0.9] tracking-[0.06em] text-foreground" style={{ fontSize: "clamp(3.5rem, 8vw, 7rem)" }}>
+              Mission<br />Control
+            </h2>
+            <p className="mt-4 max-w-xl text-sm leading-relaxed text-white/40">
+              Live command surface — system health, conversations, team queue,
+              automations, profile readiness, and the next thing that needs you.
+            </p>
+            <div className="mission-mini-grid mt-8 grid grid-cols-4 gap-3 max-w-lg">
               <MiniMetric label="Platforms" value={Object.keys(data.status?.gateway_platforms ?? {}).length} />
               <MiniMetric label="Profiles" value={data.profiles.length} />
               <MiniMetric label="Cron" value={data.cronJobs.length} />
@@ -2317,11 +2332,10 @@ export default function MissionControlPage() {
         </Card>
       )}
 
-      <div className="mission-control-strip relative flex flex-col gap-2 overflow-hidden border border-current/15 bg-card/60 px-4 py-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
-        <div className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-transparent via-success/50 to-transparent" />
-        <div className="flex flex-wrap items-center gap-3 pl-2">
+      <div className="mission-control-strip relative flex flex-col gap-2 overflow-hidden border border-white/[0.07] bg-white/[0.03] px-4 py-3 backdrop-blur-2xl sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
           <ViewSwitch view={view} onChange={setView} />
-          <span className="hidden h-4 w-px bg-border sm:block" />
+          <span className="hidden h-4 w-px bg-white/10 sm:block" />
           <TeamFilterSelect data={data} value={effectiveTeamFilter} onChange={updateTeamFilter} label="Queue team" />
           {selectedMetricData && (
             <Badge tone={selectedMetricData.tone}>
@@ -2332,7 +2346,7 @@ export default function MissionControlPage() {
         {selectedMetricData && (
           <Link
             to={selectedMetricData.href}
-            className="inline-flex items-center justify-center gap-2 border border-current/20 bg-background-base/40 px-4 py-2 font-mondwest text-display text-xs uppercase tracking-[0.12em] text-muted-foreground transition-all hover:border-success/40 hover:bg-success/8 hover:text-foreground"
+            className="inline-flex items-center justify-center gap-2 border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/50 transition-all hover:border-white/20 hover:bg-white/8 hover:text-white/80 backdrop-blur-sm"
           >
             Open {selectedMetricData.label}
             <ArrowRight className="h-3.5 w-3.5" />

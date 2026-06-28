@@ -24,11 +24,14 @@ def test_launchpad_header_and_action_buttons_match_requested_polish():
     assert "ShieldCheck" not in source
     assert "bg-slate-950/72" not in source
     assert "border border-border/70 bg-card/72" in source
-    assert "Pause" in source
     assert "Play" in source
-    assert "aria-label={running ? `Pause ${project.title}` : `Play ${project.title}`}" in source
+    assert "Stop" in source
+    assert "aria-label={running ? `Stop ${project.title}` : `Play ${project.title}`}" in source
     assert "text-success" in source
     assert "text-rose-100" in source
-    assert "Stop ${project.title}" not in source
+    assert "bottom-3 right-4" in source
+    assert "size-8" in source
+    assert "pr-12 pt-4" in source
+    assert "Pause" not in source
     assert "Stopping…" not in source
-    assert "  Square," not in source
+    assert "  Square," in source

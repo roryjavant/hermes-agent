@@ -420,7 +420,7 @@ export default function KnowledgeBasePage() {
                     />
                     <div className="flex items-center gap-2 border border-border/50 bg-black/20 px-3 py-2 text-xs text-text-tertiary">
                       <FolderClosed className="size-3 shrink-0" />
-                      <span>Writes to</span>
+                      <span>Folder hint:</span>
                       <code className="ml-1 font-mono text-text-secondary">{folder || "agent decides"}</code>
                     </div>
                     <Button
@@ -480,7 +480,7 @@ export default function KnowledgeBasePage() {
                       className="w-full justify-center gap-2"
                     >
                       {saving ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
-                      {saving ? "Saving…" : "Save note"}
+                      {saving ? "Saving…" : "Save Markdown note"}
                     </Button>
                   </div>
                 </>

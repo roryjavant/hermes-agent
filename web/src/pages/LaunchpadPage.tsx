@@ -7,11 +7,11 @@ import {
   Home,
   Loader2,
   Network,
-  Pause,
   Play,
   Rocket,
   Search,
   Sparkles,
+  Square,
 } from "lucide-react";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { Badge } from "@nous-research/ui/ui/components/badge";
@@ -154,7 +154,7 @@ function ProjectSquare({
               </div>
               {error ? <div className="mt-1 line-clamp-2 text-destructive">{error}</div> : null}
             </div>
-            <div className="mt-auto flex items-center justify-between border-t border-current/10 pt-3 text-sm font-bold text-midground">
+            <div className="mt-auto flex items-center justify-between border-t border-current/10 pb-1 pr-12 pt-4 text-sm font-bold text-midground">
               <span>{launching ? "Starting…" : running ? "Open localhost" : project.launchLabel}</span>
               {running ? <ExternalLink className="size-4" /> : <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />}
             </div>
@@ -173,20 +173,20 @@ function ProjectSquare({
           }}
           disabled={(running && stopping) || (!running && (launching || !installed))}
           className={cn(
-            "absolute bottom-4 right-4 z-20 grid size-9 place-items-center rounded-full border shadow-lg backdrop-blur transition-colors disabled:cursor-wait disabled:opacity-70",
+            "absolute bottom-3 right-4 z-20 grid size-8 place-items-center rounded-full border shadow-lg backdrop-blur transition-colors disabled:cursor-wait disabled:opacity-70",
             running
               ? "border-rose-300/35 bg-rose-950/75 text-rose-100 shadow-rose-950/30 hover:border-rose-200/65 hover:bg-rose-500/25"
               : "border-success/35 bg-success/15 text-success shadow-success/15 hover:border-success/65 hover:bg-success/25",
           )}
-          aria-label={running ? `Pause ${project.title}` : `Play ${project.title}`}
-          title={running ? `Pause ${project.title}` : `Play ${project.title}`}
+          aria-label={running ? `Stop ${project.title}` : `Play ${project.title}`}
+          title={running ? `Stop ${project.title}` : `Play ${project.title}`}
         >
           {running && stopping ? (
             <Loader2 className="size-4 animate-spin" />
           ) : !running && launching ? (
             <Loader2 className="size-4 animate-spin" />
           ) : running ? (
-            <Pause className="size-4 fill-current" />
+            <Square className="size-3.5 fill-current" />
           ) : (
             <Play className="ml-0.5 size-4 fill-current" />
           )}
