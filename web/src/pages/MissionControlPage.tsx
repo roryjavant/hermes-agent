@@ -921,8 +921,10 @@ function MissionOrb({
   const active = metrics.find((metric) => metric.id === selectedMetric) ?? metrics[0];
 
   return (
-    <div className="relative mx-auto flex aspect-square w-full max-w-[19.5rem] items-center justify-center">
-      <div className="absolute inset-3 rounded-full border border-current/10 bg-[radial-gradient(circle,color-mix(in_srgb,var(--color-primary)_18%,transparent),transparent_62%)]" />
+    <div className="mission-orb relative mx-auto flex aspect-square w-full max-w-[18.5rem] items-center justify-center">
+      <div className="mission-orb__halo absolute inset-0 rounded-full" />
+      <div className="mission-orb__sweep absolute inset-5 rounded-full" />
+      <div className="absolute inset-3 rounded-full border border-current/10 bg-[radial-gradient(circle,color-mix(in_srgb,var(--color-success)_20%,transparent),transparent_58%)]" />
       <div className="absolute inset-8 rounded-full border border-current/15" />
       <div className="absolute inset-16 rounded-full border border-current/20" />
       <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 240 240" aria-hidden="true">
@@ -948,7 +950,7 @@ function MissionOrb({
           className="transition-[stroke-dashoffset] duration-700"
         />
       </svg>
-      <div className="relative z-10 flex h-32 w-32 flex-col items-center justify-center rounded-full border border-current/20 bg-background-base/80 text-center shadow-[0_0_50px_rgba(0,0,0,0.35)] backdrop-blur-md">
+      <div className="relative z-10 flex h-32 w-32 flex-col items-center justify-center rounded-full border border-success/30 bg-background-base/85 text-center shadow-[0_0_55px_color-mix(in_srgb,var(--color-success)_24%,transparent)] backdrop-blur-md">
         <span className="font-mondwest text-display text-[0.65rem] uppercase tracking-[0.18em] text-muted-foreground">
           Mission score
         </span>
@@ -968,8 +970,8 @@ function MissionOrb({
             className={cn(
               "absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur-md transition-all duration-200",
               selectedMetric === metric.id
-                ? "scale-110 border-midground bg-midground/20 text-midground shadow-[0_0_24px_color-mix(in_srgb,var(--color-primary)_35%,transparent)]"
-                : "border-current/20 bg-background-base/70 text-muted-foreground hover:scale-105 hover:text-foreground",
+                ? "scale-110 border-success/70 bg-success/15 text-success shadow-[0_0_28px_color-mix(in_srgb,var(--color-success)_42%,transparent)]"
+                : "border-current/20 bg-background-base/75 text-muted-foreground hover:scale-105 hover:border-success/40 hover:text-foreground",
             )}
             style={{ left: `${x}%`, top: `${y}%` }}
             aria-label={`Focus ${metric.label}`}
@@ -997,17 +999,18 @@ function MetricCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "group relative overflow-hidden border p-3 text-left transition-all duration-200",
+        "mission-metric-card group relative overflow-hidden border p-3 text-left transition-all duration-200",
         "bg-card/70 hover:-translate-y-0.5 hover:bg-card/90",
         selected
           ? "border-midground/70 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-primary)_40%,transparent)]"
           : "border-border hover:border-current/30",
       )}
     >
-      <div className={`absolute inset-0 bg-gradient-to-br ${metric.accent} opacity-70`} />
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-current/30 to-transparent" />
+      <div className={`absolute inset-0 bg-gradient-to-br ${metric.accent} opacity-80`} />
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-success/60 to-transparent" />
+      <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-current/5 blur-2xl transition-opacity group-hover:opacity-100" />
       <div className="relative flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-current/20 bg-background-base/60">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-current/20 bg-background-base/65 shadow-[0_0_18px_rgba(0,0,0,0.25)]">
           <Icon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
         </div>
         <div className="min-w-0 flex-1">
@@ -1017,7 +1020,7 @@ function MetricCard({
             </p>
             <Badge tone={metric.tone}>{metric.tone === "success" ? "live" : metric.tone}</Badge>
           </div>
-          <p className="mt-1.5 truncate font-mono-ui text-xl text-foreground">{metric.value}</p>
+          <p className="mt-1.5 truncate font-mono-ui text-2xl leading-none text-foreground">{metric.value}</p>
           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{metric.detail}</p>
         </div>
       </div>
@@ -1648,7 +1651,7 @@ function ActiveOperationsBoard({
   }, [selectedLightAgent]);
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="mission-active-board overflow-hidden">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -1677,7 +1680,7 @@ function ActiveOperationsBoard({
           />
         ) : (
           <div className="space-y-4">
-            <div className="rounded border border-border bg-background-base/25 p-3">
+            <div className="mission-signal-board rounded border border-border bg-background-base/25 p-3">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <p className="font-mondwest text-display text-sm uppercase tracking-[0.14em] text-foreground">
                   Signal board
@@ -1702,7 +1705,7 @@ function ActiveOperationsBoard({
                         : groupedActivityRows(segment.id, segmentItems);
                   const segmentCount = segment.id === "teams" || segment.id === "terminals" ? groupedRows.length : segmentItems.length;
                   return (
-                    <div key={segment.id} className="min-h-24 border border-border/80 bg-background-base/20 p-3 xl:col-span-3">
+                    <div key={segment.id} className="mission-signal-segment min-h-24 border border-border/80 bg-background-base/20 p-3 xl:col-span-3">
                       <div className="mb-3 flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-mondwest text-display text-xs uppercase tracking-[0.16em] text-foreground">
@@ -2236,11 +2239,11 @@ export default function MissionControlPage() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mission-control-surface relative isolate flex flex-col gap-3">
       <PluginSlot name="mission-control:top" />
 
       <section
-        className="group relative overflow-hidden border border-current/15 bg-card/70 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-sm sm:p-5"
+        className="mission-hero group relative overflow-hidden border border-current/15 bg-card/70 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-sm sm:p-5"
         style={heroStyle}
         onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
@@ -2250,14 +2253,16 @@ export default function MissionControlPage() {
           });
         }}
       >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_var(--spotlight-x)_var(--spotlight-y),color-mix(in_srgb,var(--color-primary)_24%,transparent),transparent_34%),linear-gradient(135deg,color-mix(in_srgb,var(--color-primary)_12%,transparent),transparent_46%)] transition-opacity" />
-        <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(currentColor_1px,transparent_1px),linear-gradient(90deg,currentColor_1px,transparent_1px)] [background-size:44px_44px]" />
-        <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full border border-current/10" />
+        <div className="mission-hero__glow absolute inset-0 transition-opacity" />
+        <div className="mission-hero__grid absolute inset-0" />
+        <div className="mission-hero__scan absolute inset-x-0 top-0 h-28" />
+        <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full border border-success/20" />
         <div className="absolute -right-6 top-16 h-24 w-24 rounded-full border border-current/15" />
 
-        <div className="relative grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-center">
+        <div className="relative grid gap-4 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-center">
           <div className="max-w-4xl">
             <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="mission-kicker">Orbital command online</span>
               <Badge tone={readiness.tone}>{readiness.label}</Badge>
               <Badge tone={data.status?.auth_required ? "success" : "outline"}>
                 {data.status?.auth_required ? "gated" : "loopback"}
@@ -2269,7 +2274,7 @@ export default function MissionControlPage() {
                 <Sparkles className="h-5 w-5 text-midground" />
               </div>
               <div>
-                <h2 className="font-mondwest text-display text-4xl uppercase leading-none tracking-[0.08em] text-foreground sm:text-5xl">
+                <h2 className="mission-title font-mondwest text-display text-4xl uppercase leading-none tracking-[0.08em] text-foreground sm:text-5xl">
                   Mission Control
                 </h2>
                 <p className="mt-2 max-w-2xl text-sm leading-5 text-muted-foreground">
@@ -2278,7 +2283,7 @@ export default function MissionControlPage() {
                 </p>
               </div>
             </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+            <div className="mission-mini-grid mt-4 grid gap-2 sm:grid-cols-4">
               <MiniMetric label="Platforms" value={Object.keys(data.status?.gateway_platforms ?? {}).length} />
               <MiniMetric label="Profiles" value={data.profiles.length} />
               <MiniMetric label="Cron" value={data.cronJobs.length} />
@@ -2303,7 +2308,7 @@ export default function MissionControlPage() {
         </Card>
       )}
 
-      <div className="flex flex-col gap-2 border border-current/15 bg-card/55 p-2.5 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="mission-control-strip flex flex-col gap-2 border border-current/15 bg-card/55 p-2.5 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <ViewSwitch view={view} onChange={setView} />
           <TeamFilterSelect data={data} value={effectiveTeamFilter} onChange={updateTeamFilter} label="Queue team" />
@@ -2316,7 +2321,7 @@ export default function MissionControlPage() {
         {selectedMetricData && (
           <Link
             to={selectedMetricData.href}
-            className="inline-flex items-center justify-center gap-2 border border-current/20 bg-background-base/35 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
+            className="inline-flex items-center justify-center gap-2 border border-current/20 bg-background-base/35 px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-success/40 hover:bg-success/10 hover:text-foreground"
           >
             Open {selectedMetricData.label}
             <ArrowRight className="h-3.5 w-3.5" />
