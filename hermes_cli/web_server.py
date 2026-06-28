@@ -2323,6 +2323,12 @@ _ACTION_LOG_FILES: Dict[str, str] = {
 # report liveness and exit code without shelling out to ``ps``.
 _ACTION_PROCS: Dict[str, subprocess.Popen] = {}
 
+# Maps action names to the hermes profile they run under, so Mission Control
+# can surface their activity even though they are dashboard-spawned children.
+_ACTION_PROC_PROFILES: Dict[str, str] = {
+    "knowledge-base-research-job": "hresearchstrategist",
+}
+
 # ``name`` → completed synthetic action result for actions the server handled
 # without spawning a subprocess (for example, unsupported Docker updates).
 _ACTION_RESULTS: Dict[str, Dict[str, Any]] = {}
@@ -11709,6 +11715,28 @@ async def get_mission_control_activity():
         if (int(record.get("pid") or -1), str(record.get("source") or "")) not in existing_keys
     )
     activities = _dedupe_local_activities(activities, process_table)
+    # Surface dashboard-spawned action jobs that _snapshot_local_agent_processes
+    # skips (they are children of the dashboard process).
+    live_profiles = {str(r.get("profile") or "") for r in activities}
+    _now = time.time()
+    for action_name, profile in _ACTION_PROC_PROFILES.items():
+        if profile in live_profiles:
+            continue
+        proc = _ACTION_PROCS.get(action_name)
+        if proc is None or proc.poll() is not None:
+            continue
+        activities.append({
+            "activity_id": f"action:{action_name}:{proc.pid}",
+            "pid": proc.pid,
+            "profile": profile,
+            "source": "cli",
+            "session_id": "",
+            "cwd": str(PROJECT_ROOT),
+            "status": "working",
+            "detail": "knowledge base research",
+            "started_at": _now,
+            "last_seen": _now,
+        })
     return {
         "checked_at": time.time(),
         "activities": activities,
