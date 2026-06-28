@@ -420,6 +420,18 @@ code { font-size: 0.875rem; }
   top: 50%;
 }
 
+@keyframes agent-wire-travel-y {
+  0%   { top: 4%; }
+  100% { top: 96%; }
+}
+
+.agent-wire__dot--y {
+  position: absolute;
+  left: 50%;
+  animation: agent-wire-travel-y 1.8s linear infinite;
+  transform: translate(-50%, -50%);
+}
+
 /* ------------------------------------------------------------------ */
 
 .mission-active-board {

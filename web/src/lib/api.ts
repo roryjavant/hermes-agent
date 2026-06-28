@@ -1857,6 +1857,7 @@ export interface MissionControlProfileTeamAgent {
   context_tokens?: number;
   context_length?: number;
   compressions?: number;
+  is_orchestrator?: boolean;
 }
 
 export interface MissionControlProfileTeam {

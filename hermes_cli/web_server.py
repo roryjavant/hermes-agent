@@ -11662,24 +11662,28 @@ _PROFILE_TEAM_DEFINITIONS = [
         "team_id": "juror-research",
         "label": "Juror Research",
         "project_path": "/Users/roryavant/Dev/juror-research",
+        "orchestrator": "jrplanner",
         "profiles": ["jrplanner", "jrbuilder", "jrreviewer", "jrsynth", "jrcurator"],
     },
     {
         "team_id": "hermes-agent",
         "label": "Hermes Agent",
         "project_path": "/Users/roryavant/Dev/hermes-team-ui",
+        "orchestrator": "hermesplanner",
         "profiles": ["hermesplanner", "hermesbuilder", "hermesreviewer", "hermessynth", "hermescurator"],
     },
     {
         "team_id": "agent-arena",
         "label": "Agent Arena",
         "project_path": "/Users/roryavant/Dev/agent-arena",
+        "orchestrator": "aaplanner",
         "profiles": ["aaplanner", "aaimplementor", "aadesigner", "aavisionqa", "aacurator"],
     },
     {
         "team_id": "hermes-marketing",
         "label": "Hermes Marketing",
         "project_path": "/Users/roryavant/Dev/hermes-marketing",
+        "orchestrator": "hmarketingstrategist",
         "profiles": [
             "hmarketingstrategist",
             "hmarketingideation",
@@ -11695,12 +11699,14 @@ _PROFILE_TEAM_DEFINITIONS = [
         "team_id": "hermes-marketing-dev",
         "label": "Hermes Marketing Dev",
         "project_path": "/Users/roryavant/Dev/hermes-marketing",
+        "orchestrator": "hmarketingplanner",
         "profiles": ["hmarketingplanner", "hmarketingbuilder", "hmarketingreviewer"],
     },
     {
         "team_id": "hermes-research",
         "label": "Hermes Research",
         "project_path": "/Users/roryavant/Dev/hermes-research",
+        "orchestrator": "hresearchstrategist",
         "profiles": [
             "hresearchstrategist",
             "hresearchscout",
@@ -11775,6 +11781,7 @@ def _snapshot_profile_teams(activities: List[Dict[str, Any]]) -> List[Dict[str, 
 
     teams: List[Dict[str, Any]] = []
     for definition in _PROFILE_TEAM_DEFINITIONS:
+        orchestrator_profile = str(definition.get("orchestrator") or "")
         agents: List[Dict[str, Any]] = []
         for profile in definition["profiles"]:
             live = live_by_profile.get(profile, [])
@@ -11796,6 +11803,7 @@ def _snapshot_profile_teams(activities: List[Dict[str, Any]]) -> List[Dict[str, 
                 "context_tokens": record.get("context_tokens"),
                 "context_length": record.get("context_length"),
                 "compressions": record.get("compressions"),
+                "is_orchestrator": profile == orchestrator_profile,
             })
         teams.append({**definition, "agents": agents})
     return teams

@@ -787,30 +787,39 @@ function glyphForTeamRole(role: string): string {
   return "agent";
 }
 
+function agentToOperationsItem(team: MissionControlProfileTeam, agent: MissionControlProfileTeamAgent) {
+  return {
+    id: `team-profile:${team.team_id}:${agent.profile}`,
+    kind: "Team profile",
+    title: `${agent.role} · ${agent.profile}`,
+    detail: agent.detail || (agent.active ? "live profile agent" : "profile standby"),
+    meta: agent.active
+      ? [agent.source, agent.pid ? `pid ${agent.pid}` : ""].filter(Boolean).join(" · ")
+      : agent.configured ? "standby profile" : "missing profile",
+    tone: toneFromProfileStatus(agent.status, agent.configured),
+    href: "/profiles",
+    icon: Users,
+    popoverTitle: agent.role,
+    popoverSubtitle: agent.profile,
+    profileName: agent.profile,
+    roleName: agent.role,
+    roleGlyph: glyphForTeamRole(agent.role),
+    teamName: team.label,
+    projectPath: team.project_path,
+    performanceRisk: performanceRiskFromTelemetry(agent),
+  } as const;
+}
+
 function teamRowsFromProfileTeams(profileTeams: MissionControlProfileTeam[]) {
-  return profileTeams.map((team) => ({
-    label: `${team.label} · ${team.project_path}`,
-    items: team.agents.map((agent) => ({
-      id: `team-profile:${team.team_id}:${agent.profile}`,
-      kind: "Team profile",
-      title: `${agent.role} · ${agent.profile}`,
-      detail: agent.detail || (agent.active ? "live profile agent" : "profile standby"),
-      meta: agent.active
-        ? [agent.source, agent.pid ? `pid ${agent.pid}` : ""].filter(Boolean).join(" · ")
-        : agent.configured ? "standby profile" : "missing profile",
-      tone: toneFromProfileStatus(agent.status, agent.configured),
-      href: "/profiles",
-      icon: Users,
-      popoverTitle: agent.role,
-      popoverSubtitle: agent.profile,
-      profileName: agent.profile,
-      roleName: agent.role,
-      roleGlyph: glyphForTeamRole(agent.role),
-      teamName: team.label,
-      projectPath: team.project_path,
-      performanceRisk: performanceRiskFromTelemetry(agent),
-    })),
-  }));
+  return profileTeams.map((team) => {
+    const orchestratorAgent = team.agents.find((a) => a.is_orchestrator) ?? null;
+    const memberAgents = team.agents.filter((a) => !a.is_orchestrator);
+    return {
+      label: `${team.label} · ${team.project_path}`,
+      orchestratorItem: orchestratorAgent ? agentToOperationsItem(team, orchestratorAgent) : null,
+      items: memberAgents.map((agent) => agentToOperationsItem(team, agent)),
+    };
+  });
 }
 
 function buildOperationsItems(data: LoadState): OperationsItem[] {
@@ -1610,7 +1619,12 @@ function ActiveOperationsBoard({
   const subagentItems = sortedItems.filter((item) => activitySegment(item) === "subagents");
   const subagentRows = groupedActivityRows("subagents", subagentItems);
   const terminalSignalItems = sortedItems.filter((item) => activitySegment(item) === "terminals");
-  const signalItems = [...terminalSignalItems, ...teamRows.flatMap((row) => row.items), ...agentItems, ...subagentItems];
+  const signalItems = [
+    ...terminalSignalItems,
+    ...teamRows.flatMap((row) => row.orchestratorItem ? [row.orchestratorItem, ...row.items] : row.items),
+    ...agentItems,
+    ...subagentItems,
+  ];
   const counts = {
     ready: signalItems.filter((item) => item.tone === "ready").length,
     working: signalItems.filter((item) => item.tone === "working").length,
@@ -1737,115 +1751,141 @@ function ActiveOperationsBoard({
                         <p className="text-xs text-muted-foreground">No live {segment.label.toLowerCase()}.</p>
                       ) : (
                         <div className="space-y-5">
-                          {groupedRows.map((row) => (
-                            <div key={row.label} className="grid gap-2 border-t border-border/60 pt-5 md:grid-cols-[minmax(12rem,18rem)_1fr]">
-                              <div className="min-w-0">
-                                <p className="truncate text-xs font-medium text-foreground">{row.label.split(" · ")[0]}</p>
-                                {row.label.includes(" · ") && (
-                                  <p className="mt-0.5 truncate text-[0.68rem] text-muted-foreground">{row.label.split(" · ").slice(1).join(" · ")}</p>
-                                )}
-                                {segment.id === "teams" && (
-                                  <p className="mt-0.5 text-[0.68rem] text-muted-foreground">
-                                    {row.items.length} profile agents
-                                  </p>
-                                )}
-                              </div>
-                              <div className={cn(
-                                "flex flex-wrap items-center",
-                                segment.id === "teams" ? "gap-y-2" : "gap-2.5",
-                              )}>
-                                {row.items.map((item, index) => {
-                                  const Icon = item.icon;
-                                  const isTeamFlow = segment.id === "teams";
-                                  const isLastTeamLight = isTeamFlow && index === row.items.length - 1;
-                                  const riskTitle = item.performanceRisk ? ` · ${item.performanceRisk.detail}` : "";
-                                  const title = `${row.label} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}${riskTitle}`;
-                                  const ariaLabel = `${row.label} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${riskTitle}`;
-                                  const toneColors = {
-                                    ready:   { border: "border-cyan-400/55",    bg: "bg-cyan-500/8",     text: "text-cyan-300",    shadow: "shadow-[0_0_28px_rgba(34,211,238,0.45),inset_0_0_24px_rgba(34,211,238,0.10)]",  wire: "text-cyan-400",   ping: "bg-cyan-400" },
-                                    working: { border: "border-amber-400/55",   bg: "bg-amber-500/8",    text: "text-amber-300",   shadow: "shadow-[0_0_28px_rgba(251,191,36,0.45),inset_0_0_24px_rgba(251,191,36,0.10)]",  wire: "text-amber-400",  ping: "bg-amber-400" },
-                                    review:  { border: "border-rose-400/55",    bg: "bg-rose-500/8",     text: "text-rose-300",    shadow: "shadow-[0_0_28px_rgba(244,63,94,0.45),inset_0_0_24px_rgba(244,63,94,0.10)]",    wire: "text-rose-400",   ping: "bg-rose-400" },
-                                  } as const;
-                                  const tc = toneColors[item.tone] ?? toneColors.ready;
+                          {groupedRows.map((row) => {
+                            const isTeamFlow = segment.id === "teams";
 
-                                  const lightClassName = cn(
-                                    "agent-light group relative flex items-center justify-center rounded-full transition-all duration-300",
-                                    isTeamFlow ? "h-[5rem] w-[5rem]" : "h-12 w-12",
-                                    "border-2",
-                                    tc.border, tc.bg, tc.text, tc.shadow,
-                                    "hover:-translate-y-1 hover:scale-110 focus-visible:outline-none",
-                                  );
-                                  const lightContents = (
-                                    <>
-                                      <ActivityLightPopover item={item} rowLabel={row.label} />
+                            const toneColors = {
+                              ready:   { border: "border-cyan-400/55",    bg: "bg-cyan-500/8",     text: "text-cyan-300",    shadow: "shadow-[0_0_28px_rgba(34,211,238,0.45),inset_0_0_24px_rgba(34,211,238,0.10)]",  wire: "text-cyan-400",   ping: "bg-cyan-400" },
+                              working: { border: "border-amber-400/55",   bg: "bg-amber-500/8",    text: "text-amber-300",   shadow: "shadow-[0_0_28px_rgba(251,191,36,0.45),inset_0_0_24px_rgba(251,191,36,0.10)]",  wire: "text-amber-400",  ping: "bg-amber-400" },
+                              review:  { border: "border-rose-400/55",    bg: "bg-rose-500/8",     text: "text-rose-300",    shadow: "shadow-[0_0_28px_rgba(244,63,94,0.45),inset_0_0_24px_rgba(244,63,94,0.10)]",    wire: "text-rose-400",   ping: "bg-rose-400" },
+                            } as const;
 
-                                      {/* Outer ping ring — active states */}
-                                      {(item.tone === "working" || item.tone === "review") && (
-                                        <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", tc.border)} />
-                                      )}
-                                      {/* Middle concentric ring */}
-                                      <span className="absolute inset-[5px] rounded-full border border-current/20" />
-                                      {/* Inner ring — team lights only */}
-                                      {isTeamFlow && <span className="absolute inset-[14px] rounded-full border border-current/12" />}
-
-                                      {item.roleGlyph ? (
-                                        <span className={cn(
-                                          "relative z-10 text-center font-mono-ui font-bold uppercase leading-tight",
-                                          isTeamFlow
-                                            ? "text-[0.58rem] tracking-[0.1em] text-white/80"
-                                            : "text-[0.5rem] tracking-[0.06em] text-white/70",
-                                        )}>
-                                          {item.roleGlyph}
-                                        </span>
-                                      ) : (
-                                        <Icon className="relative z-10 h-4 w-4 text-white/70" />
-                                      )}
-
-                                      {item.performanceRisk && (
-                                        <span
-                                          className={cn(
-                                            "absolute -right-1 -top-1 z-20 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 font-mono-ui text-[0.5rem] leading-none",
-                                            "bg-[rgb(3,5,18)]",
-                                            item.performanceRisk.level === "critical"
-                                              ? "border-rose-400/70 text-rose-400"
-                                              : "border-amber-400/70 text-amber-400",
-                                          )}
-                                          aria-label={item.performanceRisk.detail}
-                                        >
-                                          {item.performanceRisk.label}
-                                        </span>
-                                      )}
-                                    </>
-                                  );
-                                  const lightElement = item.profileName ? (
-                                    <button type="button" onClick={() => openLightAgent(item)} title={title} aria-label={ariaLabel} className={lightClassName}>
-                                      {lightContents}
-                                    </button>
+                            const buildLightElement = (item: OperationsItem, opts: { size: "sm" | "lg" | "xl"; rowLabel: string }) => {
+                              const Icon = item.icon;
+                              const tc = toneColors[item.tone] ?? toneColors.ready;
+                              const sizeClass = opts.size === "xl" ? "h-[6rem] w-[6rem]" : opts.size === "lg" ? "h-[5rem] w-[5rem]" : "h-12 w-12";
+                              const riskTitle = item.performanceRisk ? ` · ${item.performanceRisk.detail}` : "";
+                              const title = `${opts.rowLabel} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}${riskTitle}`;
+                              const ariaLabel = `${opts.rowLabel} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${riskTitle}`;
+                              const className = cn(
+                                "agent-light group relative flex items-center justify-center rounded-full transition-all duration-300",
+                                sizeClass, "border-2",
+                                tc.border, tc.bg, tc.text, tc.shadow,
+                                "hover:-translate-y-1 hover:scale-110 focus-visible:outline-none",
+                              );
+                              const contents = (
+                                <>
+                                  <ActivityLightPopover item={item} rowLabel={opts.rowLabel} />
+                                  {(item.tone === "working" || item.tone === "review") && (
+                                    <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", tc.border)} />
+                                  )}
+                                  <span className="absolute inset-[5px] rounded-full border border-current/20" />
+                                  {opts.size !== "sm" && <span className="absolute inset-[14px] rounded-full border border-current/12" />}
+                                  {opts.size === "xl" && <span className="absolute inset-[22px] rounded-full border border-current/8" />}
+                                  {item.roleGlyph ? (
+                                    <span className={cn(
+                                      "relative z-10 text-center font-mono-ui font-bold uppercase leading-tight",
+                                      opts.size !== "sm"
+                                        ? "text-[0.58rem] tracking-[0.1em] text-white/80"
+                                        : "text-[0.5rem] tracking-[0.06em] text-white/70",
+                                    )}>
+                                      {item.roleGlyph}
+                                    </span>
                                   ) : (
-                                    <Link to={item.href} title={title} aria-label={ariaLabel} className={lightClassName}>
-                                      {lightContents}
-                                    </Link>
-                                  );
-                                  return (
-                                    <span key={item.id} className="flex items-center">
-                                      {lightElement}
-                                      {isTeamFlow && !isLastTeamLight && (
+                                    <Icon className="relative z-10 h-4 w-4 text-white/70" />
+                                  )}
+                                  {item.performanceRisk && (
+                                    <span
+                                      className={cn(
+                                        "absolute -right-1 -top-1 z-20 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 font-mono-ui text-[0.5rem] leading-none",
+                                        "bg-[rgb(3,5,18)]",
+                                        item.performanceRisk.level === "critical"
+                                          ? "border-rose-400/70 text-rose-400"
+                                          : "border-amber-400/70 text-amber-400",
+                                      )}
+                                      aria-label={item.performanceRisk.detail}
+                                    >
+                                      {item.performanceRisk.label}
+                                    </span>
+                                  )}
+                                </>
+                              );
+                              return item.profileName ? (
+                                <button type="button" onClick={() => openLightAgent(item)} title={title} aria-label={ariaLabel} className={className}>
+                                  {contents}
+                                </button>
+                              ) : (
+                                <Link to={item.href} title={title} aria-label={ariaLabel} className={className}>
+                                  {contents}
+                                </Link>
+                              );
+                            };
+
+                            return (
+                              <div key={row.label} className="grid gap-2 border-t border-border/60 pt-5 md:grid-cols-[minmax(12rem,18rem)_1fr]">
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-medium text-foreground">{row.label.split(" · ")[0]}</p>
+                                  {row.label.includes(" · ") && (
+                                    <p className="mt-0.5 truncate text-[0.68rem] text-muted-foreground">{row.label.split(" · ").slice(1).join(" · ")}</p>
+                                  )}
+                                  {isTeamFlow && (
+                                    <p className="mt-0.5 text-[0.68rem] text-muted-foreground">
+                                      {row.items.length} profile agents
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className={isTeamFlow && row.orchestratorItem ? "flex flex-col items-start gap-0" : cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
+
+                                  {/* Orchestrator (team lead) — shown above member row */}
+                                  {isTeamFlow && row.orchestratorItem && (() => {
+                                    const orch = row.orchestratorItem;
+                                    const orchTc = toneColors[orch.tone] ?? toneColors.ready;
+                                    return (
+                                      <div className="flex flex-col items-start">
+                                        <div className="flex flex-col items-center" style={{ width: "6rem" }}>
+                                          {buildLightElement(orch, { size: "xl", rowLabel: row.label })}
+                                          <span className="mt-1 font-mono-ui text-[0.48rem] uppercase tracking-[0.12em] text-muted-foreground">lead</span>
+                                        </div>
+                                        {/* Vertical wire to member row */}
                                         <span
-                                          className={cn("relative flex h-[5rem] w-10 shrink-0 items-center justify-center", tc.wire)}
+                                          className={cn("relative flex h-8 shrink-0 items-center justify-center", orchTc.wire)}
+                                          style={{ width: "6rem" }}
                                           aria-hidden="true"
                                         >
-                                          {/* Wire */}
-                                          <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
-                                          {/* Traveling dot */}
-                                          <span className="agent-wire__dot absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
+                                          <span className="absolute bottom-0 top-0 left-1/2 -translate-x-1/2 border-l border-dashed border-current/30" />
+                                          <span className="agent-wire__dot--y h-1.5 w-1.5 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
                                         </span>
-                                      )}
-                                    </span>
-                                  );
-                                })}
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Member orbs row */}
+                                  <div className={cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
+                                    {row.items.map((item, index) => {
+                                      const isLastTeamLight = isTeamFlow && index === row.items.length - 1;
+                                      const tc = toneColors[item.tone] ?? toneColors.ready;
+                                      return (
+                                        <span key={item.id} className="flex items-center">
+                                          {buildLightElement(item, { size: isTeamFlow ? "lg" : "sm", rowLabel: row.label })}
+                                          {isTeamFlow && !isLastTeamLight && (
+                                            <span
+                                              className={cn("relative flex h-[5rem] w-10 shrink-0 items-center justify-center", tc.wire)}
+                                              aria-hidden="true"
+                                            >
+                                              <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
+                                              <span className="agent-wire__dot absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
+                                            </span>
+                                          )}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
