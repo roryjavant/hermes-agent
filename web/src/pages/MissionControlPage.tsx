@@ -1828,11 +1828,17 @@ function ActiveOperationsBoard({
                             };
 
                             return (
-                              <div key={row.label} className="grid gap-2 border-t border-border/60 pt-5 md:grid-cols-[minmax(12rem,18rem)_1fr]">
-                                <div className="min-w-0">
-                                  <p className="truncate text-xs font-medium text-foreground">{row.label.split(" · ")[0]}</p>
+                              <div key={row.label} className={cn(
+                                "border-t border-border/60 pt-5",
+                                isTeamFlow
+                                  ? "flex flex-col items-center gap-4"
+                                  : "grid gap-2 md:grid-cols-[minmax(12rem,18rem)_1fr]",
+                              )}>
+                                {/* Label row */}
+                                <div className={cn("min-w-0", isTeamFlow ? "w-full text-center" : "")}>
+                                  <p className={cn("text-xs font-medium text-foreground", isTeamFlow ? "" : "truncate")}>{row.label.split(" · ")[0]}</p>
                                   {row.label.includes(" · ") && (
-                                    <p className="mt-0.5 truncate text-[0.68rem] text-muted-foreground">{row.label.split(" · ").slice(1).join(" · ")}</p>
+                                    <p className={cn("mt-0.5 text-[0.68rem] text-muted-foreground", isTeamFlow ? "" : "truncate")}>{row.label.split(" · ").slice(1).join(" · ")}</p>
                                   )}
                                   {isTeamFlow && (
                                     <p className="mt-0.5 text-[0.68rem] text-muted-foreground">
@@ -1841,7 +1847,7 @@ function ActiveOperationsBoard({
                                   )}
                                 </div>
 
-                                <div className={isTeamFlow && orchestratorItem ? "flex flex-col items-center gap-0" : cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
+                                <div className={isTeamFlow && orchestratorItem ? "flex flex-col items-center gap-0" : cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2 justify-center" : "gap-2.5")}>
 
                                   {/* Orchestrator (team lead) — centered above member row */}
                                   {isTeamFlow && orchestratorItem && (() => {
@@ -1855,7 +1861,7 @@ function ActiveOperationsBoard({
                                         </div>
                                         {/* Vertical wire to member row */}
                                         <span
-                                          className={cn("relative flex h-8 w-px shrink-0 items-center justify-center", orchTc.wire)}
+                                          className={cn("relative flex h-5 w-px shrink-0 items-center justify-center", orchTc.wire)}
                                           aria-hidden="true"
                                         >
                                           <span className="absolute bottom-0 top-0 border-l border-dashed border-current/30" />
@@ -1866,7 +1872,7 @@ function ActiveOperationsBoard({
                                   })()}
 
                                   {/* Member orbs row */}
-                                  <div className={cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
+                                  <div className={cn("flex flex-wrap items-center justify-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
                                     {row.items.map((item, index) => {
                                       const isLastTeamLight = isTeamFlow && index === row.items.length - 1;
                                       const tc = toneColors[item.tone] ?? toneColors.ready;
@@ -1875,7 +1881,7 @@ function ActiveOperationsBoard({
                                           {buildLightElement(item, { size: isTeamFlow ? "lg" : "sm", rowLabel: row.label })}
                                           {isTeamFlow && !isLastTeamLight && (
                                             <span
-                                              className={cn("relative flex h-[5rem] w-10 shrink-0 items-center justify-center", tc.wire)}
+                                              className={cn("relative flex h-[5rem] w-24 shrink-0 items-center justify-center", tc.wire)}
                                               aria-hidden="true"
                                             >
                                               <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
