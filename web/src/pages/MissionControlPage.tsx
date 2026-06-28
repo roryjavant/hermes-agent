@@ -1841,25 +1841,24 @@ function ActiveOperationsBoard({
                                   )}
                                 </div>
 
-                                <div className={isTeamFlow && orchestratorItem ? "flex flex-col items-start gap-0" : cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
+                                <div className={isTeamFlow && orchestratorItem ? "flex flex-col items-center gap-0" : cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
 
-                                  {/* Orchestrator (team lead) — shown above member row */}
+                                  {/* Orchestrator (team lead) — centered above member row */}
                                   {isTeamFlow && orchestratorItem && (() => {
                                     const orch = orchestratorItem;
                                     const orchTc = toneColors[orch.tone] ?? toneColors.ready;
                                     return (
-                                      <div className="flex flex-col items-start">
-                                        <div className="flex flex-col items-center" style={{ width: "6rem" }}>
+                                      <div className="flex flex-col items-center">
+                                        <div className="flex flex-col items-center">
                                           {buildLightElement(orch, { size: "xl", rowLabel: row.label })}
                                           <span className="mt-1 font-mono-ui text-[0.48rem] uppercase tracking-[0.12em] text-muted-foreground">lead</span>
                                         </div>
                                         {/* Vertical wire to member row */}
                                         <span
-                                          className={cn("relative flex h-8 shrink-0 items-center justify-center", orchTc.wire)}
-                                          style={{ width: "6rem" }}
+                                          className={cn("relative flex h-8 w-px shrink-0 items-center justify-center", orchTc.wire)}
                                           aria-hidden="true"
                                         >
-                                          <span className="absolute bottom-0 top-0 left-1/2 -translate-x-1/2 border-l border-dashed border-current/30" />
+                                          <span className="absolute bottom-0 top-0 border-l border-dashed border-current/30" />
                                           <span className="agent-wire__dot--y h-1.5 w-1.5 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
                                         </span>
                                       </div>
