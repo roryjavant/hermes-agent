@@ -7,11 +7,11 @@ import {
   Home,
   Loader2,
   Network,
+  Pause,
+  Play,
   Rocket,
   Search,
-  ShieldCheck,
   Sparkles,
-  Square,
 } from "lucide-react";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { Badge } from "@nous-research/ui/ui/components/badge";
@@ -112,21 +112,21 @@ function ProjectSquare({
   const running = status?.running ?? false;
 
   return (
-    <Card className="group relative min-h-[18rem] overflow-hidden border-current/15 bg-background-base/70 shadow-2xl shadow-black/20 transition-transform duration-150 hover:-translate-y-0.5 hover:border-current/25">
+    <Card className="group relative flex min-h-[23rem] overflow-hidden border-current/15 bg-background-base/70 shadow-2xl shadow-black/20 transition-transform duration-150 hover:-translate-y-0.5 hover:border-current/25">
       <CardContent className="relative flex h-full flex-col p-0">
         <button
           type="button"
           onClick={() => onLaunch(project)}
           disabled={launching || !installed}
-          className="flex h-full min-h-[18rem] w-full flex-col items-stretch text-left disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70"
+          className="flex h-full min-h-[23rem] w-full flex-col items-stretch text-left disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70"
           aria-label={`${project.launchLabel}: ${project.title}`}
         >
-          <div className={cn("relative overflow-hidden border-b bg-gradient-to-br p-4", project.accent)}>
+          <div className={cn("relative h-[7.75rem] overflow-hidden border-b bg-gradient-to-br p-4", project.accent)}>
             <div className="pointer-events-none absolute -right-10 -top-10 size-32 rounded-full bg-current/15 blur-2xl transition-transform duration-300 group-hover:scale-125" />
             <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <Badge className="mb-3 max-w-full truncate bg-black/24 text-current">{project.kicker}</Badge>
-                <h2 className="font-expanded text-xl font-black uppercase tracking-[0.08em] text-current">
+                <h2 className="min-h-[3.35rem] font-expanded text-xl font-black uppercase leading-[1.1] tracking-[0.08em] text-current">
                   {project.title}
                 </h2>
               </div>
@@ -160,22 +160,37 @@ function ProjectSquare({
             </div>
           </div>
         </button>
-        {running ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (running) {
               onStop(project);
-            }}
-            disabled={stopping}
-            className="absolute bottom-4 right-4 z-20 inline-flex items-center gap-2 rounded-full border border-rose-300/30 bg-rose-950/70 px-3 py-1.5 text-xs font-black uppercase tracking-[0.14em] text-rose-100 shadow-lg shadow-rose-950/30 backdrop-blur transition-colors hover:border-rose-200/60 hover:bg-rose-500/25 disabled:cursor-wait disabled:opacity-70"
-            aria-label={`Stop ${project.title}`}
-          >
-            {stopping ? <Loader2 className="size-3.5 animate-spin" /> : <Square className="size-3.5 fill-current" />}
-            {stopping ? "Stopping…" : "Stop"}
-          </button>
-        ) : null}
+            } else {
+              onLaunch(project);
+            }
+          }}
+          disabled={(running && stopping) || (!running && (launching || !installed))}
+          className={cn(
+            "absolute bottom-4 right-4 z-20 grid size-9 place-items-center rounded-full border shadow-lg backdrop-blur transition-colors disabled:cursor-wait disabled:opacity-70",
+            running
+              ? "border-rose-300/35 bg-rose-950/75 text-rose-100 shadow-rose-950/30 hover:border-rose-200/65 hover:bg-rose-500/25"
+              : "border-success/35 bg-success/15 text-success shadow-success/15 hover:border-success/65 hover:bg-success/25",
+          )}
+          aria-label={running ? `Pause ${project.title}` : `Play ${project.title}`}
+          title={running ? `Pause ${project.title}` : `Play ${project.title}`}
+        >
+          {running && stopping ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : !running && launching ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : running ? (
+            <Pause className="size-4 fill-current" />
+          ) : (
+            <Play className="ml-0.5 size-4 fill-current" />
+          )}
+        </button>
       </CardContent>
     </Card>
   );
@@ -228,7 +243,7 @@ export default function LaunchpadPage() {
 
   return (
     <div className="min-h-full w-full p-4 lg:p-6">
-      <div className="mb-5 overflow-hidden rounded-3xl border border-current/15 bg-slate-950/72 p-5 shadow-2xl shadow-black/25">
+      <div className="mb-5 overflow-hidden rounded-3xl border border-border/70 bg-card/72 p-5 shadow-2xl shadow-black/20">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-current/15 bg-black/25 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-text-tertiary">
@@ -241,10 +256,6 @@ export default function LaunchpadPage() {
             <p className="mt-3 text-sm leading-6 text-text-secondary">
               Each square starts the project’s local dev server from its checkout and opens the localhost URL.
             </p>
-          </div>
-          <div className="flex items-center gap-2 rounded-2xl border border-success/20 bg-success/10 px-3 py-2 text-xs font-bold text-success">
-            <ShieldCheck className="size-4" />
-            Fixed local commands only
           </div>
         </div>
         {errors.__load ? <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">Could not load project status: {errors.__load}</div> : null}
