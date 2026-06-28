@@ -985,11 +985,11 @@ function MissionOrb({
   );
 }
 
-const METRIC_ACCENTS: Record<string, { top: string; glow: string; orb: string }> = {
-  gateway:    { top: "from-cyan-400 to-sky-400",     glow: "group-hover:shadow-[0_0_70px_rgba(34,211,238,0.18)]",  orb: "bg-cyan-400" },
-  sessions:   { top: "from-indigo-400 to-blue-400",  glow: "group-hover:shadow-[0_0_70px_rgba(99,102,241,0.18)]",  orb: "bg-indigo-400" },
-  team:       { top: "from-violet-400 to-purple-400", glow: "group-hover:shadow-[0_0_70px_rgba(167,139,250,0.18)]", orb: "bg-violet-400" },
-  automation: { top: "from-amber-400 to-orange-400", glow: "group-hover:shadow-[0_0_70px_rgba(251,191,36,0.18)]",  orb: "bg-amber-400" },
+const METRIC_ACCENTS: Record<string, { left: string; glow: string; orb: string; color: string }> = {
+  gateway:    { left: "from-cyan-400 to-cyan-600",    glow: "hover:shadow-[0_0_80px_rgba(34,211,238,0.22),inset_0_0_40px_rgba(34,211,238,0.04)]",    orb: "bg-cyan-400",    color: "rgba(34,211,238," },
+  sessions:   { left: "from-indigo-400 to-indigo-600", glow: "hover:shadow-[0_0_80px_rgba(99,102,241,0.22),inset_0_0_40px_rgba(99,102,241,0.04)]",    orb: "bg-indigo-400",  color: "rgba(99,102,241," },
+  team:       { left: "from-violet-400 to-violet-600", glow: "hover:shadow-[0_0_80px_rgba(167,139,250,0.22),inset_0_0_40px_rgba(167,139,250,0.04)]",  orb: "bg-violet-400",  color: "rgba(167,139,250," },
+  automation: { left: "from-amber-400 to-amber-600",  glow: "hover:shadow-[0_0_80px_rgba(251,191,36,0.22),inset_0_0_40px_rgba(251,191,36,0.04)]",    orb: "bg-amber-400",   color: "rgba(251,191,36," },
 };
 
 function MetricCard({
@@ -1008,36 +1008,38 @@ function MetricCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "mission-metric-card group relative overflow-hidden border p-6 text-left transition-all duration-300",
-        "bg-white/[0.03] backdrop-blur-2xl",
+        "mission-metric-card group relative overflow-hidden border text-left transition-all duration-300",
+        "bg-white/[0.025] backdrop-blur-2xl p-6",
         accent.glow,
         selected
-          ? "border-white/20 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
-          : "border-white/[0.07] hover:border-white/15 hover:-translate-y-1",
+          ? "border-white/20"
+          : "border-white/[0.06] hover:border-white/12 hover:-translate-y-0.5",
       )}
     >
       {/* ambient fill */}
       <div className={`absolute inset-0 bg-gradient-to-br ${metric.accent} opacity-100`} />
-      {/* vivid top line */}
-      <div className={`absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r ${accent.top} opacity-90`} />
+      {/* vivid left border */}
+      <div className={`absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b ${accent.left}`} />
       {/* corner orb */}
-      <div className={`absolute -right-8 -top-8 h-40 w-40 rounded-full ${accent.orb} opacity-[0.08] blur-3xl transition-opacity duration-500 group-hover:opacity-[0.14]`} />
-      {/* inner glass sheen */}
-      <div className="absolute inset-0 bg-gradient-to-b from-white/[0.04] to-transparent pointer-events-none" />
+      <div className={`absolute -right-10 -top-10 h-48 w-48 rounded-full ${accent.orb} opacity-[0.07] blur-3xl transition-opacity duration-500 group-hover:opacity-[0.13]`} />
+      {/* glass sheen */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.04] to-transparent" />
 
-      <div className="relative flex flex-col gap-5">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5">
-            <Icon className="h-3.5 w-3.5 text-white/40 transition-colors group-hover:text-white/70" />
-          </div>
+      <div className="relative flex h-full flex-col justify-between gap-8">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-[0.58rem] font-semibold uppercase tracking-[0.3em] text-white/30">
+            {metric.label}
+          </p>
           <Badge tone={metric.tone}>{metric.tone === "success" ? "live" : metric.tone}</Badge>
         </div>
         <div>
-          <p className="text-[0.6rem] font-medium uppercase tracking-[0.28em] text-white/30">
-            {metric.label}
-          </p>
-          <p className="mt-2 font-mono-ui text-[3rem] leading-none text-white tracking-tight">{metric.value}</p>
-          <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-white/35">{metric.detail}</p>
+          <p className="font-mono-ui text-[3.2rem] leading-none text-white">{metric.value}</p>
+          <div className="mt-3 flex items-center gap-2.5">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-white/8 bg-white/5">
+              <Icon className="h-3 w-3 text-white/35" />
+            </div>
+            <p className="line-clamp-1 text-[0.7rem] text-white/30">{metric.detail}</p>
+          </div>
         </div>
       </div>
     </button>
@@ -2265,11 +2267,12 @@ export default function MissionControlPage() {
   }
 
   return (
-    <div className="mission-control-surface relative isolate flex flex-col gap-4">
+    <div className="mission-control-surface relative isolate flex flex-col gap-3">
       <PluginSlot name="mission-control:top" />
 
+      {/* ── Hero ──────────────────────────────────── */}
       <section
-        className="mission-hero group relative overflow-hidden py-10 sm:py-14 md:py-16 px-6 sm:px-8 md:px-10"
+        className="mission-hero group relative overflow-hidden"
         style={heroStyle}
         onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
@@ -2279,82 +2282,89 @@ export default function MissionControlPage() {
           });
         }}
       >
-        {/* Ambient blobs */}
-        <div className="pointer-events-none absolute -left-32 -top-32 h-[32rem] w-[32rem] rounded-full bg-cyan-500/10 blur-[96px]" />
-        <div className="pointer-events-none absolute -right-32 -bottom-20 h-[28rem] w-[28rem] rounded-full bg-violet-600/12 blur-[80px]" />
-        <div className="pointer-events-none absolute right-1/3 -top-16 h-64 w-64 rounded-full bg-indigo-500/8 blur-[64px]" />
-        {/* Grid overlay */}
+        {/* Vivid ambient blobs */}
+        <div className="pointer-events-none absolute -left-40 -top-40 h-[40rem] w-[40rem] rounded-full bg-cyan-400/15 blur-[120px]" />
+        <div className="pointer-events-none absolute -right-40 top-0 h-[36rem] w-[36rem] rounded-full bg-violet-600/18 blur-[100px]" />
+        <div className="pointer-events-none absolute bottom-0 left-1/2 h-48 w-96 -translate-x-1/2 rounded-full bg-indigo-500/10 blur-[72px]" />
         <div className="mission-hero__grid absolute inset-0" />
         <div className="mission-hero__glow absolute inset-0 transition-opacity" />
-        <div className="mission-hero__scan absolute inset-x-0 top-0 h-32" />
-        {/* Bottom fade */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-background-base/60 to-transparent" />
+        <div className="mission-hero__scan absolute inset-x-0 top-0 h-40" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[rgb(3,5,18)] to-transparent" />
 
-        <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-center">
-          <div>
-            <div className="mb-5 flex flex-wrap items-center gap-2">
-              <span className="mission-kicker">Orbital command online</span>
-              <Badge tone={readiness.tone}>{readiness.label}</Badge>
-              <Badge tone={data.status?.auth_required ? "success" : "outline"}>
-                {data.status?.auth_required ? "gated" : "loopback"}
-              </Badge>
-              <Badge tone="outline">Config v{data.status?.config_version ?? "—"}</Badge>
-            </div>
-            <h2 className="mission-title font-mondwest text-display uppercase leading-[0.9] tracking-[0.06em] text-foreground" style={{ fontSize: "clamp(3.5rem, 8vw, 7rem)" }}>
-              Mission<br />Control
-            </h2>
-            <p className="mt-4 max-w-xl text-sm leading-relaxed text-white/40">
-              Live command surface — system health, conversations, team queue,
-              automations, profile readiness, and the next thing that needs you.
-            </p>
-            <div className="mission-mini-grid mt-8 grid grid-cols-4 gap-3 max-w-lg">
-              <MiniMetric label="Platforms" value={Object.keys(data.status?.gateway_platforms ?? {}).length} />
-              <MiniMetric label="Profiles" value={data.profiles.length} />
-              <MiniMetric label="Cron" value={data.cronJobs.length} />
-              <MiniMetric label="Signals" value={timeline.length} />
-            </div>
+        <div className="relative flex flex-col px-6 pt-10 pb-8 sm:px-10 sm:pt-14 sm:pb-10">
+          {/* HUD status line */}
+          <div className="mb-6 flex items-center gap-3">
+            <span className="mission-kicker">Orbital command online</span>
+            <span className="h-px flex-1 bg-white/8" />
+            <span className="font-mono text-[0.62rem] uppercase tracking-[0.2em] text-white/25">
+              {readiness.label} · Config v{data.status?.config_version ?? "—"}
+            </span>
           </div>
-          <MissionOrb
-            metrics={metrics}
-            score={score}
-            selectedMetric={selectedMetric}
-            onSelectMetric={setSelectedMetric}
-          />
+
+          <div className="grid gap-8 xl:grid-cols-[1fr_22rem] xl:items-end">
+            <div>
+              <h2
+                className="mission-title font-mondwest text-display uppercase leading-[0.88] tracking-[0.04em] text-white"
+                style={{ fontSize: "clamp(4.5rem, 11vw, 9.5rem)" }}
+              >
+                Mission<br />Control
+              </h2>
+              {/* Inline HUD metrics */}
+              <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2">
+                {[
+                  { label: "Platforms", value: Object.keys(data.status?.gateway_platforms ?? {}).length },
+                  { label: "Profiles", value: data.profiles.length },
+                  { label: "Cron jobs", value: data.cronJobs.length },
+                  { label: "Signals", value: timeline.length },
+                ].map((stat) => (
+                  <div key={stat.label} className="flex items-baseline gap-2">
+                    <span className="font-mono-ui text-2xl leading-none text-white/70">{stat.value}</span>
+                    <span className="text-[0.6rem] uppercase tracking-[0.2em] text-white/25">{stat.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <MissionOrb
+              metrics={metrics}
+              score={score}
+              selectedMetric={selectedMetric}
+              onSelectMetric={setSelectedMetric}
+            />
+          </div>
         </div>
       </section>
 
       {error && (
-        <Card>
-          <CardContent className="flex items-center gap-3 py-4 text-sm text-warning">
-            <AlertTriangle className="h-5 w-5 shrink-0" />
-            {error}
-          </CardContent>
-        </Card>
+        <div className="flex items-center gap-3 border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-400/80 backdrop-blur-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
       )}
 
-      <div className="mission-control-strip relative flex flex-col gap-2 overflow-hidden border border-white/[0.07] bg-white/[0.03] px-4 py-3 backdrop-blur-2xl sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-3">
+      {/* ── OS nav strip ──────────────────────────── */}
+      <div className="mission-control-strip flex flex-col gap-2 border-y border-white/[0.06] bg-white/[0.02] px-4 py-2.5 backdrop-blur-2xl sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2.5">
           <ViewSwitch view={view} onChange={setView} />
-          <span className="hidden h-4 w-px bg-white/10 sm:block" />
+          <div className="hidden h-3 w-px bg-white/10 sm:block" />
           <TeamFilterSelect data={data} value={effectiveTeamFilter} onChange={updateTeamFilter} label="Queue team" />
           {selectedMetricData && (
-            <Badge tone={selectedMetricData.tone}>
-              Focus: {selectedMetricData.label} · {selectedMetricData.value}
-            </Badge>
+            <span className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-white/30">
+              ↳ {selectedMetricData.label} · {selectedMetricData.value}
+            </span>
           )}
         </div>
         {selectedMetricData && (
           <Link
             to={selectedMetricData.href}
-            className="inline-flex items-center justify-center gap-2 border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/50 transition-all hover:border-white/20 hover:bg-white/8 hover:text-white/80 backdrop-blur-sm"
+            className="inline-flex items-center gap-1.5 text-[0.68rem] uppercase tracking-[0.14em] text-white/25 transition-colors hover:text-white/55"
           >
-            Open {selectedMetricData.label}
-            <ArrowRight className="h-3.5 w-3.5" />
+            Open {selectedMetricData.label} <ArrowRight className="h-3 w-3" />
           </Link>
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {/* ── Bento metric grid ─────────────────────── */}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr_1fr]">
         {metrics.map((metric) => (
           <MetricCard
             key={metric.id}

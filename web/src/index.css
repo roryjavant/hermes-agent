@@ -280,12 +280,13 @@ code { font-size: 0.875rem; }
   100% { transform: translateY(300%); opacity: 0; }
 }
 
-/* Page-level ambient gradient background */
+/* Page-level ambient gradient background — near-black canvas + vivid color orbs */
 .mission-control-surface {
-  background:
-    radial-gradient(ellipse 90% 55% at 85% -5%,  rgba(99, 102, 241, 0.14), transparent),
-    radial-gradient(ellipse 70% 50% at -8% 105%, rgba(34, 211, 238, 0.10), transparent),
-    radial-gradient(ellipse 55% 40% at 8%   2%,  color-mix(in srgb, var(--color-success) 10%, transparent), transparent);
+  background-color: rgb(3, 5, 18);
+  background-image:
+    radial-gradient(ellipse 90% 55% at 88%  -8%,  rgba(99, 102, 241, 0.32), transparent),
+    radial-gradient(ellipse 65% 45% at -8% 110%,  rgba(34, 211, 238, 0.22), transparent),
+    radial-gradient(ellipse 50% 35% at 10%   2%,  rgba(34, 211, 238, 0.12), transparent);
 }
 
 .mission-control-surface::before {
@@ -308,20 +309,20 @@ code { font-size: 0.875rem; }
 }
 
 .mission-hero__grid {
-  opacity: 0.18;
+  opacity: 0.22;
   background-image:
-    linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px),
-    linear-gradient(rgba(255,255,255,0.25) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.25) 1px, transparent 1px);
+    linear-gradient(rgba(99,102,241,0.6) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,102,241,0.6) 1px, transparent 1px),
+    linear-gradient(rgba(99,102,241,0.3) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,102,241,0.3) 1px, transparent 1px);
   background-size: 44px 44px, 44px 44px, 176px 176px, 176px 176px;
-  mask-image: linear-gradient(120deg, black 0%, black 55%, transparent 90%);
+  mask-image: linear-gradient(125deg, black 0%, black 50%, transparent 88%);
 }
 
 .mission-hero__scan {
   pointer-events: none;
   background: linear-gradient(180deg, transparent,
-    rgba(99, 102, 241, 0.22), rgba(34, 211, 238, 0.14), transparent);
+    rgba(99, 102, 241, 0.30), rgba(34, 211, 238, 0.18), transparent);
   animation: mission-scanline 9s ease-in-out infinite;
 }
 
