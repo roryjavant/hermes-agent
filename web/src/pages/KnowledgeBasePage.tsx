@@ -1,41 +1,45 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
-  ArrowRight,
   BookOpen,
+  Check,
   ChevronRight,
-  Database,
   FileText,
+  FolderClosed,
   FolderOpen,
   Loader2,
   Plus,
   Search,
   Sparkles,
 } from "lucide-react";
-import { Badge } from "@nous-research/ui/ui/components/badge";
 import { Button } from "@nous-research/ui/ui/components/button";
-import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { api } from "@/lib/api";
 import type { KnowledgeBaseSummary, KnowledgeBaseTreeNode } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Tone = "cyan" | "amber" | "violet";
 
-const TONES: Record<Tone, { card: string; glow: string; text: string }> = {
+const TONES: Record<Tone, { card: string; glow: string; text: string; accent: string; tab: string }> = {
   amber: {
     card: "from-amber-300/24 via-orange-500/12 to-yellow-500/8 border-amber-200/20",
     glow: "bg-amber-200/20 text-amber-100 shadow-[0_0_34px_rgba(251,191,36,0.38)]",
     text: "text-amber-100",
+    accent: "text-amber-200",
+    tab: "border-amber-300/40 text-amber-100",
   },
   cyan: {
     card: "from-cyan-300/26 via-sky-500/12 to-teal-500/8 border-cyan-200/20",
     glow: "bg-cyan-200/20 text-cyan-100 shadow-[0_0_34px_rgba(34,211,238,0.38)]",
     text: "text-cyan-100",
+    accent: "text-cyan-200",
+    tab: "border-cyan-300/40 text-cyan-100",
   },
   violet: {
     card: "from-violet-300/24 via-purple-500/12 to-fuchsia-500/8 border-violet-200/20",
     glow: "bg-violet-200/20 text-violet-100 shadow-[0_0_34px_rgba(168,85,247,0.38)]",
     text: "text-violet-100",
+    accent: "text-violet-200",
+    tab: "border-violet-300/40 text-violet-100",
   },
 };
 
@@ -47,42 +51,41 @@ const TONE_BY_SLUG: Record<string, Tone> = {
 
 function KnowledgeBaseCard({ base, onOpen }: { base: KnowledgeBaseSummary; onOpen: () => void }) {
   const tone = TONES[TONE_BY_SLUG[base.slug] ?? "cyan"];
-  const firstFolder = base.tree.type === "folder" ? base.tree.children.find((child) => child.type === "folder")?.name : undefined;
   return (
-    <Card className="group overflow-hidden rounded-none border-border/70 bg-background-base/72 shadow-2xl shadow-black/20 transition-transform duration-150 hover:-translate-y-0.5">
-      <CardContent className="flex h-full flex-col p-0">
-        <button type="button" onClick={onOpen} className="flex min-h-[23rem] flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70">
-          <div className={cn("relative min-h-[7.3rem] overflow-hidden border-b bg-gradient-to-br p-4", tone.card)}>
-            <div className="pointer-events-none absolute -right-12 -top-12 size-36 rounded-full bg-current/10 blur-2xl transition-transform duration-300 group-hover:scale-125" />
-            <div className="relative flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <Badge className="mb-4 max-w-full rounded-none border-current/10 bg-black/26 px-2.5 py-1 font-mono-ui text-[10px] tracking-[0.18em] text-current">
-                  {base.kicker}
-                </Badge>
-                <h2 className={cn("font-expanded text-2xl font-black uppercase leading-none tracking-[0.08em]", tone.text)}>{base.title}</h2>
-              </div>
-              <span className={cn("grid size-12 shrink-0 place-items-center rounded-2xl border border-current/20 bg-black/28", tone.glow)}>
-                <BookOpen className="size-6" />
-              </span>
-            </div>
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Open knowledge base: ${base.title}`}
+      className="group relative overflow-hidden border border-border/70 bg-background-base/72 text-left shadow-2xl shadow-black/20 transition-all duration-200 hover:-translate-y-1 hover:border-border/90 hover:shadow-black/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70"
+    >
+      <div className={cn("relative overflow-hidden border-b bg-gradient-to-br p-5", tone.card)}>
+        <div className="pointer-events-none absolute -right-10 -top-10 size-36 rounded-full bg-current/10 blur-2xl transition-transform duration-500 group-hover:scale-150" />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="mb-2 font-mono-ui text-[10px] tracking-[0.2em] text-current/60 uppercase">{base.kicker}</p>
+            <h2 className={cn("font-expanded text-2xl font-black uppercase leading-none tracking-[0.08em]", tone.text)}>{base.title}</h2>
           </div>
-          <div className="flex flex-1 flex-col gap-4 p-4">
-            <p className="min-h-[4.75rem] text-sm leading-6 text-text-secondary">{base.description}</p>
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-full border border-border/70 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">Markdown</span>
-              <span className="rounded-full border border-border/70 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">{base.entry_count} files</span>
-              <span className="rounded-full border border-border/70 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">{base.folder_count} folders</span>
-              {firstFolder ? <span className="rounded-full border border-border/70 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">/{firstFolder}</span> : null}
-            </div>
-            <div className="mt-auto border border-border/50 bg-black/20 px-3 py-2 font-mono text-xs text-text-tertiary">{base.path}</div>
-            <div className="flex items-center justify-between border-t border-border/55 pt-3 text-sm font-black text-foreground">
-              <span>Open knowledge base</span>
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
-            </div>
-          </div>
-        </button>
-      </CardContent>
-    </Card>
+          <span className={cn("grid size-11 shrink-0 place-items-center rounded-2xl border border-current/20 bg-black/28", tone.glow)}>
+            <BookOpen className="size-5" />
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 p-5">
+        <p className="text-sm leading-6 text-text-secondary">{base.description}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-border/60 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">
+            {base.entry_count} files
+          </span>
+          <span className="rounded-full border border-border/60 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">
+            {base.folder_count} folders
+          </span>
+          <span className="ml-auto text-xs font-black text-text-tertiary transition-colors group-hover:text-foreground">
+            Open <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
+          </span>
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -112,19 +115,20 @@ function FileTree({
 }) {
   if (node.type === "file") {
     return (
-      <button
-        type="button"
-        className="grid w-full grid-cols-[auto_1fr_auto] items-start gap-3 border-b border-border/45 px-3 py-3 text-left transition-colors hover:bg-midground/8 last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
-        style={{ paddingLeft: `${12 + depth * 18}px` }}
+      <div
+        className="grid grid-cols-[auto_1fr_auto] items-start gap-3 border-b border-border/40 px-3 py-2.5 last:border-b-0"
+        style={{ paddingLeft: `${12 + depth * 16}px` }}
       >
-        <FileText className="mt-0.5 size-4 text-midground" />
+        <FileText className="mt-0.5 size-3.5 shrink-0 text-text-tertiary" />
         <div className="min-w-0">
-          <div className="truncate text-sm font-bold text-foreground">{node.entry.title}</div>
-          <div className="mt-1 truncate font-mono text-[11px] text-text-tertiary">{node.entry.relative_path}</div>
-          {node.entry.excerpt ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-text-secondary">{node.entry.excerpt}</p> : null}
+          <div className="truncate text-[13px] font-semibold text-foreground">{node.entry.title}</div>
+          <div className="mt-0.5 truncate font-mono text-[10px] text-text-tertiary">{node.entry.relative_path}</div>
+          {node.entry.excerpt ? (
+            <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-text-secondary">{node.entry.excerpt}</p>
+          ) : null}
         </div>
-        <span className="rounded-full border border-border/60 bg-black/20 px-2 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">.md</span>
-      </button>
+        <span className="rounded border border-border/50 bg-black/20 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-text-tertiary">.md</span>
+      </div>
     );
   }
 
@@ -134,7 +138,7 @@ function FileTree({
   const isSelected = Boolean(folderPath) && selectedFolder === folderPath;
 
   return (
-    <div className={isRoot ? "" : "border-b border-border/45 last:border-b-0"}>
+    <div className={isRoot ? "" : "border-b border-border/40 last:border-b-0"}>
       {!isRoot ? (
         <button
           type="button"
@@ -144,15 +148,28 @@ function FileTree({
             onToggleFolder(node.relative_path);
           }}
           className={cn(
-            "flex w-full items-center gap-2 bg-black/16 px-3 py-2 text-left text-xs font-black uppercase tracking-[0.14em] text-text-secondary transition-colors hover:bg-midground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60",
-            isSelected ? "bg-midground/12 text-foreground" : "",
+            "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-midground/8 focus-visible:outline-none focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-midground/60",
+            isSelected ? "bg-midground/10" : "",
           )}
-          style={{ paddingLeft: `${12 + depth * 18}px` }}
+          style={{ paddingLeft: `${12 + depth * 16}px` }}
         >
-          <ChevronRight className={cn("size-3 text-text-tertiary transition-transform", isExpanded ? "rotate-90" : "")} />
-          <FolderOpen className="size-4 text-midground" />
-          <span className="min-w-0 flex-1 truncate">{node.name}</span>
-          <span className="text-[10px] text-text-tertiary">{isSelected ? "selected" : "open"}</span>
+          <ChevronRight
+            className={cn("size-3 shrink-0 text-text-tertiary transition-transform duration-150", isExpanded ? "rotate-90" : "")}
+          />
+          {isExpanded ? (
+            <FolderOpen className={cn("size-3.5 shrink-0", isSelected ? "text-midground" : "text-text-tertiary")} />
+          ) : (
+            <FolderClosed className={cn("size-3.5 shrink-0", isSelected ? "text-midground" : "text-text-tertiary")} />
+          )}
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-[0.12em]",
+              isSelected ? "text-foreground" : "text-text-secondary",
+            )}
+          >
+            {node.name}
+          </span>
+          {isSelected && <div className="size-1.5 shrink-0 rounded-full bg-midground/60" />}
         </button>
       ) : null}
       {isExpanded ? (
@@ -169,19 +186,25 @@ function FileTree({
             />
           ))
         ) : !isRoot ? (
-          <div className="px-3 py-3 text-xs text-text-tertiary" style={{ paddingLeft: `${30 + depth * 18}px` }}>Empty folder</div>
+          <div
+            className="py-3 text-xs italic text-text-tertiary/60"
+            style={{ paddingLeft: `${44 + depth * 16}px` }}
+          >
+            Empty
+          </div>
         ) : null
       ) : null}
     </div>
   );
 }
 
+type RightTab = "research" | "add";
+
 export default function KnowledgeBasePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState<KnowledgeBaseSummary[]>([]);
-  const [root, setRoot] = useState("");
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
@@ -191,14 +214,15 @@ export default function KnowledgeBasePage() {
   const [researchInstructions, setResearchInstructions] = useState("");
   const [launchingResearch, setLaunchingResearch] = useState(false);
   const [researchStatus, setResearchStatus] = useState("");
+  const [rightTab, setRightTab] = useState<RightTab>("research");
 
   const active = useMemo(() => data.find((base) => base.slug === activeSlug) ?? null, [data, activeSlug]);
+  const tone = TONES[TONE_BY_SLUG[active?.slug ?? ""] ?? "cyan"];
 
   const refresh = async () => {
     setError("");
     const response = await api.getKnowledgeBases();
     setData(response.bases);
-    setRoot(response.root);
   };
 
   useEffect(() => {
@@ -211,16 +235,14 @@ export default function KnowledgeBasePage() {
     if (!active?.tree) return;
     setExpandedFolders(new Set(collectFolderPaths(active.tree).filter((path) => path !== active.tree.relative_path)));
     setFolder("research-briefs");
+    setResearchStatus("");
   }, [active?.slug]);
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((current) => {
       const next = new Set(current);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
       return next;
     });
   };
@@ -261,7 +283,7 @@ export default function KnowledgeBasePage() {
         instructions: researchInstructions,
         folder_hint: folder,
       });
-      setResearchStatus(`${result.message} Profile: ${result.profile}. Log: ${result.action_name}.`);
+      setResearchStatus(`${result.message} Profile: ${result.profile}.`);
       setResearchSubject("");
       setResearchInstructions("");
     } catch (err) {
@@ -273,164 +295,212 @@ export default function KnowledgeBasePage() {
 
   return (
     <main className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 p-4 sm:p-6">
-      <section className="overflow-hidden rounded-[1.5rem] border border-border/70 bg-card/80 shadow-2xl shadow-black/20">
-        <div className="relative p-5 sm:p-7">
-          <div className="pointer-events-none absolute right-0 top-0 h-56 w-96 rounded-full bg-midground/12 blur-3xl" />
-          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-4xl">
-              <h1 className="font-expanded text-4xl font-black uppercase tracking-[0.08em] text-foreground sm:text-5xl">Knowledge Base</h1>
-              <p className="mt-3 text-sm leading-6 text-text-secondary">
-                Each square opens a Markdown-backed knowledge base. Inside, files can be organized by folders and used as the durable destination for research workspace outputs.
-              </p>
-            </div>
-            <Badge className="w-fit rounded-full border-emerald-300/25 bg-emerald-500/10 px-4 py-2 text-emerald-200">
-              Markdown files only
-            </Badge>
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        {active ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setActiveSlug(null)}
+              aria-label="Back to knowledge bases"
+              className="flex items-center gap-1.5 text-text-tertiary transition-colors hover:text-foreground"
+            >
+              <ArrowLeft className="size-4" />
+              <span className="text-xs font-black uppercase tracking-[0.14em]">Knowledge Base</span>
+            </button>
+            <ChevronRight className="size-3.5 text-border/60" />
+            <span className={cn("text-xs font-black uppercase tracking-[0.14em]", tone.accent)}>{active.title}</span>
+          </>
+        ) : (
+          <div>
+            <h1 className="font-expanded text-3xl font-black uppercase tracking-[0.08em] text-foreground sm:text-4xl">
+              Knowledge Base
+            </h1>
+            <p className="mt-2 text-sm text-text-secondary">Organized Markdown files for research handoff and reusable notes.</p>
           </div>
-        </div>
-      </section>
+        )}
+      </div>
 
-      {error ? <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error}</div> : null}
+      {error ? (
+        <div className="rounded border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+      ) : null}
 
       {active ? (
-        <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-          <Card className="rounded-none border-border/70 bg-card/72 shadow-2xl shadow-black/15">
-            <CardContent className="p-5">
-              <button type="button" onClick={() => setActiveSlug(null)} className="mb-4 inline-flex items-center gap-2 rounded-full border border-border/70 bg-black/20 px-3 py-1.5 text-xs font-black uppercase tracking-[0.14em] text-text-secondary hover:text-foreground">
-                <ArrowLeft className="size-4" /> Back to knowledge bases
-              </button>
-              <div className="mb-5 border-b border-border/60 pb-5">
-                <Badge className="mb-3 rounded-none border-midground/25 bg-midground/10 text-midground">{active.kicker}</Badge>
-                <h2 className="font-expanded text-3xl font-black uppercase tracking-[0.08em] text-foreground">{active.title}</h2>
-                <p className="mt-3 text-sm leading-6 text-text-secondary">{active.description}</p>
-                <div className="mt-4 grid gap-2 text-xs text-text-tertiary sm:grid-cols-3">
-                  <span className="rounded-full border border-border/70 bg-black/20 px-3 py-1.5 font-black uppercase tracking-[0.14em]">{active.entry_count} markdown files</span>
-                  <span className="rounded-full border border-border/70 bg-black/20 px-3 py-1.5 font-black uppercase tracking-[0.14em]">{active.folder_count} folders</span>
-                  <span className="truncate rounded-full border border-border/70 bg-black/20 px-3 py-1.5 font-mono">{active.path}</span>
-                </div>
+        /* Detail view */
+        <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+          {/* Left: file tree */}
+          <div className="flex flex-col gap-0 overflow-hidden border border-border/60 bg-card/72 shadow-2xl shadow-black/15">
+            {/* KB identity strip */}
+            <div className={cn("flex items-center gap-3 border-b bg-gradient-to-r p-4", tone.card)}>
+              <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl border border-current/20 bg-black/28", tone.glow)}>
+                <BookOpen className="size-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="font-mono-ui text-[9px] tracking-[0.2em] uppercase text-current/60">{active.kicker}</p>
+                <h2 className={cn("truncate font-expanded text-lg font-black uppercase leading-tight tracking-[0.07em]", tone.text)}>
+                  {active.title}
+                </h2>
               </div>
-              <div className="mb-4 flex items-center gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-midground/25 bg-midground/10 text-midground"><FolderOpen className="size-5" /></span>
-                <div>
-                  <div className="text-[0.68rem] font-black uppercase tracking-[0.18em] text-text-tertiary">Folder tree</div>
-                  <h3 className="font-expanded text-lg font-black uppercase tracking-[0.08em] text-foreground">Organized Markdown files</h3>
-                </div>
-              </div>
-              <div className="max-h-[34rem] overflow-auto border border-border/60 bg-background-base/45">
-                <FileTree
-                  node={active.tree}
-                  expandedFolders={expandedFolders}
-                  selectedFolder={folder}
-                  onToggleFolder={toggleFolder}
-                  onSelectFolder={selectFolder}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="flex flex-col gap-5">
-            <Card className="rounded-none border-midground/35 bg-card/72 shadow-2xl shadow-black/15">
-              <CardContent className="p-5">
-                <div className="mb-4 flex items-start gap-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-cyan-200/25 bg-cyan-500/10 text-cyan-100"><Search className="size-5" /></span>
-                  <div>
-                    <div className="text-[0.68rem] font-black uppercase tracking-[0.18em] text-text-tertiary">Research agent</div>
-                    <h3 className="font-expanded text-lg font-black uppercase tracking-[0.08em] text-foreground">Start research into {active.title}</h3>
-                    <p className="mt-1 text-sm leading-6 text-text-secondary">Kick off a background research agent from this page. It will research the subject, choose an appropriate folder structure, and write Markdown directly into this knowledge base.</p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <input
-                    value={researchSubject}
-                    onChange={(event) => setResearchSubject(event.target.value)}
-                    placeholder="Research subject"
-                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 text-sm text-foreground outline-none focus:border-midground/60"
-                  />
-                  <textarea
-                    value={researchInstructions}
-                    onChange={(event) => setResearchInstructions(event.target.value)}
-                    placeholder="Optional directions: sources to check, questions to answer, depth, constraints…"
-                    rows={5}
-                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 text-sm leading-6 text-foreground outline-none focus:border-midground/60"
-                  />
-                  <div className="rounded-none border border-border/60 bg-black/20 px-3 py-2 text-xs leading-5 text-text-secondary">
-                    Folder hint: <span className="font-mono text-text-tertiary">{folder || "agent decides"}</span>
-                  </div>
-                  <Button onClick={handleStartResearch} disabled={launchingResearch || !researchSubject.trim()} className="w-full justify-center gap-2">
-                    {launchingResearch ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                    {launchingResearch ? "Starting research agent…" : "Start research job"}
-                  </Button>
-                  {researchStatus ? <div className="rounded-none border border-emerald-300/25 bg-emerald-500/10 p-3 text-xs leading-5 text-emerald-100">{researchStatus}</div> : null}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="rounded-none border-border/70 bg-card/72 shadow-2xl shadow-black/15">
-              <CardContent className="p-5">
-                <div className="mb-4 flex items-start gap-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-midground/25 bg-midground/10 text-midground"><Plus className="size-5" /></span>
-                  <div>
-                    <div className="text-[0.68rem] font-black uppercase tracking-[0.18em] text-text-tertiary">Add Markdown</div>
-                    <h3 className="font-expanded text-lg font-black uppercase tracking-[0.08em] text-foreground">Save into {active.title}</h3>
-                    <p className="mt-1 text-sm leading-6 text-text-secondary">Pick a folder path like `research-briefs`, `sources`, or `synthesis`. New folders are created safely inside this knowledge base.</p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <input
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                    placeholder="Note title"
-                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 text-sm text-foreground outline-none focus:border-midground/60"
-                  />
-                  <input
-                    value={folder}
-                    onChange={(event) => setFolder(event.target.value)}
-                    placeholder="Folder path, e.g. research-briefs"
-                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 font-mono text-sm text-foreground outline-none focus:border-midground/60"
-                  />
-                  <textarea
-                    value={body}
-                    onChange={(event) => setBody(event.target.value)}
-                    placeholder="Markdown body…"
-                    rows={8}
-                    className="w-full rounded-none border border-border/70 bg-background-base/70 px-4 py-3 font-mono text-sm leading-6 text-foreground outline-none focus:border-midground/60"
-                  />
-                  <Button onClick={handleSave} disabled={saving || !title.trim() || !body.trim()} className="w-full justify-center gap-2">
-                    {saving ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
-                    {saving ? "Saving Markdown…" : "Save Markdown note"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </section>
-      ) : (
-        <>
-          <section className="grid gap-4 lg:grid-cols-3">
-            {loading ? (
-              <div className="col-span-full flex items-center gap-2 rounded-2xl border border-border/70 bg-card/70 p-5 text-text-secondary"><Loader2 className="size-4 animate-spin" /> Loading knowledge bases…</div>
-            ) : (
-              data.map((base) => <KnowledgeBaseCard key={base.slug} base={base} onOpen={() => setActiveSlug(base.slug)} />)
-            )}
-          </section>
-
-          <section className="rounded-[1.5rem] border border-border/70 bg-card/55 p-4 text-sm leading-6 text-text-secondary">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <Database className="mb-3 size-5 text-midground" />
-                Markdown-first storage at <span className="font-mono text-text-tertiary">{root || "…"}</span>.
-              </div>
-              <div>
-                <Search className="mb-3 size-5 text-midground" />
-                Research workspace outputs should land in Hermes Research after source review and fact-check.
-              </div>
-              <div>
-                <Sparkles className="mb-3 size-5 text-midground" />
-                Future slice: one-click promotion from a research brief into the selected knowledge base.
+              <div className="ml-auto flex shrink-0 flex-col items-end gap-1 text-[10px] text-current/50">
+                <span>{active.entry_count} files</span>
+                <span>{active.folder_count} folders</span>
               </div>
             </div>
-          </section>
-        </>
+
+            {/* Tree */}
+            <div className="flex-1 overflow-auto" aria-label="Folder tree">
+              <FileTree
+                node={active.tree}
+                expandedFolders={expandedFolders}
+                selectedFolder={folder}
+                onToggleFolder={toggleFolder}
+                onSelectFolder={selectFolder}
+              />
+            </div>
+          </div>
+
+          {/* Right: tabbed actions */}
+          <div className="flex flex-col overflow-hidden border border-border/60 bg-card/72 shadow-2xl shadow-black/15">
+            {/* Tab bar */}
+            <div className="flex border-b border-border/60">
+              <button
+                type="button"
+                onClick={() => setRightTab("research")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-2 border-r border-border/60 py-3.5 text-xs font-black uppercase tracking-[0.14em] transition-colors",
+                  rightTab === "research"
+                    ? "bg-midground/8 text-foreground"
+                    : "text-text-tertiary hover:bg-midground/5 hover:text-text-secondary",
+                )}
+              >
+                <Search className="size-3.5" />
+                Research
+              </button>
+              <button
+                type="button"
+                onClick={() => setRightTab("add")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-2 py-3.5 text-xs font-black uppercase tracking-[0.14em] transition-colors",
+                  rightTab === "add"
+                    ? "bg-midground/8 text-foreground"
+                    : "text-text-tertiary hover:bg-midground/5 hover:text-text-secondary",
+                )}
+              >
+                <Plus className="size-3.5" />
+                Add Note
+              </button>
+            </div>
+
+            {/* Tab content */}
+            <div className="flex flex-1 flex-col gap-4 p-5">
+              {rightTab === "research" ? (
+                <>
+                  <div>
+                    <h3 className="font-expanded text-base font-black uppercase tracking-[0.07em] text-foreground">
+                      Research {active.title}
+                    </h3>
+                    <p className="mt-1 text-xs leading-5 text-text-secondary">
+                      A background agent will research the subject and write Markdown directly into this knowledge base.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <input
+                      value={researchSubject}
+                      onChange={(e) => setResearchSubject(e.target.value)}
+                      placeholder="What should the agent research?"
+                      className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                    />
+                    <textarea
+                      value={researchInstructions}
+                      onChange={(e) => setResearchInstructions(e.target.value)}
+                      placeholder="Optional: sources to check, questions to answer, depth, constraints…"
+                      rows={5}
+                      className="w-full resize-none border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                    />
+                    <div className="flex items-center gap-2 border border-border/50 bg-black/20 px-3 py-2 text-xs text-text-tertiary">
+                      <FolderClosed className="size-3 shrink-0" />
+                      <span>Writes to</span>
+                      <code className="ml-1 font-mono text-text-secondary">{folder || "agent decides"}</code>
+                    </div>
+                    <Button
+                      onClick={handleStartResearch}
+                      disabled={launchingResearch || !researchSubject.trim()}
+                      className="w-full justify-center gap-2"
+                    >
+                      {launchingResearch ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="size-4" />
+                      )}
+                      {launchingResearch ? "Starting…" : "Start research job"}
+                    </Button>
+                    {researchStatus ? (
+                      <div className="flex items-start gap-2.5 border border-emerald-300/25 bg-emerald-500/10 px-3.5 py-3 text-xs leading-5 text-emerald-100">
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-400" />
+                        {researchStatus}
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <h3 className="font-expanded text-base font-black uppercase tracking-[0.07em] text-foreground">
+                      Add to {active.title}
+                    </h3>
+                    <p className="mt-1 text-xs leading-5 text-text-secondary">
+                      Write a Markdown note and save it directly into this knowledge base.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder="Note title"
+                      className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                    />
+                    <input
+                      value={folder}
+                      onChange={(e) => setFolder(e.target.value)}
+                      placeholder="Folder path (e.g. research-briefs)"
+                      className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                    />
+                    <textarea
+                      value={body}
+                      onChange={(e) => setBody(e.target.value)}
+                      placeholder="Markdown body…"
+                      rows={9}
+                      className="w-full resize-none border border-border/60 bg-background-base/70 px-3.5 py-2.5 font-mono text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                    />
+                    <Button
+                      onClick={handleSave}
+                      disabled={saving || !title.trim() || !body.trim()}
+                      className="w-full justify-center gap-2"
+                    >
+                      {saving ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+                      {saving ? "Saving…" : "Save note"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* List view */
+        <section className="grid gap-4 lg:grid-cols-3">
+          {loading ? (
+            <div className="col-span-full flex items-center gap-2 border border-border/60 bg-card/70 p-5 text-sm text-text-secondary">
+              <Loader2 className="size-4 animate-spin" /> Loading…
+            </div>
+          ) : (
+            data.map((base) => (
+              <KnowledgeBaseCard key={base.slug} base={base} onOpen={() => setActiveSlug(base.slug)} />
+            ))
+          )}
+        </section>
       )}
     </main>
   );
