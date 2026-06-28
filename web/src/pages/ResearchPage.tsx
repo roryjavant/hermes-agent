@@ -323,6 +323,24 @@ export default function ResearchPage() {
 
       <ResearchCard>
         <SectionHeader
+          icon={BookOpen}
+          kicker="Knowledge handoff"
+          title="Feed verified research into the Knowledge Base"
+          description="When a brief is source-backed enough to keep, save it as Markdown in Hermes Research or the matching domain knowledge base."
+        />
+        <div className="flex flex-col gap-3 rounded-2xl border border-midground/25 bg-midground/10 p-4 text-sm leading-6 text-text-secondary md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="font-black uppercase tracking-[0.14em] text-midground">Research → Markdown knowledge base</div>
+            <p className="mt-1">The bare-bones flow is manual first: write the brief, fact-check it, then add it to `/knowledge-base` as a durable Markdown file.</p>
+          </div>
+          <a className="inline-flex shrink-0 items-center justify-center rounded-full border border-midground/30 bg-midground/15 px-4 py-2 text-xs font-black uppercase tracking-[0.14em] text-midground transition-colors hover:bg-midground/25" href="/knowledge-base">
+            Open Knowledge Base
+          </a>
+        </div>
+      </ResearchCard>
+
+      <ResearchCard>
+        <SectionHeader
           icon={FileCheck2}
           kicker="Guardrails"
           title="Claim safety contract"

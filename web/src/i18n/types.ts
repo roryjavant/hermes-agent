@@ -94,6 +94,8 @@ export interface Translations {
       documentation: string;
       keys: string;
       /** Optional — fall back to the nav item's label until translated. */
+      knowledgeBase?: string;
+      /** Optional — fall back to the nav item's label until translated. */
       launchpad?: string;
       logs: string;
       /** Optional — fall back to the nav item's label until translated. */

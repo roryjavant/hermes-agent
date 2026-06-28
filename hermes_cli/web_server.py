@@ -737,6 +737,152 @@ class ManagedFileDelete(BaseModel):
     recursive: bool = False
 
 
+class KnowledgeBaseEntryCreate(BaseModel):
+    title: str
+    body: str
+    source: str = "dashboard"
+    folder: str = ""
+
+
+_KNOWLEDGE_BASE_ROOT_ENV = "HERMES_KNOWLEDGE_BASE_ROOT"
+_KNOWLEDGE_BASES = [
+    {
+        "slug": "juror-research",
+        "title": "Juror Research",
+        "kicker": "JR knowledge",
+        "description": "Casework, pipeline notes, trial themes, face-sheet research, and durable juror-research findings.",
+    },
+    {
+        "slug": "hermes-research",
+        "title": "Hermes Research",
+        "kicker": "Research workspace",
+        "description": "Evidence-first briefs, source sweeps, synthesis notes, and fact-check handoffs from the Research tab.",
+    },
+    {
+        "slug": "hermes-marketing",
+        "title": "Hermes Marketing",
+        "kicker": "Marketing research",
+        "description": "Positioning research, content ideas, analytics notes, growth experiments, and brand-review references.",
+    },
+]
+
+
+def _knowledge_base_root() -> Path:
+    raw = os.environ.get(_KNOWLEDGE_BASE_ROOT_ENV)
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (Path.home() / "Documents" / "Hermes Knowledge Base").resolve()
+
+
+def _safe_knowledge_slug(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9-]+", "-", (value or "").strip().lower()).strip("-")
+    if not slug:
+        raise HTTPException(status_code=400, detail="Knowledge base slug is required")
+    return slug
+
+
+def _known_knowledge_base(slug: str) -> Dict[str, str]:
+    safe = _safe_knowledge_slug(slug)
+    for base in _KNOWLEDGE_BASES:
+        if base["slug"] == safe:
+            return base
+    raise HTTPException(status_code=404, detail=f"Unknown knowledge base: {slug}")
+
+
+def _knowledge_base_dir(slug: str) -> Path:
+    base = _known_knowledge_base(slug)
+    root = _knowledge_base_root()
+    target = (root / base["slug"]).resolve()
+    if root not in target.parents and target != root:
+        raise HTTPException(status_code=400, detail="Invalid knowledge base path")
+    return target
+
+
+def _knowledge_entry_filename(title: str) -> str:
+    stem = re.sub(r"[^a-z0-9]+", "-", (title or "").strip().lower()).strip("-") or "untitled-note"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{stamp}-{stem[:80]}.md"
+
+
+def _ensure_knowledge_base_seed(base: Dict[str, str]) -> Path:
+    directory = _knowledge_base_dir(base["slug"])
+    directory.mkdir(parents=True, exist_ok=True)
+    readme = directory / "README.md"
+    if not readme.exists():
+        readme.write_text(
+            f"# {base['title']} Knowledge Base\n\n"
+            f"{base['description']}\n\n"
+            "Entries in this folder are Markdown files created by the Hermes dashboard Knowledge Base tab.\n",
+            encoding="utf-8",
+        )
+    for folder_name in ("research-briefs", "sources", "synthesis"):
+        (directory / folder_name).mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def _knowledge_entry_summary(path: Path, root: Path) -> Dict[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    title = path.stem
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            title = stripped[2:].strip() or title
+            break
+    stat_result = path.stat()
+    relative_path = path.relative_to(root)
+    base_relative = relative_path.parts[1:-1] if len(relative_path.parts) > 1 else ()
+    return {
+        "filename": path.name,
+        "title": title,
+        "path": str(path),
+        "relative_path": str(relative_path),
+        "folder_path": "/".join(base_relative),
+        "updated_at": datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc).isoformat(),
+        "size_bytes": stat_result.st_size,
+        "excerpt": " ".join(line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#"))[:220],
+    }
+
+
+def _safe_knowledge_folder(value: str, base_dir: Path) -> Path:
+    cleaned = (value or "").strip().strip("/")
+    if not cleaned:
+        return base_dir
+    if ".." in Path(cleaned).parts:
+        raise HTTPException(status_code=400, detail="Invalid knowledge folder path")
+    target = (base_dir / cleaned).resolve()
+    if base_dir not in target.parents and target != base_dir:
+        raise HTTPException(status_code=400, detail="Invalid knowledge folder path")
+    return target
+
+
+def _knowledge_tree(directory: Path, root: Path) -> Dict[str, Any]:
+    def build(current: Path) -> Dict[str, Any]:
+        children: List[Dict[str, Any]] = []
+        for child in sorted(current.iterdir(), key=lambda item: (item.is_file(), item.name.lower())):
+            if child.name.startswith("."):
+                continue
+            if child.is_dir():
+                children.append(build(child))
+            elif child.suffix.lower() == ".md":
+                children.append({
+                    "type": "file",
+                    "name": child.name,
+                    "relative_path": str(child.relative_to(root)),
+                    "entry": _knowledge_entry_summary(child, root),
+                })
+        return {
+            "type": "folder",
+            "name": current.name,
+            "relative_path": str(current.relative_to(root)),
+            "children": children,
+        }
+
+    return build(directory)
+
+
 _AUDIO_MIME_EXTENSIONS: Dict[str, str] = {
     "audio/aac": ".aac",
     "audio/flac": ".flac",
@@ -1481,6 +1627,65 @@ async def create_managed_directory(payload: ManagedDirectoryCreate, request: Req
         "entry": _managed_file_entry(policy, target),
         "path": display_path,
         **_managed_response_meta(policy),
+    }
+
+
+@app.get("/api/knowledge-bases")
+async def list_knowledge_bases():
+    root = _knowledge_base_root()
+    bases = []
+    for base in _KNOWLEDGE_BASES:
+        directory = _ensure_knowledge_base_seed(base)
+        entries = [
+            _knowledge_entry_summary(path, root)
+            for path in sorted(directory.rglob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)
+        ]
+        folder_count = sum(1 for item in directory.rglob("*") if item.is_dir())
+        bases.append({
+            **base,
+            "path": str(directory),
+            "entry_count": len(entries),
+            "folder_count": folder_count,
+            "entries": entries[:12],
+            "tree": _knowledge_tree(directory, root),
+        })
+    return {
+        "root": str(root),
+        "storage": "markdown",
+        "bases": bases,
+    }
+
+
+@app.post("/api/knowledge-bases/{slug}/entries")
+async def create_knowledge_base_entry(slug: str, payload: KnowledgeBaseEntryCreate):
+    base = _known_knowledge_base(slug)
+    title = (payload.title or "").strip()
+    body = (payload.body or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    if not body:
+        raise HTTPException(status_code=400, detail="Body is required")
+    root = _knowledge_base_root()
+    directory = _ensure_knowledge_base_seed(base)
+    target_directory = _safe_knowledge_folder(payload.folder, directory)
+    target_directory.mkdir(parents=True, exist_ok=True)
+    filename = _knowledge_entry_filename(title)
+    target = (target_directory / filename).resolve()
+    if directory not in target.parents:
+        raise HTTPException(status_code=400, detail="Invalid knowledge entry path")
+    source = (payload.source or "dashboard").strip() or "dashboard"
+    content = (
+        f"# {title}\n\n"
+        f"- Knowledge base: {base['title']}\n"
+        f"- Source: {source}\n"
+        f"- Created: {datetime.now(timezone.utc).isoformat()}\n\n"
+        f"{body}\n"
+    )
+    target.write_text(content, encoding="utf-8")
+    return {
+        "ok": True,
+        "base": base["slug"],
+        "entry": _knowledge_entry_summary(target, root),
     }
 
 

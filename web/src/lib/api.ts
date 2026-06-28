@@ -338,6 +338,13 @@ export const api = {
     fetchJSON<LaunchpadStopResponse>(`/api/launchpad/projects/${encodeURIComponent(projectId)}/stop`, {
       method: "POST",
     }),
+  getKnowledgeBases: () => fetchJSON<KnowledgeBasesResponse>("/api/knowledge-bases"),
+  createKnowledgeBaseEntry: (slug: string, payload: KnowledgeBaseEntryCreate) =>
+    fetchJSON<KnowledgeBaseEntryCreateResponse>(`/api/knowledge-bases/${encodeURIComponent(slug)}/entries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
   /**
    * Identity probe for the dashboard auth gate (Phase 7).
    *
@@ -1261,6 +1268,62 @@ export interface LaunchpadStopResponse {
   pid: number | null;
   running: boolean;
   message: string;
+}
+
+export interface KnowledgeBaseEntrySummary {
+  filename: string;
+  title: string;
+  path: string;
+  relative_path: string;
+  folder_path: string;
+  updated_at: string;
+  size_bytes: number;
+  excerpt: string;
+}
+
+export type KnowledgeBaseTreeNode =
+  | {
+      type: "folder";
+      name: string;
+      relative_path: string;
+      children: KnowledgeBaseTreeNode[];
+    }
+  | {
+      type: "file";
+      name: string;
+      relative_path: string;
+      entry: KnowledgeBaseEntrySummary;
+    };
+
+export interface KnowledgeBaseSummary {
+  slug: string;
+  title: string;
+  kicker: string;
+  description: string;
+  path: string;
+  entry_count: number;
+  folder_count: number;
+  entries: KnowledgeBaseEntrySummary[];
+  tree: KnowledgeBaseTreeNode;
+}
+
+export interface KnowledgeBasesResponse {
+  root: string;
+  storage: "markdown";
+  bases: KnowledgeBaseSummary[];
+}
+
+export interface KnowledgeBaseEntryCreate {
+  title: string;
+  body: string;
+  source?: string;
+  folder?: string;
+}
+
+export interface KnowledgeBaseEntryCreateResponse {
+  ok: boolean;
+  base: string;
+  entry: KnowledgeBaseEntrySummary;
 }
 
 export interface DebugShareResponse {

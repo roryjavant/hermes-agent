@@ -80,6 +80,7 @@ import EnvPage from "@/pages/EnvPage";
 import FilesPage from "@/pages/FilesPage";
 import SessionsPage from "@/pages/SessionsPage";
 import LogsPage from "@/pages/LogsPage";
+import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 import LaunchpadPage from "@/pages/LaunchpadPage";
 import MarketingPage from "@/pages/MarketingPage";
 import MissionControlPage from "@/pages/MissionControlPage";
@@ -142,6 +143,7 @@ const CHAT_NAV_ITEM: NavItem = {
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
+  "/knowledge-base": KnowledgeBasePage,
   "/launchpad": LaunchpadPage,
   "/marketing": MarketingPage,
   "/research": ResearchPage,
@@ -191,6 +193,12 @@ const BUILTIN_NAV_REST: NavItem[] = [
     labelKey: "launchpad",
     label: "Launchpad",
     icon: LayoutGrid,
+  },
+  {
+    path: "/knowledge-base",
+    labelKey: "knowledgeBase",
+    label: "Knowledge Base",
+    icon: BookOpen,
   },
   {
     path: "/marketing",

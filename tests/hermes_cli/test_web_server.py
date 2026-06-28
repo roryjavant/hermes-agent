@@ -275,6 +275,70 @@ class TestWebServerEndpoints:
         assert resp.status_code == 404
         assert "Unknown launchpad project" in resp.json()["detail"]
 
+    def test_knowledge_bases_seed_markdown_directories(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+
+        resp = self.client.get("/api/knowledge-bases")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["storage"] == "markdown"
+        assert data["root"] == str(tmp_path / "kb")
+        assert [base["slug"] for base in data["bases"]] == [
+            "juror-research",
+            "hermes-research",
+            "hermes-marketing",
+        ]
+        for base in data["bases"]:
+            readme = Path(base["path"]) / "README.md"
+            assert readme.is_file()
+            assert readme.suffix == ".md"
+            assert base["folder_count"] == 3
+            assert base["tree"]["type"] == "folder"
+            assert {child["name"] for child in base["tree"]["children"] if child["type"] == "folder"} == {
+                "research-briefs",
+                "sources",
+                "synthesis",
+            }
+
+    def test_knowledge_base_create_entry_writes_markdown(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+
+        resp = self.client.post(
+            "/api/knowledge-bases/hermes-research/entries",
+            json={
+                "title": "Brief: source-backed thing",
+                "body": "## Evidence\n\n- Source checked.",
+                "source": "research workspace",
+                "folder": "research-briefs/trial-themes",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        entry = data["entry"]
+        assert entry["filename"].endswith("brief-source-backed-thing.md")
+        assert entry["folder_path"] == "research-briefs/trial-themes"
+        path = Path(entry["path"])
+        assert path.is_file()
+        text = path.read_text(encoding="utf-8")
+        assert text.startswith("# Brief: source-backed thing")
+        assert "- Knowledge base: Hermes Research" in text
+        assert "- Source: research workspace" in text
+        assert "## Evidence" in text
+
+    def test_knowledge_base_unknown_slug_404s(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+
+        resp = self.client.post(
+            "/api/knowledge-bases/not-real/entries",
+            json={"title": "Nope", "body": "Body"},
+        )
+
+        assert resp.status_code == 404
+        assert "Unknown knowledge base" in resp.json()["detail"]
+
     def test_launchpad_stop_terminates_spawned_project(self, monkeypatch):
         from hermes_cli import web_server
 
