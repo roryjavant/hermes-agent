@@ -121,6 +121,11 @@ class MissionControlDingRequest(BaseModel):
     kind: str = "approval"
 
 
+class MissionControlAnnouncementRequest(BaseModel):
+    text: str
+    kind: str = "done"
+
+
 class PrivateIdeaCreate(BaseModel):
     title: str
     body: str = ""
@@ -12730,6 +12735,59 @@ async def play_mission_control_ding(body: MissionControlDingRequest):
 
     print("\a", end="", flush=True)
     return {"ok": True, "kind": kind, "method": "terminal-bell"}
+
+
+@app.post("/api/mission-control/announce")
+async def play_mission_control_announcement(body: MissionControlAnnouncementRequest):
+    """Speak a Mission Control announcement through the configured TTS provider."""
+    kind = (body.kind or "done").strip().lower()
+    text = (body.text or "").strip()
+    if kind not in {"approval", "done"}:
+        raise HTTPException(status_code=400, detail="kind must be 'approval' or 'done'")
+    if not text:
+        raise HTTPException(status_code=400, detail="Announcement text is required")
+    if len(text) > 280:
+        text = text[:277].rstrip() + "..."
+
+    try:
+        tts_module = __import__("tools.tts_tool", fromlist=["text_to_speech_tool"])
+        raw = tts_module.text_to_speech_tool(text=text)
+        result = json.loads(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Could not generate announcement: {exc}") from exc
+
+    if not result.get("success"):
+        raise HTTPException(status_code=503, detail=result.get("error") or "TTS announcement failed")
+
+    file_path = Path(str(result.get("file_path") or "")).expanduser()
+    if not file_path.exists():
+        raise HTTPException(status_code=503, detail="TTS announcement file was not created")
+
+    if sys.platform == "darwin":
+        try:
+            subprocess.Popen(
+                ["afplay", str(file_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Could not play announcement: {exc}") from exc
+        return {
+            "ok": True,
+            "kind": kind,
+            "method": "tts-afplay",
+            "file_path": str(file_path),
+            "provider": result.get("provider"),
+        }
+
+    return {
+        "ok": True,
+        "kind": kind,
+        "method": "tts-file",
+        "file_path": str(file_path),
+        "provider": result.get("provider"),
+    }
 
 
 @app.websocket("/api/pty")

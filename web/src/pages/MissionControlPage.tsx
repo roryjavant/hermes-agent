@@ -78,7 +78,8 @@ type LoadState = {
 type BadgeTone = "success" | "warning" | "destructive" | "secondary" | "outline";
 type MissionView = "overview" | "work" | "ops";
 type TeamFilter = "all" | string;
-type MissionControlSoundSettings = Record<MissionControlDing, boolean>;
+type MissionControlSoundSetting = MissionControlDing | "announce";
+type MissionControlSoundSettings = Record<MissionControlSoundSetting, boolean>;
 type MissionTask = KanbanTaskSummary & {
   column: string;
   boardSlug: string;
@@ -189,7 +190,7 @@ function cacheTeamFilter(value: TeamFilter): void {
 }
 
 function readCachedSoundSettings(): MissionControlSoundSettings {
-  const defaults: MissionControlSoundSettings = { approval: true, done: true };
+  const defaults: MissionControlSoundSettings = { approval: true, done: true, announce: true };
   if (typeof window === "undefined") return defaults;
   try {
     const raw = window.localStorage.getItem(MISSION_CONTROL_SOUND_SETTINGS_KEY);
@@ -198,6 +199,7 @@ function readCachedSoundSettings(): MissionControlSoundSettings {
     return {
       approval: parsed.approval ?? defaults.approval,
       done: parsed.done ?? defaults.done,
+      announce: parsed.announce ?? defaults.announce,
     };
   } catch {
     return defaults;
@@ -511,6 +513,10 @@ async function playMissionControlApprovalDing(): Promise<void> {
 
 async function playMissionControlDoneDing(): Promise<void> {
   await playMissionControlDing("done");
+}
+
+async function playMissionControlAnnouncement(text: string): Promise<void> {
+  await api.playMissionControlAnnouncement(text, "done");
 }
 
 async function playMissionControlDing(kind: MissionControlDing): Promise<void> {
@@ -1132,6 +1138,25 @@ function currentTaskByProfile(data: LoadState): Map<string, MissionTask> {
   return byProfile;
 }
 
+function missionTaskStatusSnapshot(data: LoadState): Map<string, string> {
+  return new Map(allTasks(data).map((task) => [`${task.boardSlug}:${task.id}`, task.status]));
+}
+
+function missionTaskDoneAnnouncements(data: LoadState, previousStatuses: Map<string, string> | null): string[] {
+  if (!previousStatuses) return [];
+  return allTasks(data)
+    .filter((task) => {
+      const previous = previousStatuses.get(`${task.boardSlug}:${task.id}`);
+      return task.status === "done" && previous !== undefined && previous !== "done";
+    })
+    .slice(0, 2)
+    .map((task) => {
+      const owner = task.assignee?.trim() || task.boardName;
+      const title = task.title || task.id;
+      return `Mission Control: ${owner} finished ${title}.`;
+    });
+}
+
 function agentToOperationsItem(team: MissionControlProfileTeam, agent: MissionControlProfileTeamAgent, taskByProfile: Map<string, MissionTask>) {
   const currentTask = taskByProfile.get(agent.profile.toLowerCase());
   return {
@@ -1171,8 +1196,40 @@ function teamRowsFromProfileTeams(profileTeams: MissionControlProfileTeam[], tas
       label: `${team.label} · ${team.project_path}`,
       orchestratorItem: orchestratorAgent ? agentToOperationsItem(team, orchestratorAgent, taskByProfile) : null,
       items: memberAgents.map((agent) => agentToOperationsItem(team, agent, taskByProfile)),
+      workflow: team.workflow ?? [],
+      workflowSummary: team.workflow_summary ?? "",
     };
   });
+}
+
+function workflowStagesForTeam(items: OperationsItem[], workflow: MissionControlTeamWorkflowStep[] | undefined) {
+  const byProfile = new Map(items.map((item) => [item.profileName?.toLowerCase(), item]).filter(([profile]) => Boolean(profile)) as Array<[string, OperationsItem]>);
+  const used = new Set<string>();
+  const stages = (workflow ?? [])
+    .map((step) => {
+      const stageItems = step.profiles
+        .map((profile) => byProfile.get(profile.toLowerCase()))
+        .filter((item): item is OperationsItem => Boolean(item));
+      stageItems.forEach((item) => {
+        if (item.profileName) used.add(item.profileName.toLowerCase());
+      });
+      return {
+        label: step.label,
+        mode: step.mode === "parallel" ? "parallel" : "sequence",
+        items: stageItems,
+      };
+    })
+    .filter((stage) => stage.items.length > 0);
+
+  const unmatched = items.filter((item) => !item.profileName || !used.has(item.profileName.toLowerCase()));
+  return [
+    ...stages,
+    ...unmatched.map((item) => ({
+      label: item.roleName || item.roleGlyph || item.kind,
+      mode: "sequence",
+      items: [item],
+    })),
+  ];
 }
 
 function buildOperationsItems(data: LoadState): OperationsItem[] {
@@ -1958,7 +2015,7 @@ function ActiveOperationsBoard({
   profiles: ProfileInfo[];
   profileTeams: MissionControlProfileTeam[];
   soundSettings: MissionControlSoundSettings;
-  onSoundSettingChange: (kind: MissionControlDing, enabled: boolean) => void;
+  onSoundSettingChange: (kind: MissionControlSoundSetting, enabled: boolean) => void;
   taskByProfile: Map<string, MissionTask>;
 }) {
   const [selectedLightAgent, setSelectedLightAgent] = useState<LightAgentModalState | null>(null);
@@ -1969,6 +2026,7 @@ function ActiveOperationsBoard({
     error: null,
   });
   const [expandedTeamRows, setExpandedTeamRows] = useState<Set<string>>(() => new Set());
+  const [testAnnounceState, setTestAnnounceState] = useState<"idle" | "playing" | "ok" | "error">("idle");
 
   const toggleTeamRow = useCallback((rowKey: string) => {
     setExpandedTeamRows((current) => {
@@ -2013,6 +2071,19 @@ function ActiveOperationsBoard({
     const profile = profiles.find((candidate) => candidate.name === profileName) ?? null;
     setSelectedLightAgent({ item, profile });
   };
+
+  const testAnnouncement = useCallback(() => {
+    setTestAnnounceState("playing");
+    void playMissionControlAnnouncement("Mission Control: test announcement complete.")
+      .then(() => {
+        setTestAnnounceState("ok");
+        window.setTimeout(() => setTestAnnounceState("idle"), 2500);
+      })
+      .catch(() => {
+        setTestAnnounceState("error");
+        window.setTimeout(() => setTestAnnounceState("idle"), 4000);
+      });
+  }, []);
 
   useEffect(() => {
     const profileName = selectedLightAgent?.item.profileName;
@@ -2086,6 +2157,29 @@ function ActiveOperationsBoard({
               onClick={() => onSoundSettingChange("done", !soundSettings.done)}
             >
               Done sound {soundSettings.done ? "on" : "off"}
+            </Button>
+            <Button
+              type="button"
+              ghost
+              size="sm"
+              aria-pressed={soundSettings.announce}
+              onClick={() => onSoundSettingChange("announce", !soundSettings.announce)}
+            >
+              11 Labs announce {soundSettings.announce ? "on" : "off"}
+            </Button>
+            <Button
+              type="button"
+              ghost
+              size="sm"
+              disabled={testAnnounceState === "playing"}
+              onClick={testAnnouncement}
+            >
+              {testAnnounceState === "playing" ? <Spinner /> : null}
+              {testAnnounceState === "ok"
+                ? "Announce sent"
+                : testAnnounceState === "error"
+                  ? "Announce failed"
+                  : "Test announce"}
             </Button>
           </div>
         </div>
@@ -2328,20 +2422,104 @@ function ActiveOperationsBoard({
                                           );
                                         })()}
 
-                                        <div className="flex flex-wrap items-center justify-center gap-y-2">
-                                          {row.items.map((item, index) => {
-                                            const isLastTeamLight = index === row.items.length - 1;
-                                            const tc = toneColors[item.tone] ?? toneColors.ready;
+                                        <div className="flex flex-wrap items-center justify-center gap-y-3">
+                                          {workflowStagesForTeam(row.items, "workflow" in row ? row.workflow : undefined).map((stage, index, stages) => {
+                                            const isLastStage = index === stages.length - 1;
+                                            const stageTone: ReadinessTone = stage.items.some((item) => item.tone === "review")
+                                              ? "review"
+                                              : stage.items.some((item) => item.tone === "working")
+                                                ? "working"
+                                                : "ready";
+                                            const tc = toneColors[stageTone] ?? toneColors.ready;
+                                            const isParallel = stage.mode === "parallel" || stage.items.length > 1;
                                             return (
-                                              <span key={item.id} className="flex items-center">
-                                                {buildLightElement(item, { size: "lg", rowLabel: row.label })}
-                                                {!isLastTeamLight && (
+                                              <span key={`${row.label}:${stage.label}:${index}`} className="flex items-center">
+                                                <span
+                                                  className={cn("relative flex flex-col items-center py-1", isParallel ? "" : "px-1 gap-2")}
+                                                  title={`${stage.label} · ${isParallel ? "parallel" : "sequential"}`}
+                                                >
+                                                  {isParallel ? (() => {
+                                                    const n = stage.items.length;
+                                                    const nodeH = 80; // h-[5rem] at 16px base
+                                                    const gapH = 12;  // gap-3 at 16px base
+                                                    const totalH = n * nodeH + (n - 1) * gapH;
+                                                    // Label is absolutely positioned so stage span height = py-1 + totalH + py-1.
+                                                    // Connector wire is at top-1/2 of that = (totalH+8)/2 = totalH/2+4.
+                                                    // Fan SVG starts at py-1=4px, so midY (SVG coords) = (totalH/2+4) - 4 = totalH/2. ✓
+                                                    const midY = totalH / 2;
+                                                    const centers = Array.from({ length: n }, (_, i) => i * (nodeH + gapH) + nodeH / 2);
+                                                    const fanW = 48;
+                                                    // For N=2 animate all branches; for N>2 cap at first+last (avoids clutter)
+                                                    const animDots = n <= 2 ? centers : [centers[0], centers[n - 1]];
+                                                    const dotStagger = 0;
+                                                    const glowL = `fan-glow-l-${index}`;
+                                                    const glowR = `fan-glow-r-${index}`;
+                                                    return (
+                                                      <span className={cn("flex items-center", tc.wire)}>
+                                                        <svg aria-hidden="true" className="pointer-events-none shrink-0" style={{ display: "block" }} width={fanW} height={totalH} viewBox={`0 0 ${fanW} ${totalH}`}>
+                                                          <defs>
+                                                            <filter id={glowL} x="-80%" y="-80%" width="260%" height="260%">
+                                                              <feGaussianBlur stdDeviation="2" result="blur"/>
+                                                              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                                                            </filter>
+                                                          </defs>
+                                                          {centers.map((ny, i) => (
+                                                            <line key={i} x1={0} y1={midY} x2={fanW} y2={ny} stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5" strokeDasharray="4 3" />
+                                                          ))}
+                                                          {animDots.map((ny, i) => (
+                                                            <circle key={i} r="2" fill="currentColor" fillOpacity="0.7" filter={`url(#${glowL})`}>
+                                                              <animateMotion dur="3s" begin={`${(i * dotStagger).toFixed(1)}s`} repeatCount="indefinite" path={`M 0 ${midY} L ${fanW} ${ny}`} />
+                                                            </circle>
+                                                          ))}
+                                                          <circle cx={0} cy={midY} r={3} fill="currentColor" fillOpacity="0.7" />
+                                                        </svg>
+                                                        <span className="flex flex-col gap-3">
+                                                          {stage.items.map((item) => (
+                                                            <span key={item.id} className="relative z-10 block">
+                                                              {buildLightElement(item, { size: "lg", rowLabel: row.label })}
+                                                            </span>
+                                                          ))}
+                                                        </span>
+                                                        {!isLastStage && (
+                                                          <svg aria-hidden="true" className="pointer-events-none shrink-0" style={{ display: "block" }} width={fanW} height={totalH} viewBox={`0 0 ${fanW} ${totalH}`}>
+                                                            <defs>
+                                                              <filter id={glowR} x="-80%" y="-80%" width="260%" height="260%">
+                                                                <feGaussianBlur stdDeviation="2" result="blur"/>
+                                                                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                                                              </filter>
+                                                            </defs>
+                                                            {centers.map((ny, i) => (
+                                                              <line key={i} x1={0} y1={ny} x2={fanW} y2={midY} stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5" strokeDasharray="4 3" />
+                                                            ))}
+                                                            {animDots.map((ny, i) => (
+                                                              <circle key={i} r="2" fill="currentColor" fillOpacity="0.7" filter={`url(#${glowR})`}>
+                                                                <animateMotion dur="3s" begin={`${(i * dotStagger).toFixed(1)}s`} repeatCount="indefinite" path={`M 0 ${ny} L ${fanW} ${midY}`} />
+                                                              </circle>
+                                                            ))}
+                                                            <circle cx={fanW} cy={midY} r={3} fill="currentColor" fillOpacity="0.7" />
+                                                          </svg>
+                                                        )}
+                                                      </span>
+                                                    );
+                                                  })() : (
+                                                    stage.items.map((item) => (
+                                                      <span key={item.id} className="flex justify-center">
+                                                        {buildLightElement(item, { size: "lg", rowLabel: row.label })}
+                                                      </span>
+                                                    ))
+                                                  )}
+                                                  <span className={cn("max-w-[8rem] text-center font-mono-ui text-[0.5rem] uppercase leading-tight tracking-[0.12em] text-muted-foreground", isParallel ? "absolute top-full pt-1" : "")}>
+                                                    {stage.label}
+                                                  </span>
+                                                </span>
+                                                {!isLastStage && (
                                                   <span
-                                                    className={cn("relative flex h-[5rem] w-24 shrink-0 items-center justify-center", tc.wire)}
+                                                    className={cn("relative flex w-16 shrink-0 self-stretch items-center justify-center", tc.wire)}
                                                     aria-hidden="true"
                                                   >
                                                     <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
                                                     <span className="agent-wire__dot absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
+                                                    <span className="absolute right-1 top-1/2 -translate-y-1/2 font-mono-ui text-[0.7rem] text-current/80">›</span>
                                                   </span>
                                                 )}
                                               </span>
@@ -2635,7 +2813,9 @@ export default function MissionControlPage() {
   const [spotlight, setSpotlight] = useState({ x: 72, y: 18 });
   const [selectedMetric, setSelectedMetric] = useState("gateway");
   const [teamFilter, setTeamFilter] = useState<TeamFilter>(() => readCachedTeamFilter());
+  const [soundSettings, setSoundSettings] = useState<MissionControlSoundSettings>(() => readCachedSoundSettings());
   const previousTerminalTonesRef = useRef<Map<string, ReadinessTone> | null>(null);
+  const previousTaskStatusesRef = useRef<Map<string, string> | null>(null);
   const currentTerminalReviewIdsRef = useRef<Set<string>>(new Set());
   const pendingApprovalDingRef = useRef(false);
   const pendingDoneDingRef = useRef(false);
@@ -2644,6 +2824,14 @@ export default function MissionControlPage() {
   const updateTeamFilter = useCallback((value: TeamFilter) => {
     setTeamFilter(value);
     cacheTeamFilter(value);
+  }, []);
+
+  const updateSoundSetting = useCallback((kind: MissionControlSoundSetting, enabled: boolean) => {
+    setSoundSettings((current) => {
+      const next = { ...current, [kind]: enabled };
+      cacheSoundSettings(next);
+      return next;
+    });
   }, []);
 
   const loadActivity = useCallback(async () => {
@@ -2816,6 +3004,21 @@ export default function MissionControlPage() {
   } as CSSProperties;
 
   useEffect(() => {
+    const previousStatuses = previousTaskStatusesRef.current;
+    const announcements = missionTaskDoneAnnouncements(data, previousStatuses);
+    previousTaskStatusesRef.current = missionTaskStatusSnapshot(data);
+    if (!soundSettings.announce || announcements.length === 0) return;
+
+    for (const announcement of announcements) {
+      void playMissionControlAnnouncement(announcement).catch(() => {
+        if (soundSettings.done) {
+          void playMissionControlDoneDing().catch(() => undefined);
+        }
+      });
+    }
+  }, [data, soundSettings.announce, soundSettings.done]);
+
+  useEffect(() => {
     const previousTones = previousTerminalTonesRef.current;
     currentTerminalReviewIdsRef.current = terminalReviewIds;
     previousTerminalTonesRef.current = terminalTones;
@@ -2829,31 +3032,31 @@ export default function MissionControlPage() {
       return tone === "ready" && (previousTone === "working" || previousTone === "review");
     });
 
-    if (hasNewReviewLight) {
+    if (hasNewReviewLight && soundSettings.approval) {
       void playMissionControlApprovalDing().catch(() => {
         // Browsers can block audio before user activation. Retry once the user next clicks/presses a key.
         pendingApprovalDingRef.current = true;
       });
     }
-    if (hasNewReadyLight) {
+    if (hasNewReadyLight && soundSettings.done) {
       void playMissionControlDoneDing().catch(() => {
         pendingDoneDingRef.current = true;
       });
     }
-  }, [terminalReviewIds, terminalTones]);
+  }, [soundSettings.approval, soundSettings.done, terminalReviewIds, terminalTones]);
 
   useEffect(() => {
     const playPendingDing = () => {
       void ensureMissionControlAudioContext().catch(() => {
         // Keep the listener passive if the browser still refuses to unlock audio.
       });
-      if (pendingApprovalDingRef.current && currentTerminalReviewIdsRef.current.size > 0) {
+      if (pendingApprovalDingRef.current && soundSettings.approval && currentTerminalReviewIdsRef.current.size > 0) {
         pendingApprovalDingRef.current = false;
         void playMissionControlApprovalDing().catch(() => {
           pendingApprovalDingRef.current = true;
         });
       }
-      if (pendingDoneDingRef.current) {
+      if (pendingDoneDingRef.current && soundSettings.done) {
         pendingDoneDingRef.current = false;
         void playMissionControlDoneDing().catch(() => {
           pendingDoneDingRef.current = true;
@@ -2866,7 +3069,7 @@ export default function MissionControlPage() {
       window.removeEventListener("pointerdown", playPendingDing);
       window.removeEventListener("keydown", playPendingDing);
     };
-  }, []);
+  }, [soundSettings.approval, soundSettings.done]);
 
   if (loading) {
     return (
@@ -2993,6 +3196,8 @@ export default function MissionControlPage() {
         items={operations}
         profiles={data.profiles}
         profileTeams={data.activity?.profile_teams ?? []}
+        soundSettings={soundSettings}
+        onSoundSettingChange={updateSoundSetting}
         taskByProfile={teamTaskByProfile}
       />
 

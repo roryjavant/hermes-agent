@@ -329,6 +329,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind }),
     }, options),
+  playMissionControlAnnouncement: (text: string, kind: "approval" | "done" = "done", options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean; kind: string; method: string; file_path: string; provider?: string }>("/api/mission-control/announce", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, kind }),
+    }, options),
   getDevRepos: (fetch = false, options?: FetchJSONOptions) => {
     const qs = fetch ? "?fetch=true" : "";
     return fetchJSON<DevReposResponse>(`/api/dev-repos${qs}`, undefined, options);

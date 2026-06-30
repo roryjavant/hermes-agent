@@ -587,6 +587,35 @@ class TestWebServerEndpoints:
         assert resp.status_code == 404
         assert "Profile not found" in resp.json()["detail"]
 
+    def test_mission_control_announcement_uses_tts_file(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+        from tools import tts_tool
+
+        audio_path = tmp_path / "mission-done.mp3"
+        audio_path.write_bytes(b"audio")
+
+        def fake_tts(text):
+            assert text == "Mission Control: builder finished Dashboard polish."
+            return json.dumps({
+                "success": True,
+                "file_path": str(audio_path),
+                "provider": "elevenlabs",
+            })
+
+        monkeypatch.setattr(tts_tool, "text_to_speech_tool", fake_tts)
+        monkeypatch.setattr(web_server.sys, "platform", "linux")
+
+        resp = self.client.post(
+            "/api/mission-control/announce",
+            json={"kind": "done", "text": "Mission Control: builder finished Dashboard polish."},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["method"] == "tts-file"
+        assert data["file_path"] == str(audio_path)
+        assert data["provider"] == "elevenlabs"
+
     def test_launchpad_stop_terminates_spawned_project(self, monkeypatch):
         from hermes_cli import web_server
 
