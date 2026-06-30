@@ -344,6 +344,39 @@ export const api = {
     }, options),
   deleteReminder: (reminderId: string, options?: FetchJSONOptions) =>
     fetchJSON<{ ok: boolean }>(`/api/reminders/${encodeURIComponent(reminderId)}`, { method: "DELETE" }, options),
+  verifyPrivateIdeasPassword: (password: string, options?: FetchJSONOptions) =>
+    fetchJSON<PrivateIdeasPasswordResponse>("/api/private-ideas/auth/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    }, { ...options, allowUnauthorized: true }),
+  unlockPrivateIdeas: (payload: PrivateIdeasUnlockRequest, options?: FetchJSONOptions) =>
+    fetchJSON<PrivateIdeasUnlockResponse>("/api/private-ideas/auth/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, { ...options, allowUnauthorized: true }),
+  getPrivateIdeas: (token: string, options?: FetchJSONOptions) =>
+    fetchJSON<PrivateIdeasResponse>("/api/private-ideas", {
+      headers: { "X-Hermes-Private-Ideas-Token": token },
+    }, { ...options, allowUnauthorized: true }),
+  createPrivateIdea: (token: string, payload: PrivateIdeaCreate, options?: FetchJSONOptions) =>
+    fetchJSON<PrivateIdeaMutationResponse>("/api/private-ideas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Hermes-Private-Ideas-Token": token },
+      body: JSON.stringify(payload),
+    }, { ...options, allowUnauthorized: true }),
+  updatePrivateIdea: (token: string, ideaId: string, payload: PrivateIdeaUpdate, options?: FetchJSONOptions) =>
+    fetchJSON<PrivateIdeaMutationResponse>(`/api/private-ideas/${encodeURIComponent(ideaId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-Hermes-Private-Ideas-Token": token },
+      body: JSON.stringify(payload),
+    }, { ...options, allowUnauthorized: true }),
+  deletePrivateIdea: (token: string, ideaId: string, options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean }>(`/api/private-ideas/${encodeURIComponent(ideaId)}`, {
+      method: "DELETE",
+      headers: { "X-Hermes-Private-Ideas-Token": token },
+    }, { ...options, allowUnauthorized: true }),
   getLaunchpadProjects: () => fetchJSON<LaunchpadProjectsResponse>("/api/launchpad/projects"),
   launchProject: (projectId: string) =>
     fetchJSON<LaunchpadLaunchResponse>(`/api/launchpad/projects/${encodeURIComponent(projectId)}/launch`, {
@@ -1957,6 +1990,47 @@ export interface ReminderMutationResponse {
   reminder: ReminderItem;
 }
 
+export interface PrivateIdeaItem {
+  id: string;
+  title: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PrivateIdeaCreate {
+  title: string;
+  body?: string;
+}
+
+export interface PrivateIdeaUpdate {
+  title?: string;
+  body?: string;
+}
+
+export interface PrivateIdeasPasswordResponse {
+  ok: boolean;
+  setup_required: boolean;
+}
+
+export interface PrivateIdeasUnlockRequest {
+  password: string;
+  pin: string;
+}
+
+export interface PrivateIdeasUnlockResponse {
+  token: string;
+  expires_in_seconds: number;
+}
+
+export interface PrivateIdeasResponse {
+  ideas: PrivateIdeaItem[];
+}
+
+export interface PrivateIdeaMutationResponse {
+  idea: PrivateIdeaItem;
+}
+
 export interface SessionInfo {
   id: string;
   source: string | null;
@@ -2240,6 +2314,7 @@ export interface KanbanTaskSummary {
   latest_summary?: string | null;
   skills?: string[] | null;
   current_run_id?: number | null;
+  link_counts?: { parents?: number; children?: number };
 }
 
 export interface KanbanTaskComment {

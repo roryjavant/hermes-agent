@@ -380,6 +380,28 @@ class TestProfileScopedChatPty:
         assert env is not None
         assert env.get("HERMES_HOME") != str(isolated_profiles["worker_beta"])
 
+    def test_research_profile_chat_uses_shared_knowledge_base_cwd(self, isolated_profiles, monkeypatch, tmp_path):
+        import hermes_cli.web_server as web_server
+
+        research_profile = isolated_profiles["hresearchstrategist"] = isolated_profiles["worker_beta"].parent / "hresearchstrategist"
+        research_profile.mkdir()
+        (research_profile / "SOUL.md").write_text("research profile", encoding="utf-8")
+        kb_root = tmp_path / "shared-kb"
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(kb_root))
+        monkeypatch.setattr(
+            "hermes_cli.main._make_tui_argv",
+            lambda root, tui_dev=False: (["cat"], None),
+            raising=False,
+        )
+
+        _argv, _cwd, env = web_server._resolve_chat_argv(profile="hresearchstrategist")
+
+        assert env is not None
+        assert env["HERMES_HOME"] == str(research_profile)
+        assert env["HERMES_KNOWLEDGE_BASE_ROOT"] == str(kb_root)
+        assert env["HERMES_RESEARCH_KNOWLEDGE_BASE_DIR"] == str(kb_root / "hermes-research")
+        assert env["TERMINAL_CWD"] == str(kb_root / "hermes-research")
+
     def test_chat_argv_unknown_profile_raises(self, isolated_profiles, monkeypatch):
         import hermes_cli.web_server as web_server
 

@@ -106,6 +106,25 @@ class ReminderUpdate(BaseModel):
     due_at: Optional[str] = None
     completed: Optional[bool] = None
 
+
+class PrivateIdeasPasswordCheck(BaseModel):
+    password: str
+
+
+class PrivateIdeasUnlock(BaseModel):
+    password: str
+    pin: str
+
+
+class PrivateIdeaCreate(BaseModel):
+    title: str
+    body: str = ""
+
+
+class PrivateIdeaUpdate(BaseModel):
+    title: Optional[str] = None
+    body: Optional[str] = None
+
 # ---------------------------------------------------------------------------
 # Per-channel subscriber registry used by /api/pub (PTY-side gateway → dashboard)
 # and /api/events (dashboard → browser sidebar).  Keyed by an opaque channel id
@@ -907,17 +926,23 @@ def _knowledge_research_prompt(base: Dict[str, str], subject: str, instructions:
     hint = (folder_hint or "").strip() or "decide the appropriate folder structure"
     extra = (instructions or "").strip()
     return (
-        "You are a Hermes research agent launched from the Knowledge Base dashboard.\n\n"
+        "You are hresearchstrategist, the Hermes Research strategy lead, launched from the Knowledge Base dashboard.\n"
+        "Start the work at the strategy role, then move it through the research team before finalizing: "
+        "hresearchscout finds and records sources, hresearchanalyst extracts claims and contradictions, "
+        "hresearchfactcheck audits citations and unsupported conclusions, hresearchsynth writes the decision-ready brief, "
+        "and hresearchcurator files the durable Markdown output in the knowledge base. If you cannot literally spawn "
+        "those profiles from this chat, still perform the handoff sections in that order and label each role's contribution.\n\n"
         f"Research subject: {subject}\n"
         f"Destination knowledge base: {base['title']} ({base['slug']})\n"
         f"Destination folder root: {directory}\n"
         f"Folder guidance: {hint}\n\n"
         "Task:\n"
         "1. Research the subject using available tools and cite source URLs when web sources are used.\n"
-        "2. Decide the appropriate markdown folder structure under the destination root.\n"
-        "3. Write one or more durable Markdown files directly under that root. Use folders such as research-briefs, sources, synthesis, or a subject-specific nested folder when appropriate.\n"
-        "4. Include frontmatter-style metadata or a short header with subject, created time, source notes, and open questions.\n"
-        "5. Do not ask the user to continue in chat. Complete the first useful research pass autonomously and summarize the files written in your final response.\n"
+        "2. Keep provenance visible: include source URLs, access dates when available, confidence/caveat notes, and open questions.\n"
+        "3. Decide the appropriate markdown folder structure under the destination root.\n"
+        "4. Write one or more durable Markdown files directly under that root. Use folders such as research-briefs, sources, synthesis, or a subject-specific nested folder when appropriate. Do not write the Knowledge Base output into the current repo unless that repo path is the destination root above.\n"
+        "5. Include frontmatter-style metadata or a short header with subject, created time, role handoff notes, source notes, and open questions.\n"
+        "6. Do not ask the user to continue in chat. Complete the first useful research pass autonomously and summarize the files written in your final response.\n"
         + (f"\nAdditional instructions from Rory:\n{extra}\n" if extra else "")
     )
 
@@ -2327,6 +2352,7 @@ _ACTION_LOG_FILES: Dict[str, str] = {
     "project-launch-juror-research": "project-launch-juror-research.log",
     "project-launch-agent-arena": "project-launch-agent-arena.log",
     "project-launch-hermes-team-ui": "project-launch-hermes-team-ui.log",
+    "project-launch-open-webui": "project-launch-open-webui.log",
     "project-launch-home-hub": "project-launch-home-hub.log",
     "project-launch-osint-lab": "project-launch-osint-lab.log",
     "knowledge-base-research-job": "knowledge-base-research-job.log",
@@ -2709,6 +2735,95 @@ def _find_reminder(reminders: List[Dict[str, Any]], reminder_id: str) -> Tuple[i
     raise HTTPException(status_code=404, detail="Reminder not found")
 
 
+_PRIVATE_IDEAS_TOKEN_TTL_SECONDS = 60
+_private_ideas_sessions: Dict[str, float] = {}
+
+
+def _private_ideas_path() -> Path:
+    return get_hermes_home() / "dashboard_private_ideas.json"
+
+
+def _private_ideas_credentials() -> Tuple[Optional[str], Optional[str]]:
+    password = os.getenv("HERMES_PRIVATE_IDEAS_PASSWORD") or None
+    pin = os.getenv("HERMES_PRIVATE_IDEAS_PIN") or None
+    return password, pin
+
+
+def _private_ideas_setup_required() -> bool:
+    password, pin = _private_ideas_credentials()
+    return not password or not pin
+
+
+def _check_private_ideas_credentials(password: str, pin: Optional[str] = None) -> None:
+    expected_password, expected_pin = _private_ideas_credentials()
+    if not expected_password or not expected_pin:
+        raise HTTPException(status_code=428, detail="RORY password and PIN are not configured")
+    if not hmac.compare_digest(password, expected_password):
+        raise HTTPException(status_code=401, detail="Invalid RORY password")
+    if pin is not None and not hmac.compare_digest(pin, expected_pin):
+        raise HTTPException(status_code=401, detail="Invalid RORY PIN")
+
+
+def _read_private_ideas() -> List[Dict[str, Any]]:
+    path = _private_ideas_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Private ideas store is not valid JSON: {path}") from exc
+    if not isinstance(data, list):
+        raise HTTPException(status_code=500, detail=f"Private ideas store must contain a list: {path}")
+    ideas: List[Dict[str, Any]] = []
+    for item in data:
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            ideas.append(item)
+    return ideas
+
+
+def _write_private_ideas(ideas: List[Dict[str, Any]]) -> None:
+    path = _private_ideas_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(ideas, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _serialize_private_idea(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(item.get("id") or secrets.token_hex(8)),
+        "title": str(item.get("title") or "Untitled idea"),
+        "body": str(item.get("body") or ""),
+        "created_at": str(item.get("created_at") or _utc_now_iso()),
+        "updated_at": str(item.get("updated_at") or _utc_now_iso()),
+    }
+
+
+def _find_private_idea(ideas: List[Dict[str, Any]], idea_id: str) -> Tuple[int, Dict[str, Any]]:
+    for index, idea in enumerate(ideas):
+        if idea.get("id") == idea_id:
+            return index, idea
+    raise HTTPException(status_code=404, detail="Private idea not found")
+
+
+def _new_private_ideas_token() -> str:
+    token = secrets.token_urlsafe(32)
+    _private_ideas_sessions[token] = time.time()
+    return token
+
+
+def _require_private_ideas_token(request: Request) -> None:
+    token = request.headers.get("X-Hermes-Private-Ideas-Token")
+    if not token:
+        raise HTTPException(status_code=401, detail="RORY token is required")
+    last_seen = _private_ideas_sessions.get(token)
+    now = time.time()
+    if last_seen is None or now - last_seen > _PRIVATE_IDEAS_TOKEN_TTL_SECONDS:
+        _private_ideas_sessions.pop(token, None)
+        raise HTTPException(status_code=401, detail="RORY session expired")
+    _private_ideas_sessions[token] = now
+
+
 @app.get("/api/reminders")
 async def get_reminders():
     reminders = [_serialize_reminder(item) for item in _read_reminders()]
@@ -2767,6 +2882,76 @@ async def delete_reminder(reminder_id: str):
     return {"ok": True}
 
 
+@app.post("/api/private-ideas/auth/password")
+async def verify_private_ideas_password(payload: PrivateIdeasPasswordCheck):
+    if _private_ideas_setup_required():
+        return {"ok": False, "setup_required": True}
+    _check_private_ideas_credentials(payload.password)
+    return {"ok": True, "setup_required": False}
+
+
+@app.post("/api/private-ideas/auth/unlock")
+async def unlock_private_ideas(payload: PrivateIdeasUnlock):
+    _check_private_ideas_credentials(payload.password, payload.pin)
+    return {"token": _new_private_ideas_token(), "expires_in_seconds": _PRIVATE_IDEAS_TOKEN_TTL_SECONDS}
+
+
+@app.get("/api/private-ideas")
+async def get_private_ideas(request: Request):
+    _require_private_ideas_token(request)
+    ideas = [_serialize_private_idea(item) for item in _read_private_ideas()]
+    return {"ideas": ideas}
+
+
+@app.post("/api/private-ideas")
+async def create_private_idea(payload: PrivateIdeaCreate, request: Request):
+    _require_private_ideas_token(request)
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Private idea title is required")
+    ideas = [_serialize_private_idea(item) for item in _read_private_ideas()]
+    now = _utc_now_iso()
+    idea = {
+        "id": secrets.token_hex(8),
+        "title": title,
+        "body": payload.body.strip(),
+        "created_at": now,
+        "updated_at": now,
+    }
+    ideas.append(idea)
+    _write_private_ideas(ideas)
+    return {"idea": idea}
+
+
+@app.patch("/api/private-ideas/{idea_id}")
+async def update_private_idea(idea_id: str, payload: PrivateIdeaUpdate, request: Request):
+    _require_private_ideas_token(request)
+    ideas = [_serialize_private_idea(item) for item in _read_private_ideas()]
+    index, idea = _find_private_idea(ideas, idea_id)
+    updates = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    if "title" in updates:
+        title = str(updates["title"]).strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Private idea title is required")
+        idea["title"] = title
+    if "body" in updates:
+        idea["body"] = str(updates["body"] or "").strip()
+    idea["updated_at"] = _utc_now_iso()
+    ideas[index] = idea
+    _write_private_ideas(ideas)
+    return {"idea": idea}
+
+
+@app.delete("/api/private-ideas/{idea_id}")
+async def delete_private_idea(idea_id: str, request: Request):
+    _require_private_ideas_token(request)
+    ideas = [_serialize_private_idea(item) for item in _read_private_ideas()]
+    index, _idea = _find_private_idea(ideas, idea_id)
+    del ideas[index]
+    _write_private_ideas(ideas)
+    return {"ok": True}
+
+
 @app.get("/api/dev-repos")
 async def get_dev_repos(fetch: bool = False):
     repos = [_scan_dev_repo(repo, fetch=fetch) for repo in _iter_dev_repo_roots()]
@@ -2813,8 +2998,8 @@ def _launchpad_projects() -> Dict[str, LaunchpadProject]:
             id="juror-research",
             name="Juror Research",
             cwd=dev_root / "juror-research",
-            command=["npm", "run", "dev", "--", "--hostname", "127.0.0.1", "--port", "3000"],
-            url="http://127.0.0.1:3000",
+            command=["npm", "run", "dev", "--", "--hostname", "127.0.0.1", "--port", "3010"],
+            url="http://127.0.0.1:3010",
             action_name="project-launch-juror-research",
         ),
         "agent-arena": LaunchpadProject(
@@ -2832,6 +3017,49 @@ def _launchpad_projects() -> Dict[str, LaunchpadProject]:
             command=["npm", "run", "dev", "--workspace", "web", "--", "--host", "127.0.0.1", "--port", "5177"],
             url="http://127.0.0.1:5177/launchpad",
             action_name="project-launch-hermes-team-ui",
+        ),
+        "open-webui": LaunchpadProject(
+            id="open-webui",
+            name="Open WebUI",
+            cwd=PROJECT_ROOT,
+            command=[
+                "/bin/bash",
+                "-lc",
+                """
+set -euo pipefail
+if docker container inspect open-webui >/dev/null 2>&1; then
+  exec docker start -a open-webui
+fi
+API_KEY=$(python3 - <<'PY'
+from pathlib import Path
+import os
+home = Path(os.environ.get('HERMES_HOME') or (Path.home() / '.hermes'))
+env_path = home / '.env'
+if env_path.exists():
+    for raw in env_path.read_text(encoding='utf-8', errors='ignore').splitlines():
+        line = raw.strip()
+        if line.startswith('API_SERVER_KEY='):
+            print(line.split('=', 1)[1])
+            break
+PY
+)
+if [ -z "${API_KEY}" ]; then
+  echo "API_SERVER_KEY is not configured in ${HERMES_HOME:-$HOME/.hermes}/.env; run Hermes Open WebUI setup first." >&2
+  exit 1
+fi
+exec docker run --name open-webui \
+  -p 3000:8080 \
+  -e OPENAI_API_BASE_URL=http://host.docker.internal:8642/v1 \
+  -e OPENAI_API_KEY="${API_KEY}" \
+  -e ENABLE_OLLAMA_API=false \
+  --add-host=host.docker.internal:host-gateway \
+  -v open-webui:/app/backend/data \
+  --restart always \
+  ghcr.io/open-webui/open-webui:main
+""".strip(),
+            ],
+            url="http://127.0.0.1:3000",
+            action_name="project-launch-open-webui",
         ),
         "home-hub": LaunchpadProject(
             id="home-hub",
@@ -11029,6 +11257,15 @@ def _resolve_chat_argv(
 
     if profile_dir is not None:
         env["HERMES_HOME"] = str(profile_dir)
+        if requested.lower().startswith("hresearch"):
+            research_kb_dir = _knowledge_base_dir("hermes-research")
+            env[_KNOWLEDGE_BASE_ROOT_ENV] = str(_knowledge_base_root())
+            env["HERMES_RESEARCH_KNOWLEDGE_BASE_DIR"] = str(research_kb_dir)
+            # Research profile chats launched from Mission Control should treat
+            # the shared Hermes Research KB as their working root. Without this,
+            # relative markdown writes inherit the dashboard checkout cwd and
+            # become invisible to the profile-wide Knowledge Base tab.
+            env["TERMINAL_CWD"] = str(research_kb_dir)
 
     if resume:
         latest_resume, _latest_path = _session_latest_descendant(resume)

@@ -447,6 +447,22 @@ def test_team_page_does_not_render_profile_paths_or_env_values():
     assert "window.confirm" in source
 
 
+def test_team_page_condenses_roster_into_meet_the_team_orbs_with_modal_details():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "TeamPage.tsx").read_text()
+
+    assert "Meet the Team" in source
+    assert "Blue profile-agent circles keep the roster compact" in source
+    assert source.index("Meet the Team") < source.index("Pipeline status")
+    assert "setSelectedTeamMemberKey(member.role.key)" in source
+    assert "selectedTeamMember &&" in source
+    assert "role=\"dialog\"" in source
+    assert "TeamMemberDetails" in source
+    assert "Current assignment" in source
+    assert "SOUL.md" in source
+    assert source.count("Meet the Team") == 1
+    assert "w-24 flex-col" not in source
+
+
 def test_team_page_load_error_handler_is_stable_to_avoid_fetch_loop():
     source = (REPO_ROOT / "web" / "src" / "pages" / "TeamPage.tsx").read_text()
 
@@ -504,6 +520,15 @@ def test_mission_control_team_role_lights_open_dossier_with_profile_chat_launch(
     assert "/chat?profile=" in source
 
 
+def test_chat_page_honors_profile_query_from_team_launch():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "ChatPage.tsx").read_text()
+
+    assert 'const profileParam = searchParams.get("profile")?.trim() ?? "";' in source
+    assert "const chatProfile = profileParam || scopedProfile;" in source
+    assert "buildWsUrl(authParam, resumeParam, channel, chatProfile)" in source
+    assert "[channel, resumeParam, chatProfile]" in source
+
+
 def test_mission_control_active_sessions_metric_uses_terminal_lights():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
 
@@ -511,3 +536,26 @@ def test_mission_control_active_sessions_metric_uses_terminal_lights():
     assert "value: formatCount(terminalLights)" in source
     assert "tone: terminalLights > 0 ? \"success\" : \"secondary\"" in source
     assert "const activeSessions =" not in source
+
+
+def test_mission_control_profile_light_dossier_shows_current_work_and_output_plan():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert "Current work" in source
+    assert "Planned output use" in source
+    assert "outputPlanForTask" in source
+    assert "currentTaskByProfile" in source
+    assert "feeds forward" in source
+    assert "next teammate" in source
+    assert "Working: {item.currentTask.title || item.currentTask.id}" in source
+    assert "taskByProfile={teamTaskByProfile}" in source
+    assert "No running Kanban item is assigned to this profile right now." in source
+
+
+def test_mission_control_collapsed_team_orbs_are_clickable_role_lights_not_fake_icons():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert "aria-label={`Open ${item.roleName || item.roleGlyph || item.kind} details`}" in source
+    assert "onClick={() => openLightAgent(item)}" in source
+    assert "max-w-[1.55rem] truncate text-center font-mono-ui" in source
+    assert "aria-hidden=\"true\">\n                                      {allTeamItems.map" not in source

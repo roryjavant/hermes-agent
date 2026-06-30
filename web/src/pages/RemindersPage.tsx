@@ -128,7 +128,7 @@ function ReminderRow({
   const Icon = meta.icon;
 
   return (
-    <div className="group grid gap-3 border-b border-border/50 bg-card/45 px-3 py-3 transition-colors hover:bg-card/75 md:grid-cols-[minmax(16rem,1.4fr)_minmax(10rem,0.7fr)_minmax(14rem,1fr)_9rem] md:items-center md:px-4">
+    <div className="group grid gap-3 border-b border-border/50 bg-card/45 px-3 py-3 transition-colors hover:bg-card/75 md:grid-cols-[minmax(16rem,1.4fr)_minmax(10rem,0.7fr)_minmax(14rem,1fr)_14rem] md:items-center md:px-4">
       <div className="flex min-w-0 items-start gap-3">
         <button
           type="button"
@@ -209,6 +209,21 @@ function ReminderRow({
           </>
         ) : (
           <>
+            <button
+              type="button"
+              onClick={onToggle}
+              disabled={busy}
+              className={cn(
+                "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border px-2 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                reminder.completed
+                  ? "border-border/70 bg-background-base/60 text-muted-foreground hover:border-midground/50 hover:bg-card"
+                  : "border-success/45 bg-success/10 text-success hover:bg-success/15",
+              )}
+              aria-label={reminder.completed ? "Mark reminder not done" : "Mark reminder done"}
+            >
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
+              {reminder.completed ? "Undo" : "Done"}
+            </button>
             <button
               type="button"
               onClick={onEdit}
@@ -423,7 +438,7 @@ export default function RemindersPage() {
         </div>
       ) : sortedReminders.length > 0 ? (
         <section className="overflow-hidden rounded-3xl border border-border/70 bg-background-base/35 shadow-2xl shadow-black/10">
-          <div className="hidden border-b border-border/70 bg-card/70 px-4 py-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground md:grid md:grid-cols-[minmax(16rem,1.4fr)_minmax(10rem,0.7fr)_minmax(14rem,1fr)_9rem]">
+          <div className="hidden border-b border-border/70 bg-card/70 px-4 py-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground md:grid md:grid-cols-[minmax(16rem,1.4fr)_minmax(10rem,0.7fr)_minmax(14rem,1fr)_14rem]">
             <span>Reminder</span>
             <span>Due</span>
             <span>Updated</span>

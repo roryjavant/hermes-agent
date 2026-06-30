@@ -111,6 +111,8 @@ export interface Translations {
       repos?: string;
       /** Optional — fall back to the nav item's label until translated. */
       reminders?: string;
+      /** Optional — fall back to the nav item's label until translated. */
+      rory?: string;
       sessions: string;
       skills: string;
       /** Optional — fall back to the nav item's label until translated. */

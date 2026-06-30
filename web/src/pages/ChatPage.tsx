@@ -179,11 +179,15 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // treat the current resume target as part of the PTY identity and rebuild the
   // terminal session when it changes.
   const resumeParam = searchParams.get("resume");
-  // Profile-scoped chat: spawn the PTY under the globally selected
-  // management profile. Changing it remounts the terminal (key below /
-  // effect dep) so the user explicitly starts a fresh scoped session.
+  // Profile-scoped chat: spawn the PTY under the explicit ?profile target
+  // used by Mission Control/team dossier launch buttons. Fall back to the
+  // global management profile for ordinary Chat navigation. Changing either
+  // remounts the terminal (key below / effect dep) so the user explicitly
+  // starts a fresh scoped session.
   const { profile: scopedProfile } = useProfileScope();
-  const channel = useMemo(() => generateChannelId(), [resumeParam, scopedProfile]);
+  const profileParam = searchParams.get("profile")?.trim() ?? "";
+  const chatProfile = profileParam || scopedProfile;
+  const channel = useMemo(() => generateChannelId(), [resumeParam, chatProfile]);
 
   useEffect(() => {
     if (!resumeParam) return;
@@ -586,7 +590,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     void (async () => {
       const authParam = await buildWsAuthParam();
       if (unmounting) return;
-      const url = buildWsUrl(authParam, resumeParam, channel, scopedProfile);
+      const url = buildWsUrl(authParam, resumeParam, channel, chatProfile);
       const ws = new WebSocket(url);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
@@ -724,7 +728,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         copyResetRef.current = null;
       }
     };
-  }, [channel, resumeParam, scopedProfile]);
+  }, [channel, resumeParam, chatProfile]);
 
   // When the user returns to the chat tab (isActive: false → true), the
   // terminal host just transitioned from display:none to display:flex.

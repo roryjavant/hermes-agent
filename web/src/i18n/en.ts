@@ -87,6 +87,7 @@ export const en: Translations = {
       research: "Research",
       repos: "Repos",
       reminders: "Reminders",
+      rory: "RORY",
       sessions: "Sessions",
       skills: "Skills",
       team: "Team",

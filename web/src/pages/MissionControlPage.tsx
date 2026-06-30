@@ -122,6 +122,8 @@ type OperationsItem = {
   roleGlyph?: string;
   teamName?: string;
   projectPath?: string;
+  currentTask?: MissionTask;
+  outputPlan?: string;
 };
 
 type PerformanceRisk = {
@@ -522,6 +524,16 @@ function ActivityLightPopover({ item, rowLabel }: { item: OperationsItem; rowLab
         <span>{readinessLabel(item.tone)}</span>
       </span>
       <span className="mt-2 block text-xs leading-relaxed text-muted-foreground">{item.detail}</span>
+      {item.currentTask && (
+        <span className="mt-2 block border-t border-current/10 pt-2 text-xs leading-relaxed text-foreground/90">
+          Working: {item.currentTask.title || item.currentTask.id}
+        </span>
+      )}
+      {item.outputPlan && (
+        <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+          Output: {item.outputPlan}
+        </span>
+      )}
       {item.performanceRisk && (
         <span className="mt-2 block text-xs leading-relaxed text-warning">
           {item.performanceRisk.detail}
@@ -553,6 +565,7 @@ function LightAgentModal({
   const disabledSkills = details.skills.filter((skill) => !skill.enabled);
   const soulText = details.soul?.content.trim();
   const launchHref = profileChatPath(item.profileName || profile?.name);
+  const currentTask = item.currentTask;
 
   return (
     <div
@@ -624,22 +637,59 @@ function LightAgentModal({
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
-            <section className="border border-border bg-background-base/25 p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="font-mondwest text-display text-sm uppercase tracking-[0.16em] text-foreground">SOUL.md</h3>
-                {details.soul?.exists ? <Badge tone="success">loaded</Badge> : <Badge tone="outline">missing</Badge>}
+            <section className="space-y-4">
+              <div className="border border-border bg-background-base/25 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="font-mondwest text-display text-sm uppercase tracking-[0.16em] text-foreground">Current work</h3>
+                  {currentTask ? <Badge tone={taskTone(currentTask)}>{currentTask.status}</Badge> : <Badge tone="outline">idle</Badge>}
+                </div>
+                {currentTask ? (
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Item</p>
+                      <p className="mt-1 font-medium text-foreground">{currentTask.title || currentTask.id}</p>
+                      <p className="mt-1 font-mono-ui text-xs text-midground">{currentTask.id} · {currentTask.boardName} · {currentTask.assignee || "unassigned"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Planned output use</p>
+                      <p className="mt-1 leading-6 text-foreground/90">{item.outputPlan || outputPlanForTask(currentTask)}</p>
+                    </div>
+                    {(currentTask.latest_summary || currentTask.body) && (
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">Work brief / latest note</p>
+                        <p className="mt-1 line-clamp-6 whitespace-pre-wrap leading-6 text-muted-foreground">{currentTask.latest_summary || currentTask.body}</p>
+                      </div>
+                    )}
+                    <Link
+                      to={`/kanban?task=${encodeURIComponent(currentTask.id)}`}
+                      onClick={onClose}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30"
+                    >
+                      Open task <ChevronRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No running Kanban item is assigned to this profile right now.</p>
+                )}
               </div>
-              {details.loading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Loading profile identity…</div>
-              ) : details.error ? (
-                <p className="text-sm text-destructive">{details.error}</p>
-              ) : soulText ? (
-                <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap break-words rounded border border-border/70 bg-background-base/70 p-3 font-mono text-xs leading-5 text-foreground/90">
-                  {soulText}
-                </pre>
-              ) : (
-                <p className="text-sm text-muted-foreground">No SOUL.md is set for this profile yet.</p>
-              )}
+
+              <div className="border border-border bg-background-base/25 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="font-mondwest text-display text-sm uppercase tracking-[0.16em] text-foreground">SOUL.md</h3>
+                  {details.soul?.exists ? <Badge tone="success">loaded</Badge> : <Badge tone="outline">missing</Badge>}
+                </div>
+                {details.loading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Loading profile identity…</div>
+                ) : details.error ? (
+                  <p className="text-sm text-destructive">{details.error}</p>
+                ) : soulText ? (
+                  <pre className="max-h-[22rem] overflow-auto whitespace-pre-wrap break-words rounded border border-border/70 bg-background-base/70 p-3 font-mono text-xs leading-5 text-foreground/90">
+                    {soulText}
+                  </pre>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No SOUL.md is set for this profile yet.</p>
+                )}
+              </div>
             </section>
 
             <aside className="space-y-4">
@@ -788,12 +838,56 @@ function glyphForTeamRole(role: string): string {
   return "agent";
 }
 
-function agentToOperationsItem(team: MissionControlProfileTeam, agent: MissionControlProfileTeamAgent) {
+function linkedChildCount(task: MissionTask): number {
+  const maybeCounts = task as MissionTask & { link_counts?: { children?: number } };
+  return Math.max(0, Number(maybeCounts.link_counts?.children ?? 0) || 0);
+}
+
+function outputPlanForTask(task: MissionTask): string {
+  const childCount = linkedChildCount(task);
+  const downstream = childCount > 0
+    ? ` That handoff feeds forward to ${childCount} downstream linked task${childCount === 1 ? "" : "s"} for the next teammate to use.`
+    : " If no linked next task is recorded yet, the handoff still feeds forward through the team activity/history for the next teammate to pick up.";
+  if (task.status === "running") {
+    return `The worker should write a handoff summary/result back to this Kanban item, then move it to review or done.${downstream}`;
+  }
+  if (task.status === "review") {
+    return `The handoff is waiting for review; accepting it lets the team feed the summary/result into the next dependent work.${downstream}`;
+  }
+  if (task.status === "ready") {
+    return `This item is queued for a worker; its future handoff becomes the team handoff summary/result.${downstream}`;
+  }
+  return `The task output is tracked on the Kanban item as summary/result so it can feed forward to the team.${downstream}`;
+}
+
+function taskSortKey(task: MissionTask): [number, number] {
+  const statusRank: Record<string, number> = { running: 0, review: 1, blocked: 2, ready: 3, scheduled: 4, todo: 5 };
+  return [statusRank[task.status] ?? 99, -(task.started_at ?? task.created_at ?? 0)];
+}
+
+function currentTaskByProfile(data: LoadState): Map<string, MissionTask> {
+  const tasks = allTasks(data).filter((task) => task.assignee && ["running", "review", "blocked", "ready", "scheduled", "todo"].includes(task.status));
+  const byProfile = new Map<string, MissionTask>();
+  for (const task of [...tasks].sort((a, b) => {
+    const aKey = taskSortKey(a);
+    const bKey = taskSortKey(b);
+    return aKey[0] - bKey[0] || aKey[1] - bKey[1] || a.id.localeCompare(b.id);
+  })) {
+    const assignee = task.assignee?.trim().toLowerCase();
+    if (assignee && !byProfile.has(assignee)) byProfile.set(assignee, task);
+  }
+  return byProfile;
+}
+
+function agentToOperationsItem(team: MissionControlProfileTeam, agent: MissionControlProfileTeamAgent, taskByProfile: Map<string, MissionTask>) {
+  const currentTask = taskByProfile.get(agent.profile.toLowerCase());
   return {
     id: `team-profile:${team.team_id}:${agent.profile}`,
     kind: "Team profile",
     title: `${agent.role} · ${agent.profile}`,
-    detail: agent.detail || (agent.active ? "live profile agent" : "profile standby"),
+    detail: currentTask
+      ? `working ${currentTask.id}: ${currentTask.title || currentTask.id}`
+      : agent.detail || (agent.active ? "live profile agent" : "profile standby"),
     meta: agent.active
       ? [agent.source, agent.pid ? `pid ${agent.pid}` : ""].filter(Boolean).join(" · ")
       : agent.configured ? "standby profile" : "missing profile",
@@ -807,18 +901,20 @@ function agentToOperationsItem(team: MissionControlProfileTeam, agent: MissionCo
     roleGlyph: glyphForTeamRole(agent.role),
     teamName: team.label,
     projectPath: team.project_path,
+    currentTask,
+    outputPlan: currentTask ? outputPlanForTask(currentTask) : undefined,
     performanceRisk: performanceRiskFromTelemetry(agent),
   } as const;
 }
 
-function teamRowsFromProfileTeams(profileTeams: MissionControlProfileTeam[]) {
+function teamRowsFromProfileTeams(profileTeams: MissionControlProfileTeam[], taskByProfile: Map<string, MissionTask>) {
   return profileTeams.map((team) => {
     const orchestratorAgent = team.agents.find((a) => a.is_orchestrator) ?? null;
     const memberAgents = team.agents.filter((a) => !a.is_orchestrator);
     return {
       label: `${team.label} · ${team.project_path}`,
-      orchestratorItem: orchestratorAgent ? agentToOperationsItem(team, orchestratorAgent) : null,
-      items: memberAgents.map((agent) => agentToOperationsItem(team, agent)),
+      orchestratorItem: orchestratorAgent ? agentToOperationsItem(team, orchestratorAgent, taskByProfile) : null,
+      items: memberAgents.map((agent) => agentToOperationsItem(team, agent, taskByProfile)),
     };
   });
 }
@@ -1598,10 +1694,12 @@ function ActiveOperationsBoard({
   items,
   profiles,
   profileTeams,
+  taskByProfile,
 }: {
   items: OperationsItem[];
   profiles: ProfileInfo[];
   profileTeams: MissionControlProfileTeam[];
+  taskByProfile: Map<string, MissionTask>;
 }) {
   const [selectedLightAgent, setSelectedLightAgent] = useState<LightAgentModalState | null>(null);
   const [selectedLightAgentDetails, setSelectedLightAgentDetails] = useState<LightAgentProfileDetails>({
@@ -1610,13 +1708,24 @@ function ActiveOperationsBoard({
     skills: [],
     error: null,
   });
+  const [expandedTeamRows, setExpandedTeamRows] = useState<Set<string>>(() => new Set());
+
+  const toggleTeamRow = useCallback((rowKey: string) => {
+    setExpandedTeamRows((current) => {
+      const next = new Set(current);
+      if (next.has(rowKey)) next.delete(rowKey);
+      else next.add(rowKey);
+      return next;
+    });
+  }, []);
+
   const sortedItems = [...items].sort((a, b) => {
     const order: Record<ReadinessTone, number> = { review: 0, working: 1, ready: 2 };
     return order[a.tone] - order[b.tone] || a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title);
   });
   const agentItems = sortedItems.filter((item) => activitySegment(item) === "agents");
   const agentRows = groupedActivityRows("agents", agentItems);
-  const teamRows = teamRowsFromProfileTeams(profileTeams);
+  const teamRows = teamRowsFromProfileTeams(profileTeams, taskByProfile);
   const subagentItems = sortedItems.filter((item) => activitySegment(item) === "subagents");
   const subagentRows = groupedActivityRows("subagents", subagentItems);
   const terminalSignalItems = sortedItems.filter((item) => activitySegment(item) === "terminals");
@@ -1712,9 +1821,9 @@ function ActiveOperationsBoard({
             body="Open Chat, run a background terminal command, delegate work, or dispatch Kanban tasks and they will appear here."
           />
         ) : (
-          <div className="space-y-4">
-            <div className="mission-signal-board rounded border border-border bg-background-base/25 p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="space-y-3">
+            <div className="mission-signal-board rounded border border-border bg-background-base/25 p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-3 px-1">
                 <p className="font-mondwest text-display text-sm uppercase tracking-[0.14em] text-foreground">
                   Signal board
                 </p>
@@ -1738,8 +1847,8 @@ function ActiveOperationsBoard({
                         : groupedActivityRows(segment.id, segmentItems);
                   const segmentCount = segment.id === "teams" || segment.id === "terminals" ? groupedRows.length : segmentItems.length;
                   return (
-                    <div key={segment.id} className="mission-signal-segment min-h-24 border border-border/80 bg-background-base/20 p-3 xl:col-span-3">
-                      <div className="mb-3 flex items-start justify-between gap-3">
+                    <div key={segment.id} className="mission-signal-segment min-h-16 border border-border/80 bg-background-base/20 p-2.5 xl:col-span-3">
+                      <div className="mb-2 flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-mondwest text-display text-xs uppercase tracking-[0.16em] text-foreground">
                             {segment.label}
@@ -1751,7 +1860,7 @@ function ActiveOperationsBoard({
                       {segmentItems.length === 0 ? (
                         <p className="text-xs text-muted-foreground">No live {segment.label.toLowerCase()}.</p>
                       ) : (
-                        <div className="space-y-5">
+                        <div className="space-y-2">
                           {groupedRows.map((row) => {
                             const isTeamFlow = segment.id === "teams";
                             // orchestratorItem only exists on teamRows entries; access safely.
@@ -1827,72 +1936,160 @@ function ActiveOperationsBoard({
                               );
                             };
 
-                            return (
-                              <div key={row.label} className={cn(
-                                "border-t border-border/60 pt-5",
-                                isTeamFlow
-                                  ? "flex flex-col items-center gap-4"
-                                  : "grid gap-2 md:grid-cols-[minmax(12rem,18rem)_1fr]",
-                              )}>
-                                {/* Label row */}
-                                <div className={cn("min-w-0", isTeamFlow ? "w-full text-center" : "")}>
-                                  <p className={cn("text-xs font-medium text-foreground", isTeamFlow ? "" : "truncate")}>{row.label.split(" · ")[0]}</p>
-                                  {row.label.includes(" · ") && (
-                                    <p className={cn("mt-0.5 text-[0.68rem] text-muted-foreground", isTeamFlow ? "" : "truncate")}>{row.label.split(" · ").slice(1).join(" · ")}</p>
-                                  )}
-                                  {isTeamFlow && (
-                                    <p className="mt-0.5 text-[0.68rem] text-muted-foreground">
-                                      {row.items.length} profile agents
-                                    </p>
-                                  )}
-                                </div>
+                            const [rowTitle, ...rowMetaParts] = row.label.split(" · ");
+                            const rowMeta = rowMetaParts.join(" · ");
 
-                                <div className={isTeamFlow && orchestratorItem ? "flex flex-col items-center gap-0" : cn("flex flex-wrap items-center", isTeamFlow ? "gap-y-2 justify-center" : "gap-2.5")}>
+                            if (isTeamFlow) {
+                              const rowKey = row.label;
+                              const isExpanded = expandedTeamRows.has(rowKey);
+                              const allTeamItems = orchestratorItem ? [orchestratorItem, ...row.items] : row.items;
+                              const rowTone: ReadinessTone = allTeamItems.some((item) => item.tone === "review")
+                                ? "review"
+                                : allTeamItems.some((item) => item.tone === "working")
+                                  ? "working"
+                                  : "ready";
+                              const rowTc = toneColors[rowTone] ?? toneColors.ready;
 
-                                  {/* Orchestrator (team lead) — centered above member row */}
-                                  {isTeamFlow && orchestratorItem && (() => {
-                                    const orch = orchestratorItem;
-                                    const orchTc = toneColors[orch.tone] ?? toneColors.ready;
-                                    return (
-                                      <div className="flex flex-col items-center">
-                                        <div className="flex flex-col items-center">
-                                          {buildLightElement(orch, { size: "xl", rowLabel: row.label })}
-                                          <span className="mt-1 font-mono-ui text-[0.48rem] uppercase tracking-[0.12em] text-muted-foreground">lead</span>
-                                        </div>
-                                        {/* Vertical wire to member row */}
-                                        <span
-                                          className={cn("relative flex h-5 w-px shrink-0 items-center justify-center", orchTc.wire)}
-                                          aria-hidden="true"
-                                        >
-                                          <span className="absolute bottom-0 top-0 border-l border-dashed border-current/30" />
-                                          <span className="agent-wire__dot--y h-1.5 w-1.5 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
+                              return (
+                                <div key={row.label} className="border-t border-border/60 pt-2 first:border-t-0 first:pt-0">
+                                  <div className="grid w-full items-center gap-2 rounded border border-border/50 bg-background-base/25 px-2 py-1.5 transition-colors duration-200 md:grid-cols-[minmax(12rem,18rem)_1fr_auto]">
+                                    <button
+                                      type="button"
+                                      aria-expanded={isExpanded}
+                                      onClick={() => toggleTeamRow(rowKey)}
+                                      className="group flex min-w-0 items-start gap-2 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/70"
+                                    >
+                                      <ChevronRight className={cn("mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300/75 transition-transform", isExpanded && "rotate-90")} />
+                                      <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                      <span className="min-w-0">
+                                        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                                          <span className="truncate font-mono-ui text-xs font-semibold text-foreground">{rowTitle}</span>
+                                          <span className={cn("rounded border px-1.5 py-0.5 font-mono-ui text-[0.58rem] uppercase tracking-[0.14em]", rowTc.border, rowTc.bg, rowTc.text)}>
+                                            {readinessLabel(rowTone)}
+                                          </span>
+                                          <span className="font-mono-ui text-[0.62rem] uppercase tracking-[0.14em] text-muted-foreground">
+                                            {allTeamItems.length} agents
+                                          </span>
                                         </span>
-                                      </div>
-                                    );
-                                  })()}
-
-                                  {/* Member orbs row */}
-                                  <div className={cn("flex flex-wrap items-center justify-center", isTeamFlow ? "gap-y-2" : "gap-2.5")}>
-                                    {row.items.map((item, index) => {
-                                      const isLastTeamLight = isTeamFlow && index === row.items.length - 1;
-                                      const tc = toneColors[item.tone] ?? toneColors.ready;
-                                      return (
-                                        <span key={item.id} className="flex items-center">
-                                          {buildLightElement(item, { size: isTeamFlow ? "lg" : "sm", rowLabel: row.label })}
-                                          {isTeamFlow && !isLastTeamLight && (
-                                            <span
-                                              className={cn("relative flex h-[5rem] w-24 shrink-0 items-center justify-center", tc.wire)}
-                                              aria-hidden="true"
-                                            >
-                                              <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
-                                              <span className="agent-wire__dot absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
-                                            </span>
-                                          )}
-                                        </span>
-                                      );
-                                    })}
+                                        {rowMeta && <span className="mt-0.5 block truncate text-[0.68rem] text-muted-foreground">{rowMeta}</span>}
+                                      </span>
+                                      <span className="sr-only">{isExpanded ? "Collapse" : "Expand"} {rowTitle}</span>
+                                    </button>
+                                    <span className="flex flex-wrap items-center justify-end gap-1.5">
+                                      {allTeamItems.map((item) => {
+                                        const itemTc = toneColors[item.tone] ?? toneColors.ready;
+                                        const MiniIcon = item.icon;
+                                        return (
+                                          <button
+                                            key={item.id}
+                                            type="button"
+                                            onClick={() => openLightAgent(item)}
+                                            className={cn(
+                                              "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 bg-black/20 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/70",
+                                              itemTc.border,
+                                              itemTc.bg,
+                                              itemTc.text,
+                                              itemTc.shadow,
+                                            )}
+                                            title={`${item.roleName || item.roleGlyph || item.kind}${item.currentTask ? ` · ${item.currentTask.title || item.currentTask.id}` : ""}`}
+                                            aria-label={`Open ${item.roleName || item.roleGlyph || item.kind} details`}
+                                          >
+                                            <span className="absolute inset-[3px] rounded-full border border-current/20" />
+                                            <span className="absolute inset-[9px] rounded-full border border-current/10" />
+                                            {item.roleGlyph ? (
+                                              <span className="relative z-10 max-w-[1.55rem] truncate text-center font-mono-ui text-[0.38rem] font-bold uppercase leading-none tracking-[0.03em] text-white/75">
+                                                {item.roleGlyph}
+                                              </span>
+                                            ) : (
+                                              <MiniIcon className="relative z-10 h-3 w-3 text-white/70" />
+                                            )}
+                                            {item.performanceRisk && (
+                                              <span
+                                                className={cn(
+                                                  "absolute -right-1 -top-1 z-20 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border px-0.5 font-mono-ui text-[0.45rem] leading-none bg-[rgb(3,5,18)]",
+                                                  item.performanceRisk.level === "critical"
+                                                    ? "border-rose-400/70 text-rose-400"
+                                                    : "border-amber-400/70 text-amber-400",
+                                                )}
+                                              >
+                                                {item.performanceRisk.label}
+                                              </span>
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </span>
                                   </div>
 
+                                  {isExpanded && (
+                                    <div className="flex flex-col items-center gap-4 px-3 pb-2 pt-5">
+                                      <div className="w-full text-center">
+                                        <p className="text-xs font-medium text-foreground">{rowTitle}</p>
+                                        {rowMeta && <p className="mt-0.5 text-[0.68rem] text-muted-foreground">{rowMeta}</p>}
+                                        <p className="mt-0.5 text-[0.68rem] text-muted-foreground">{row.items.length} profile agents</p>
+                                      </div>
+
+                                      <div className={orchestratorItem ? "flex flex-col items-center gap-0" : "flex flex-wrap items-center justify-center gap-y-2"}>
+                                        {orchestratorItem && (() => {
+                                          const orch = orchestratorItem;
+                                          const orchTc = toneColors[orch.tone] ?? toneColors.ready;
+                                          return (
+                                            <div className="flex flex-col items-center">
+                                              <div className="flex flex-col items-center">
+                                                {buildLightElement(orch, { size: "xl", rowLabel: row.label })}
+                                                <span className="mt-1 font-mono-ui text-[0.48rem] uppercase tracking-[0.12em] text-muted-foreground">lead</span>
+                                              </div>
+                                              <span
+                                                className={cn("relative flex h-5 w-px shrink-0 items-center justify-center", orchTc.wire)}
+                                                aria-hidden="true"
+                                              >
+                                                <span className="absolute bottom-0 top-0 border-l border-dashed border-current/30" />
+                                                <span className="agent-wire__dot--y h-1.5 w-1.5 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
+                                              </span>
+                                            </div>
+                                          );
+                                        })()}
+
+                                        <div className="flex flex-wrap items-center justify-center gap-y-2">
+                                          {row.items.map((item, index) => {
+                                            const isLastTeamLight = index === row.items.length - 1;
+                                            const tc = toneColors[item.tone] ?? toneColors.ready;
+                                            return (
+                                              <span key={item.id} className="flex items-center">
+                                                {buildLightElement(item, { size: "lg", rowLabel: row.label })}
+                                                {!isLastTeamLight && (
+                                                  <span
+                                                    className={cn("relative flex h-[5rem] w-24 shrink-0 items-center justify-center", tc.wire)}
+                                                    aria-hidden="true"
+                                                  >
+                                                    <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
+                                                    <span className="agent-wire__dot absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
+                                                  </span>
+                                                )}
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div key={row.label} className="grid gap-2 border-t border-border/60 pt-2 first:border-t-0 first:pt-0 md:grid-cols-[minmax(12rem,18rem)_1fr]">
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-medium text-foreground">{rowTitle}</p>
+                                  {rowMeta && <p className="mt-0.5 truncate text-[0.68rem] text-muted-foreground">{rowMeta}</p>}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2.5">
+                                  {row.items.map((item) => (
+                                    <span key={item.id} className="flex items-center">
+                                      {buildLightElement(item, { size: "sm", rowLabel: row.label })}
+                                    </span>
+                                  ))}
                                 </div>
                               </div>
                             );
@@ -2298,6 +2495,7 @@ export default function MissionControlPage() {
   const metrics = useMemo(() => buildMetrics(data), [data]);
   const timeline = useMemo(() => buildTimeline(data, effectiveTeamFilter), [data, effectiveTeamFilter]);
   const operations = useMemo(() => buildOperationsItems(data), [data]);
+  const teamTaskByProfile = useMemo(() => currentTaskByProfile(data), [data]);
   const score = useMemo(() => computeMissionScore(data), [data]);
   const selectedMetricData =
     metrics.find((metric) => metric.id === selectedMetric) ?? metrics[0];
@@ -2440,7 +2638,12 @@ export default function MissionControlPage() {
         ))}
       </div>
 
-      <ActiveOperationsBoard items={operations} profiles={data.profiles} profileTeams={data.activity?.profile_teams ?? []} />
+      <ActiveOperationsBoard
+        items={operations}
+        profiles={data.profiles}
+        profileTeams={data.activity?.profile_teams ?? []}
+        taskByProfile={teamTaskByProfile}
+      />
 
       {view === "overview" && (
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">

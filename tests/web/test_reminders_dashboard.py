@@ -39,6 +39,9 @@ def test_reminders_page_supports_crud_and_due_date_light_language():
     assert "api.createReminder" in source
     assert "api.updateReminder" in source
     assert "api.deleteReminder" in source
+    assert 'aria-label={reminder.completed ? "Mark reminder not done" : "Mark reminder done"}' in source
+    assert '{reminder.completed ? "Undo" : "Done"}' in source
+    assert "_14rem" in source
     assert 'fetchJSON<RemindersResponse>("/api/reminders"' in api_source
     assert "ReminderCreate" in api_source
     assert "ReminderUpdate" in api_source

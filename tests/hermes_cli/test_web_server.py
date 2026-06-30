@@ -258,10 +258,31 @@ class TestWebServerEndpoints:
             "juror-research",
             "agent-arena",
             "hermes-team-ui",
+            "open-webui",
             "home-hub",
             "osint-lab",
         }
         assert all("url" in project for project in projects)
+        juror = next(project for project in projects if project["id"] == "juror-research")
+        assert juror["url"] == "http://127.0.0.1:3010"
+
+    def test_launchpad_juror_research_uses_non_open_webui_port(self):
+        from hermes_cli import web_server
+
+        project = web_server._launchpad_projects()["juror-research"]
+
+        assert project.url == "http://127.0.0.1:3010"
+        assert project.command[-2:] == ["--port", "3010"]
+        assert "3000" not in project.url
+
+    def test_launchpad_open_webui_uses_known_local_port(self):
+        from hermes_cli import web_server
+
+        project = web_server._launchpad_projects()["open-webui"]
+
+        assert project.url == "http://127.0.0.1:3000"
+        assert project.action_name == "project-launch-open-webui"
+        assert any("open-webui" in part for part in project.command)
 
     def test_launchpad_unknown_project_404s(self):
         resp = self.client.post("/api/launchpad/projects/not-real/launch")
@@ -375,6 +396,10 @@ class TestWebServerEndpoints:
         assert "Research subject: trial theme patterns" in prompt
         assert "Destination knowledge base: Juror Research" in prompt
         assert "Folder guidance: trial-themes" in prompt
+        assert "You are hresearchstrategist" in prompt
+        assert "Start the work at the strategy role, then move it through the research team" in prompt
+        assert "hresearchcurator files the durable Markdown output in the knowledge base" in prompt
+        assert "Do not write the Knowledge Base output into the current repo" in prompt
 
     def test_launchpad_stop_terminates_spawned_project(self, monkeypatch):
         from hermes_cli import web_server
@@ -533,6 +558,70 @@ class TestWebServerEndpoints:
 
         assert resp.status_code == 400
         assert resp.json()["detail"] == "Reminder title is required"
+
+    def test_private_ideas_auth_crud_persists_profile_local_json(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        idea_store = tmp_path / "dashboard_private_ideas.json"
+        monkeypatch.setattr(web_server, "_private_ideas_path", lambda: idea_store)
+        monkeypatch.setenv("HERMES_PRIVATE_IDEAS_PASSWORD", "open sesame")
+        monkeypatch.setenv("HERMES_PRIVATE_IDEAS_PIN", "4321")
+        web_server._private_ideas_sessions.clear()
+
+        password = self.client.post("/api/private-ideas/auth/password", json={"password": "open sesame"})
+        assert password.status_code == 200
+        assert password.json() == {"ok": True, "setup_required": False}
+
+        bad_unlock = self.client.post("/api/private-ideas/auth/unlock", json={"password": "open sesame", "pin": "9999"})
+        assert bad_unlock.status_code == 401
+
+        unlock = self.client.post("/api/private-ideas/auth/unlock", json={"password": "open sesame", "pin": "4321"})
+        assert unlock.status_code == 200
+        token = unlock.json()["token"]
+        headers = {"X-Hermes-Private-Ideas-Token": token}
+
+        create = self.client.post(
+            "/api/private-ideas",
+            headers=headers,
+            json={"title": "New app idea", "body": "Keep this private"},
+        )
+        assert create.status_code == 200
+        idea = create.json()["idea"]
+        assert idea["title"] == "New app idea"
+        assert idea_store.exists()
+
+        update = self.client.patch(
+            f"/api/private-ideas/{idea['id']}",
+            headers=headers,
+            json={"title": "Updated app idea", "body": "More detail"},
+        )
+        assert update.status_code == 200
+        updated = update.json()["idea"]
+        assert updated["title"] == "Updated app idea"
+
+        listed = self.client.get("/api/private-ideas", headers=headers)
+        assert listed.status_code == 200
+        assert listed.json()["ideas"] == [updated]
+
+        delete = self.client.delete(f"/api/private-ideas/{idea['id']}", headers=headers)
+        assert delete.status_code == 200
+        assert delete.json()["ok"] is True
+        assert self.client.get("/api/private-ideas", headers=headers).json()["ideas"] == []
+
+    def test_private_ideas_requires_setup_and_token(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server, "_private_ideas_path", lambda: tmp_path / "dashboard_private_ideas.json")
+        monkeypatch.delenv("HERMES_PRIVATE_IDEAS_PASSWORD", raising=False)
+        monkeypatch.delenv("HERMES_PRIVATE_IDEAS_PIN", raising=False)
+        web_server._private_ideas_sessions.clear()
+
+        password = self.client.post("/api/private-ideas/auth/password", json={"password": "anything"})
+        assert password.status_code == 200
+        assert password.json() == {"ok": False, "setup_required": True}
+
+        protected = self.client.get("/api/private-ideas")
+        assert protected.status_code == 401
 
     # ── GET /api/media (remote image display) ───────────────────────────
 

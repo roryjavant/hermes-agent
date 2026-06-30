@@ -21,6 +21,7 @@ import {
   BarChart3,
   BellRing,
   BookOpen,
+  Brain,
   Clock,
   Code,
   Cpu,
@@ -87,6 +88,7 @@ import MarketingPage from "@/pages/MarketingPage";
 import MissionControlPage from "@/pages/MissionControlPage";
 import ReposPage from "@/pages/ReposPage";
 import RemindersPage from "@/pages/RemindersPage";
+import PrivateIdeasPage from "@/pages/PrivateIdeasPage";
 import ResearchPage from "@/pages/ResearchPage";
 import JurorResearchMapPage from "@/pages/JurorResearchMapPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
@@ -152,6 +154,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/mission-control": MissionControlPage,
   "/repos": ReposPage,
   "/reminders": RemindersPage,
+  "/rory": PrivateIdeasPage,
   "/flow": JurorResearchMapPage,
   "/juror-research-map": JurorResearchMapPage,
   "/sessions": SessionsPage,
@@ -276,6 +279,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Activity,
   BarChart3,
   BellRing,
+  Brain,
   Clock,
   Cpu,
   FileText,

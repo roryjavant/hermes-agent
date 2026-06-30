@@ -35,3 +35,14 @@ def test_launchpad_header_and_action_buttons_match_requested_polish():
     assert "Pause" not in source
     assert "Stopping…" not in source
     assert "  Square," in source
+
+
+def test_launchpad_has_open_webui_card_without_moving_juror_research_to_its_port():
+    source = read("web/src/pages/LaunchpadPage.tsx")
+
+    assert 'fallbackUrl: "http://127.0.0.1:3010"' in source
+    assert '"localhost:3010"' in source
+    assert 'id: "open-webui"' in source
+    assert 'fallbackUrl: "http://127.0.0.1:3000"' in source
+    juror_block = source[source.index('id: "juror-research"') : source.index('id: "agent-arena"')]
+    assert "localhost:3000" not in juror_block
