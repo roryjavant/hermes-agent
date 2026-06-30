@@ -3,6 +3,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -77,6 +78,7 @@ type LoadState = {
 type BadgeTone = "success" | "warning" | "destructive" | "secondary" | "outline";
 type MissionView = "overview" | "work" | "ops";
 type TeamFilter = "all" | string;
+type MissionControlSoundSettings = Record<MissionControlDing, boolean>;
 type MissionTask = KanbanTaskSummary & {
   column: string;
   boardSlug: string;
@@ -154,9 +156,15 @@ const MISSION_CONTROL_FULL_REFRESH_MS = 15000;
 const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 5000;
 const MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS = 6000;
 const MISSION_CONTROL_TEAM_FILTER_KEY = "missionControl.teamFilter";
+const MISSION_CONTROL_SOUND_SETTINGS_KEY = "missionControl.soundSettings";
 const ALL_TEAMS_FILTER = "all";
 const TEAM_FEED_RECENT_SESSION_SECONDS = 60 * 60;
 const MISSION_QUEUE_ATTENTION_STATUSES = new Set(["blocked", "review", "running"]);
+
+type AudioContextConstructor = new () => AudioContext;
+let missionControlAudioContext: AudioContext | null = null;
+
+type MissionControlDing = "approval" | "done";
 
 const emptyState: LoadState = {
   status: null,
@@ -178,6 +186,27 @@ function readCachedTeamFilter(): TeamFilter {
 function cacheTeamFilter(value: TeamFilter): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(MISSION_CONTROL_TEAM_FILTER_KEY, value);
+}
+
+function readCachedSoundSettings(): MissionControlSoundSettings {
+  const defaults: MissionControlSoundSettings = { approval: true, done: true };
+  if (typeof window === "undefined") return defaults;
+  try {
+    const raw = window.localStorage.getItem(MISSION_CONTROL_SOUND_SETTINGS_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<MissionControlSoundSettings>;
+    return {
+      approval: parsed.approval ?? defaults.approval,
+      done: parsed.done ?? defaults.done,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function cacheSoundSettings(value: MissionControlSoundSettings): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MISSION_CONTROL_SOUND_SETTINGS_KEY, JSON.stringify(value));
 }
 
 function boardLabel(board: { slug: string; name?: string | null }): string {
@@ -474,6 +503,141 @@ function readinessLabel(tone: ReadinessTone): string {
   if (tone === "ready") return "Ready";
   if (tone === "working") return "Working";
   return "Review";
+}
+
+async function playMissionControlApprovalDing(): Promise<void> {
+  await playMissionControlDing("approval");
+}
+
+async function playMissionControlDoneDing(): Promise<void> {
+  await playMissionControlDing("done");
+}
+
+async function playMissionControlDing(kind: MissionControlDing): Promise<void> {
+  try {
+    await api.playMissionControlDing(kind);
+    return;
+  } catch {
+    // Fall back to browser audio when the dashboard backend is stale or unavailable.
+  }
+
+  try {
+    await playMissionControlAudioElementDing(kind);
+    return;
+  } catch {
+    // Fall back to Web Audio if media playback is unavailable for this browser.
+  }
+
+  const context = await ensureMissionControlAudioContext();
+  if (!context) return;
+
+  const now = context.currentTime;
+  const master = context.createGain();
+  master.gain.setValueAtTime(0.0001, now);
+  master.gain.exponentialRampToValueAtTime(kind === "approval" ? 0.32 : 0.24, now + 0.01);
+  master.gain.exponentialRampToValueAtTime(0.0001, now + (kind === "approval" ? 0.62 : 0.5));
+  master.connect(context.destination);
+
+  const playTone = (frequency: number, startOffset: number, stopOffset: number) => {
+    const oscillator = context.createOscillator();
+    const toneGain = context.createGain();
+    oscillator.type = "triangle";
+    oscillator.frequency.setValueAtTime(frequency, now + startOffset);
+    oscillator.frequency.exponentialRampToValueAtTime(frequency * 1.18, now + stopOffset);
+    toneGain.gain.setValueAtTime(0.0001, now + startOffset);
+    toneGain.gain.exponentialRampToValueAtTime(0.95, now + startOffset + 0.012);
+    toneGain.gain.exponentialRampToValueAtTime(0.0001, now + stopOffset);
+    oscillator.connect(toneGain);
+    toneGain.connect(master);
+    oscillator.start(now + startOffset);
+    oscillator.stop(now + stopOffset + 0.02);
+    oscillator.onended = () => {
+      oscillator.disconnect();
+      toneGain.disconnect();
+    };
+  };
+
+  if (kind === "approval") {
+    playTone(880, 0, 0.22);
+    playTone(1320, 0.18, 0.56);
+  } else {
+    playTone(660, 0, 0.16);
+    playTone(990, 0.12, 0.38);
+  }
+
+  window.setTimeout(() => master.disconnect(), 750);
+}
+
+async function playMissionControlAudioElementDing(kind: MissionControlDing): Promise<void> {
+  if (typeof window === "undefined") return;
+  const audio = new Audio(missionControlDingDataUrl(kind));
+  audio.volume = 1;
+  await audio.play();
+}
+
+function missionControlDingDataUrl(kind: MissionControlDing): string {
+  const sampleRate = 44100;
+  const durationSeconds = kind === "approval" ? 1.05 : 0.72;
+  const sampleCount = Math.floor(sampleRate * durationSeconds);
+  const bytesPerSample = 2;
+  const headerBytes = 44;
+  const dataBytes = sampleCount * bytesPerSample;
+  const buffer = new ArrayBuffer(headerBytes + dataBytes);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i));
+  };
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true);
+  view.setUint16(32, bytesPerSample, true);
+  view.setUint16(34, 8 * bytesPerSample, true);
+  writeString(36, "data");
+  view.setUint32(40, dataBytes, true);
+
+  const tones = kind === "approval"
+    ? [{ start: 0, end: 0.34, frequency: 880 }, { start: 0.28, end: 0.92, frequency: 1320 }]
+    : [{ start: 0, end: 0.24, frequency: 660 }, { start: 0.18, end: 0.62, frequency: 990 }];
+
+  for (let i = 0; i < sampleCount; i += 1) {
+    const t = i / sampleRate;
+    let value = 0;
+    for (const tone of tones) {
+      if (t < tone.start || t > tone.end) continue;
+      const local = (t - tone.start) / (tone.end - tone.start);
+      const envelope = Math.sin(Math.PI * local);
+      value += Math.sin(2 * Math.PI * tone.frequency * t) * envelope;
+    }
+    const clamped = Math.max(-1, Math.min(1, value * 0.42));
+    view.setInt16(headerBytes + i * bytesPerSample, clamped * 0x7fff, true);
+  }
+
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+  return `data:audio/wav;base64,${window.btoa(binary)}`;
+}
+
+async function ensureMissionControlAudioContext(): Promise<AudioContext | null> {
+  if (typeof window === "undefined") return null;
+  const AudioContextCtor: AudioContextConstructor | undefined =
+    window.AudioContext ?? (window as Window & { webkitAudioContext?: AudioContextConstructor }).webkitAudioContext;
+  if (!AudioContextCtor) return null;
+
+  const context = missionControlAudioContext ?? new AudioContextCtor();
+  missionControlAudioContext = context;
+  if (context.state === "suspended") {
+    await context.resume();
+  }
+  return context;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -1786,11 +1950,15 @@ function ActiveOperationsBoard({
   items,
   profiles,
   profileTeams,
+  soundSettings,
+  onSoundSettingChange,
   taskByProfile,
 }: {
   items: OperationsItem[];
   profiles: ProfileInfo[];
   profileTeams: MissionControlProfileTeam[];
+  soundSettings: MissionControlSoundSettings;
+  onSoundSettingChange: (kind: MissionControlDing, enabled: boolean) => void;
   taskByProfile: Map<string, MissionTask>;
 }) {
   const [selectedLightAgent, setSelectedLightAgent] = useState<LightAgentModalState | null>(null);
@@ -1901,6 +2069,24 @@ function ActiveOperationsBoard({
             <Badge tone="success">{counts.ready} green</Badge>
             <Badge tone="warning">{counts.working} working</Badge>
             <Badge tone="destructive">{counts.review} review</Badge>
+            <Button
+              type="button"
+              ghost
+              size="sm"
+              aria-pressed={soundSettings.approval}
+              onClick={() => onSoundSettingChange("approval", !soundSettings.approval)}
+            >
+              Approval sound {soundSettings.approval ? "on" : "off"}
+            </Button>
+            <Button
+              type="button"
+              ghost
+              size="sm"
+              aria-pressed={soundSettings.done}
+              onClick={() => onSoundSettingChange("done", !soundSettings.done)}
+            >
+              Done sound {soundSettings.done ? "on" : "off"}
+            </Button>
           </div>
         </div>
       </CardHeader>
@@ -2449,6 +2635,10 @@ export default function MissionControlPage() {
   const [spotlight, setSpotlight] = useState({ x: 72, y: 18 });
   const [selectedMetric, setSelectedMetric] = useState("gateway");
   const [teamFilter, setTeamFilter] = useState<TeamFilter>(() => readCachedTeamFilter());
+  const previousTerminalTonesRef = useRef<Map<string, ReadinessTone> | null>(null);
+  const currentTerminalReviewIdsRef = useRef<Set<string>>(new Set());
+  const pendingApprovalDingRef = useRef(false);
+  const pendingDoneDingRef = useRef(false);
   const { setEnd } = usePageHeader();
 
   const updateTeamFilter = useCallback((value: TeamFilter) => {
@@ -2587,6 +2777,22 @@ export default function MissionControlPage() {
   const metrics = useMemo(() => buildMetrics(data), [data]);
   const timeline = useMemo(() => buildTimeline(data, effectiveTeamFilter), [data, effectiveTeamFilter]);
   const operations = useMemo(() => buildOperationsItems(data), [data]);
+  const terminalReviewIds = useMemo(
+    () => new Set(
+      operations
+        .filter((item) => activitySegment(item) === "terminals" && item.tone === "review")
+        .map((item) => item.id),
+    ),
+    [operations],
+  );
+  const terminalTones = useMemo(
+    () => new Map(
+      operations
+        .filter((item) => activitySegment(item) === "terminals")
+        .map((item) => [item.id, item.tone] as const),
+    ),
+    [operations],
+  );
   const teamTaskByProfile = useMemo(() => currentTaskByProfile(data), [data]);
   const score = useMemo(() => computeMissionScore(data), [data]);
   const selectedMetricData =
@@ -2608,6 +2814,59 @@ export default function MissionControlPage() {
     "--spotlight-x": `${spotlight.x}%`,
     "--spotlight-y": `${spotlight.y}%`,
   } as CSSProperties;
+
+  useEffect(() => {
+    const previousTones = previousTerminalTonesRef.current;
+    currentTerminalReviewIdsRef.current = terminalReviewIds;
+    previousTerminalTonesRef.current = terminalTones;
+    if (!previousTones && terminalTones.size === 0) return;
+
+    const hasNewReviewLight = [...terminalTones].some(
+      ([id, tone]) => tone === "review" && previousTones?.get(id) !== "review",
+    );
+    const hasNewReadyLight = [...terminalTones].some(([id, tone]) => {
+      const previousTone = previousTones?.get(id);
+      return tone === "ready" && (previousTone === "working" || previousTone === "review");
+    });
+
+    if (hasNewReviewLight) {
+      void playMissionControlApprovalDing().catch(() => {
+        // Browsers can block audio before user activation. Retry once the user next clicks/presses a key.
+        pendingApprovalDingRef.current = true;
+      });
+    }
+    if (hasNewReadyLight) {
+      void playMissionControlDoneDing().catch(() => {
+        pendingDoneDingRef.current = true;
+      });
+    }
+  }, [terminalReviewIds, terminalTones]);
+
+  useEffect(() => {
+    const playPendingDing = () => {
+      void ensureMissionControlAudioContext().catch(() => {
+        // Keep the listener passive if the browser still refuses to unlock audio.
+      });
+      if (pendingApprovalDingRef.current && currentTerminalReviewIdsRef.current.size > 0) {
+        pendingApprovalDingRef.current = false;
+        void playMissionControlApprovalDing().catch(() => {
+          pendingApprovalDingRef.current = true;
+        });
+      }
+      if (pendingDoneDingRef.current) {
+        pendingDoneDingRef.current = false;
+        void playMissionControlDoneDing().catch(() => {
+          pendingDoneDingRef.current = true;
+        });
+      }
+    };
+    window.addEventListener("pointerdown", playPendingDing);
+    window.addEventListener("keydown", playPendingDing);
+    return () => {
+      window.removeEventListener("pointerdown", playPendingDing);
+      window.removeEventListener("keydown", playPendingDing);
+    };
+  }, []);
 
   if (loading) {
     return (

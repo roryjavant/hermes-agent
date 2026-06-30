@@ -323,6 +323,12 @@ export const api = {
   getStatus: (options?: FetchJSONOptions) => fetchJSON<StatusResponse>("/api/status", undefined, options),
   getMissionControlActivity: (options?: FetchJSONOptions) =>
     fetchJSON<MissionControlActivityResponse>("/api/mission-control/activity", undefined, options),
+  playMissionControlDing: (kind: "approval" | "done", options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean; kind: string; method: string; sound?: string }>("/api/mission-control/ding", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    }, options),
   getDevRepos: (fetch = false, options?: FetchJSONOptions) => {
     const qs = fetch ? "?fetch=true" : "";
     return fetchJSON<DevReposResponse>(`/api/dev-repos${qs}`, undefined, options);
@@ -393,6 +399,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
+  getKnowledgeBaseEntry: (slug: string, entryPath: string) =>
+    fetchJSON<KnowledgeBaseEntryDetailResponse>(
+      `/api/knowledge-bases/${encodeURIComponent(slug)}/entries/${entryPath
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/")}`,
+    ),
   createKnowledgeBaseEntry: (slug: string, payload: KnowledgeBaseEntryCreate) =>
     fetchJSON<KnowledgeBaseEntryCreateResponse>(`/api/knowledge-bases/${encodeURIComponent(slug)}/entries`, {
       method: "POST",
@@ -1347,6 +1360,10 @@ export interface KnowledgeBaseEntrySummary {
   excerpt: string;
 }
 
+export interface KnowledgeBaseEntryDetail extends KnowledgeBaseEntrySummary {
+  content: string;
+}
+
 export type KnowledgeBaseTreeNode =
   | {
       type: "folder";
@@ -1402,6 +1419,12 @@ export interface KnowledgeBaseEntryCreateResponse {
   ok: boolean;
   base: string;
   entry: KnowledgeBaseEntrySummary;
+}
+
+export interface KnowledgeBaseEntryDetailResponse {
+  ok: boolean;
+  base: string;
+  entry: KnowledgeBaseEntryDetail;
 }
 
 export interface KnowledgeBaseResearchJobCreate {

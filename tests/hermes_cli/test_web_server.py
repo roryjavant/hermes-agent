@@ -395,6 +395,28 @@ class TestWebServerEndpoints:
         assert "- Source: research workspace" in text
         assert "## Evidence" in text
 
+    def test_knowledge_base_entry_detail_reads_markdown_content(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+        created = self.client.post(
+            "/api/knowledge-bases/hermes-research/entries",
+            json={
+                "title": "Decision Brief",
+                "body": "## Summary\n\nImportant durable details.",
+                "folder": "research-briefs",
+            },
+        ).json()["entry"]
+
+        resp = self.client.get(f"/api/knowledge-bases/hermes-research/entries/{created['relative_path']}")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["base"] == "hermes-research"
+        assert data["entry"]["title"] == "Decision Brief"
+        assert data["entry"]["relative_path"] == created["relative_path"]
+        assert "## Summary" in data["entry"]["content"]
+        assert "Important durable details." in data["entry"]["content"]
+
     def test_knowledge_base_unknown_slug_404s(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
 
@@ -497,6 +519,47 @@ class TestWebServerEndpoints:
         assert captured["env_overrides"]["HERMES_RESEARCH_KNOWLEDGE_BASE_DIR"]
         assert captured["env_overrides"]["TERMINAL_CWD"] == captured["env_overrides"]["HERMES_RESEARCH_KNOWLEDGE_BASE_DIR"]
         assert web_server._ACTION_PROC_PROFILES["mission-control-profile-message-hresearchscout"] == "hresearchscout"
+
+    def test_mission_control_orchestrator_message_surfaces_working_team_lead(self, monkeypatch):
+        from hermes_cli import runtime_activity, web_server
+
+        class DummyProc:
+            pid = 13579
+
+            def poll(self):
+                return None
+
+        action_name = "mission-control-hermes-research-dispatch"
+        proc = DummyProc()
+
+        def fake_spawn_profile_team_dispatch(definition):
+            web_server._ACTION_PROCS[action_name] = proc  # type: ignore[assignment]
+            return proc, False
+
+        monkeypatch.setattr(web_server, "_available_profile_names_fast", lambda: {"hresearchstrategist"})
+        monkeypatch.setattr(web_server, "_ensure_profile_team_kanban", lambda definition, message, source_label: ["HERMES-STRATEGY-1"])
+        monkeypatch.setattr(web_server, "_spawn_profile_team_dispatch", fake_spawn_profile_team_dispatch)
+        monkeypatch.setattr(web_server, "_local_process_table", lambda: {})
+        monkeypatch.setattr(web_server, "_snapshot_pty_sessions", lambda: [])
+        monkeypatch.setattr(runtime_activity, "read_all_profile_activities", lambda: [])
+        web_server._ACTION_PROCS.pop(action_name, None)
+        web_server._ACTION_PROC_PROFILES.pop(action_name, None)
+
+        resp = self.client.post(
+            "/api/mission-control/profiles/hresearchstrategist/messages",
+            json={"message": "Find the latest durable research workflow."},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["action_name"] == action_name
+        assert web_server._ACTION_PROC_PROFILES[action_name] == "hresearchstrategist"
+
+        activity = self.client.get("/api/mission-control/activity").json()
+        research_team = next(team for team in activity["profile_teams"] if team["team_id"] == "hermes-research")
+        strategist = next(agent for agent in research_team["agents"] if agent["profile"] == "hresearchstrategist")
+        assert strategist["status"] == "working"
+        assert strategist["active"] is True
+        assert strategist["pid"] == 13579
 
     def test_mission_control_profile_message_rejects_blank_message(self, monkeypatch):
         from hermes_cli import web_server

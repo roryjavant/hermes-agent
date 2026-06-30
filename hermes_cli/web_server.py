@@ -117,6 +117,10 @@ class PrivateIdeasUnlock(BaseModel):
     pin: str
 
 
+class MissionControlDingRequest(BaseModel):
+    kind: str = "approval"
+
+
 class PrivateIdeaCreate(BaseModel):
     title: str
     body: str = ""
@@ -1881,6 +1885,36 @@ async def create_knowledge_base_entry(slug: str, payload: KnowledgeBaseEntryCrea
         "ok": True,
         "base": base["slug"],
         "entry": _knowledge_entry_summary(target, root),
+    }
+
+
+@app.get("/api/knowledge-bases/{slug}/entries/{entry_path:path}")
+async def get_knowledge_base_entry(slug: str, entry_path: str):
+    base = _known_knowledge_base(slug)
+    root = _knowledge_base_root()
+    directory = _ensure_knowledge_base_seed(base)
+    cleaned = (entry_path or "").strip().strip("/")
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Knowledge entry path is required")
+    parts = Path(cleaned).parts
+    if ".." in parts:
+        raise HTTPException(status_code=400, detail="Invalid knowledge entry path")
+    if parts and parts[0] == base["slug"]:
+        parts = parts[1:]
+    target = (directory / Path(*parts)).resolve()
+    if directory not in target.parents or target.suffix.lower() != ".md" or not target.is_file():
+        raise HTTPException(status_code=404, detail="Knowledge entry not found")
+    try:
+        content = target.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not read knowledge entry: {exc}") from exc
+    return {
+        "ok": True,
+        "base": base["slug"],
+        "entry": {
+            **_knowledge_entry_summary(target, root),
+            "content": content,
+        },
     }
 
 
@@ -12564,6 +12598,7 @@ async def start_mission_control_profile_message(profile: str, payload: MissionCo
             _log.exception("Failed to queue Mission Control team Kanban tasks")
             label = team_definition.get("label") or board_slug
             raise HTTPException(status_code=500, detail=f"Could not queue {label} team: {exc}") from exc
+        _ACTION_PROC_PROFILES[action_name] = profile_name
         return {
             "ok": True,
             "profile": profile_name,
@@ -12668,6 +12703,33 @@ async def get_mission_control_activity():
         "background_processes": processes,
         "subagents": subagents,
     }
+
+
+@app.post("/api/mission-control/ding")
+async def play_mission_control_ding(body: MissionControlDingRequest):
+    """Play a local host notification sound for Mission Control."""
+    kind = (body.kind or "approval").strip().lower()
+    if kind not in {"approval", "done"}:
+        raise HTTPException(status_code=400, detail="kind must be 'approval' or 'done'")
+
+    if sys.platform == "darwin":
+        sound = "Glass.aiff" if kind == "approval" else "Pop.aiff"
+        sound_path = Path("/System/Library/Sounds") / sound
+        if not sound_path.exists():
+            raise HTTPException(status_code=503, detail=f"System sound not found: {sound}")
+        try:
+            subprocess.Popen(
+                ["afplay", str(sound_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Could not play sound: {exc}") from exc
+        return {"ok": True, "kind": kind, "method": "afplay", "sound": sound}
+
+    print("\a", end="", flush=True)
+    return {"ok": True, "kind": kind, "method": "terminal-bell"}
 
 
 @app.websocket("/api/pty")

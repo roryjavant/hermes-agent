@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
+  CalendarDays,
   Check,
   ChevronRight,
   FileText,
   FolderClosed,
   FolderOpen,
+  HardDrive,
   Loader2,
   Plus,
   Search,
   Sparkles,
+  X,
 } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { api } from "@/lib/api";
-import type { KnowledgeBaseSummary, KnowledgeBaseTreeNode } from "@/lib/api";
+import type { KnowledgeBaseEntryDetail, KnowledgeBaseEntrySummary, KnowledgeBaseSummary, KnowledgeBaseTreeNode } from "@/lib/api";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { cn } from "@/lib/utils";
 
 type Tone = "cyan" | "amber" | "violet";
@@ -98,6 +102,24 @@ function collectFolderPaths(node: KnowledgeBaseTreeNode): string[] {
   return [node.relative_path, ...node.children.flatMap((child) => collectFolderPaths(child))];
 }
 
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatUpdatedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function FileTree({
   node,
   depth = 0,
@@ -105,6 +127,7 @@ function FileTree({
   selectedFolder,
   onToggleFolder,
   onSelectFolder,
+  onOpenEntry,
 }: {
   node: KnowledgeBaseTreeNode;
   depth?: number;
@@ -112,23 +135,24 @@ function FileTree({
   selectedFolder: string;
   onToggleFolder: (path: string) => void;
   onSelectFolder: (path: string) => void;
+  onOpenEntry: (entry: KnowledgeBaseEntrySummary) => void;
 }) {
   if (node.type === "file") {
     return (
-      <div
-        className="grid grid-cols-[auto_1fr_auto] items-start gap-3 border-b border-border/40 px-3 py-2.5 last:border-b-0"
+      <button
+        type="button"
+        onClick={() => onOpenEntry(node.entry)}
+        className="group grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-border/40 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-midground/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-midground/60"
         style={{ paddingLeft: `${12 + depth * 16}px` }}
       >
-        <FileText className="mt-0.5 size-3.5 shrink-0 text-text-tertiary" />
+        <FileText className="size-3.5 shrink-0 text-text-tertiary transition-colors group-hover:text-midground" />
         <div className="min-w-0">
           <div className="truncate text-[13px] font-semibold text-foreground">{node.entry.title}</div>
-          <div className="mt-0.5 truncate font-mono text-[10px] text-text-tertiary">{node.entry.relative_path}</div>
-          {node.entry.excerpt ? (
-            <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-text-secondary">{node.entry.excerpt}</p>
-          ) : null}
         </div>
-        <span className="rounded border border-border/50 bg-black/20 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-text-tertiary">.md</span>
-      </div>
+        <span className="rounded-full border border-border/50 bg-black/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-text-tertiary transition-colors group-hover:border-midground/40 group-hover:text-foreground">
+          Open
+        </span>
+      </button>
     );
   }
 
@@ -183,6 +207,7 @@ function FileTree({
               selectedFolder={selectedFolder}
               onToggleFolder={onToggleFolder}
               onSelectFolder={onSelectFolder}
+              onOpenEntry={onOpenEntry}
             />
           ))
         ) : !isRoot ? (
@@ -219,9 +244,19 @@ export default function KnowledgeBasePage() {
   const [newBaseTitle, setNewBaseTitle] = useState("");
   const [newBaseSlug, setNewBaseSlug] = useState("");
   const [newBaseDescription, setNewBaseDescription] = useState("");
+  const [selectedEntry, setSelectedEntry] = useState<KnowledgeBaseEntrySummary | null>(null);
+  const [entryDetail, setEntryDetail] = useState<KnowledgeBaseEntryDetail | null>(null);
+  const [entryLoading, setEntryLoading] = useState(false);
+  const [entryError, setEntryError] = useState("");
 
   const active = useMemo(() => data.find((base) => base.slug === activeSlug) ?? null, [data, activeSlug]);
   const tone = TONES[TONE_BY_SLUG[active?.slug ?? ""] ?? "cyan"];
+  const closeEntryModal = useCallback(() => {
+    setSelectedEntry(null);
+    setEntryDetail(null);
+    setEntryError("");
+  }, []);
+  const entryModalRef = useModalBehavior({ open: selectedEntry !== null, onClose: closeEntryModal });
 
   const refresh = async () => {
     setError("");
@@ -318,6 +353,22 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  const handleOpenEntry = async (entry: KnowledgeBaseEntrySummary) => {
+    if (!active) return;
+    setSelectedEntry(entry);
+    setEntryDetail(null);
+    setEntryError("");
+    setEntryLoading(true);
+    try {
+      const detail = await api.getKnowledgeBaseEntry(active.slug, entry.relative_path);
+      setEntryDetail(detail.entry);
+    } catch (err) {
+      setEntryError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setEntryLoading(false);
+    }
+  };
+
   return (
     <main className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 p-4 sm:p-6">
       {/* Header */}
@@ -380,6 +431,7 @@ export default function KnowledgeBasePage() {
                 selectedFolder={folder}
                 onToggleFolder={toggleFolder}
                 onSelectFolder={selectFolder}
+                onOpenEntry={handleOpenEntry}
               />
             </div>
           </div>
@@ -571,6 +623,74 @@ export default function KnowledgeBasePage() {
           )}
         </section>
       )}
+
+      {selectedEntry ? (
+        <div
+          ref={entryModalRef}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm"
+          onClick={(event) => event.target === event.currentTarget && closeEntryModal()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="knowledge-entry-title"
+        >
+          <div className="relative flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden border border-border/70 bg-card shadow-2xl shadow-black/45">
+            <button
+              type="button"
+              onClick={closeEntryModal}
+              className="absolute right-3 top-3 grid size-8 place-items-center rounded-full border border-border/60 bg-background-base/80 text-text-tertiary transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
+              aria-label="Close knowledge entry"
+            >
+              <X className="size-4" />
+            </button>
+
+            <header className={cn("border-b bg-gradient-to-r p-5 pr-14", tone.card)}>
+              <p className="font-mono-ui text-[10px] uppercase tracking-[0.2em] text-current/60">Markdown entry</p>
+              <h2 id="knowledge-entry-title" className={cn("mt-2 font-expanded text-2xl font-black uppercase leading-tight tracking-[0.07em]", tone.text)}>
+                {entryDetail?.title ?? selectedEntry.title}
+              </h2>
+              <div className="mt-4 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.12em] text-current/60">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-current/20 bg-black/20 px-2.5 py-1">
+                  <FolderClosed className="size-3" />
+                  {(entryDetail ?? selectedEntry).folder_path || "root"}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-current/20 bg-black/20 px-2.5 py-1">
+                  <CalendarDays className="size-3" />
+                  {formatUpdatedAt((entryDetail ?? selectedEntry).updated_at)}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-current/20 bg-black/20 px-2.5 py-1">
+                  <HardDrive className="size-3" />
+                  {formatBytes((entryDetail ?? selectedEntry).size_bytes)}
+                </span>
+              </div>
+            </header>
+
+            <div className="flex-1 overflow-auto p-5">
+              {entryLoading ? (
+                <div className="flex items-center gap-2 border border-border/60 bg-background-base/60 p-4 text-sm text-text-secondary">
+                  <Loader2 className="size-4 animate-spin" /> Loading note…
+                </div>
+              ) : entryError ? (
+                <div className="border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{entryError}</div>
+              ) : (
+                <div className="grid gap-4">
+                  <div className="rounded border border-border/60 bg-background-base/60 px-3 py-2 font-mono text-[11px] text-text-tertiary">
+                    {(entryDetail ?? selectedEntry).relative_path}
+                  </div>
+                  {entryDetail?.content ? (
+                    <pre className="max-h-[48vh] overflow-auto whitespace-pre-wrap border border-border/60 bg-background-base/70 p-4 font-mono text-xs leading-6 text-text-secondary">
+                      {entryDetail.content}
+                    </pre>
+                  ) : selectedEntry.excerpt ? (
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-text-secondary">{selectedEntry.excerpt}</p>
+                  ) : (
+                    <p className="text-sm italic text-text-tertiary">No preview available.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
