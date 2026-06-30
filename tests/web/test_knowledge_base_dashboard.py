@@ -48,8 +48,13 @@ def test_knowledge_base_page_is_markdown_first_and_seeded_with_research_bases():
     assert "Folder hint:" in source
     assert "folder" in source
     assert "api.getKnowledgeBases" in source
+    assert "api.createKnowledgeBase" in source
     assert "api.createKnowledgeBaseEntry" in source
+    assert "Create knowledge base" in source
+    assert "New workspace" in source
     assert 'fetchJSON<KnowledgeBasesResponse>("/api/knowledge-bases")' in api_source
+    assert "createKnowledgeBase" in api_source
+    assert "KnowledgeBaseCreateResponse" in api_source
     assert "startKnowledgeBaseResearchJob" in api_source
     assert "KnowledgeBaseResearchJobResponse" in api_source
     assert 'research-jobs' in api_source

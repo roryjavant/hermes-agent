@@ -16,6 +16,7 @@ import base64
 import binascii
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import hmac
 import importlib.util
 import json
@@ -124,6 +125,11 @@ class PrivateIdeaCreate(BaseModel):
 class PrivateIdeaUpdate(BaseModel):
     title: Optional[str] = None
     body: Optional[str] = None
+
+
+class MissionControlProfileMessageCreate(BaseModel):
+    message: str
+
 
 # ---------------------------------------------------------------------------
 # Per-channel subscriber registry used by /api/pub (PTY-side gateway → dashboard)
@@ -776,6 +782,13 @@ class KnowledgeBaseEntryCreate(BaseModel):
     folder: str = ""
 
 
+class KnowledgeBaseCreate(BaseModel):
+    title: str
+    slug: str = ""
+    kicker: str = ""
+    description: str = ""
+
+
 class KnowledgeBaseResearchJobCreate(BaseModel):
     subject: str
     instructions: str = ""
@@ -783,6 +796,7 @@ class KnowledgeBaseResearchJobCreate(BaseModel):
 
 
 _KNOWLEDGE_BASE_ROOT_ENV = "HERMES_KNOWLEDGE_BASE_ROOT"
+_KNOWLEDGE_BASE_METADATA_FILE = ".knowledge-base.json"
 _KNOWLEDGE_BASES = [
     {
         "slug": "juror-research",
@@ -819,9 +833,77 @@ def _safe_knowledge_slug(value: str) -> str:
     return slug
 
 
+def _title_from_knowledge_slug(slug: str) -> str:
+    return " ".join(part for part in slug.split("-") if part).title() or slug
+
+
+def _knowledge_base_metadata_path(directory: Path) -> Path:
+    return directory / _KNOWLEDGE_BASE_METADATA_FILE
+
+
+def _knowledge_base_from_directory(directory: Path) -> Optional[Dict[str, str]]:
+    if not directory.is_dir() or directory.name.startswith("."):
+        return None
+    try:
+        slug = _safe_knowledge_slug(directory.name)
+    except HTTPException:
+        return None
+    if slug != directory.name:
+        return None
+
+    metadata: Dict[str, Any] = {}
+    metadata_path = _knowledge_base_metadata_path(directory)
+    if metadata_path.is_file():
+        try:
+            loaded = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                metadata = loaded
+        except (OSError, json.JSONDecodeError):
+            metadata = {}
+
+    title = str(metadata.get("title") or "").strip()
+    if not title:
+        readme = directory / "README.md"
+        if readme.is_file():
+            try:
+                for line in readme.read_text(encoding="utf-8", errors="replace").splitlines():
+                    stripped = line.strip()
+                    if stripped.startswith("# "):
+                        title = stripped[2:].replace(" Knowledge Base", "").strip()
+                        break
+            except OSError:
+                title = ""
+    title = title or _title_from_knowledge_slug(slug)
+    kicker = str(metadata.get("kicker") or "").strip() or "Custom knowledge"
+    description = str(metadata.get("description") or "").strip()
+    if not description:
+        description = "Markdown notes and research artifacts for this custom knowledge base."
+    return {
+        "slug": slug,
+        "title": title,
+        "kicker": kicker,
+        "description": description,
+    }
+
+
+def _knowledge_base_definitions() -> List[Dict[str, str]]:
+    root = _knowledge_base_root()
+    root.mkdir(parents=True, exist_ok=True)
+    definitions = [dict(base) for base in _KNOWLEDGE_BASES]
+    known_slugs = {base["slug"] for base in definitions}
+    dynamic: List[Dict[str, str]] = []
+    for directory in sorted(root.iterdir(), key=lambda item: item.name.lower()):
+        discovered = _knowledge_base_from_directory(directory)
+        if discovered is None or discovered["slug"] in known_slugs:
+            continue
+        dynamic.append(discovered)
+        known_slugs.add(discovered["slug"])
+    return definitions + dynamic
+
+
 def _known_knowledge_base(slug: str) -> Dict[str, str]:
     safe = _safe_knowledge_slug(slug)
-    for base in _KNOWLEDGE_BASES:
+    for base in _knowledge_base_definitions():
         if base["slug"] == safe:
             return base
     raise HTTPException(status_code=404, detail=f"Unknown knowledge base: {slug}")
@@ -847,8 +929,10 @@ def _ensure_knowledge_base_seed(base: Dict[str, str]) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     readme = directory / "README.md"
     if not readme.exists():
+        title = base["title"]
+        heading = title if "knowledge base" in title.lower() else f"{title} Knowledge Base"
         readme.write_text(
-            f"# {base['title']} Knowledge Base\n\n"
+            f"# {heading}\n\n"
             f"{base['description']}\n\n"
             "Entries in this folder are Markdown files created by the Hermes dashboard Knowledge Base tab.\n",
             encoding="utf-8",
@@ -923,6 +1007,7 @@ def _knowledge_tree(directory: Path, root: Path) -> Dict[str, Any]:
 
 def _knowledge_research_prompt(base: Dict[str, str], subject: str, instructions: str, folder_hint: str) -> str:
     directory = _ensure_knowledge_base_seed(base)
+    root = _knowledge_base_root()
     hint = (folder_hint or "").strip() or "decide the appropriate folder structure"
     extra = (instructions or "").strip()
     return (
@@ -934,8 +1019,10 @@ def _knowledge_research_prompt(base: Dict[str, str], subject: str, instructions:
         "those profiles from this chat, still perform the handoff sections in that order and label each role's contribution.\n\n"
         f"Research subject: {subject}\n"
         f"Destination knowledge base: {base['title']} ({base['slug']})\n"
+        f"Global knowledge base root: {root}\n"
         f"Destination folder root: {directory}\n"
         f"Folder guidance: {hint}\n\n"
+        "If Rory explicitly asks to create a new knowledge base, create a new safe slug-named sibling folder directly under the global knowledge base root, add a README.md describing it, and write the requested Markdown there instead of filing it under the currently selected destination.\n\n"
         "Task:\n"
         "1. Research the subject using available tools and cite source URLs when web sources are used.\n"
         "2. Keep provenance visible: include source URLs, access dates when available, confidence/caveat notes, and open questions.\n"
@@ -1698,7 +1785,7 @@ async def create_managed_directory(payload: ManagedDirectoryCreate, request: Req
 async def list_knowledge_bases():
     root = _knowledge_base_root()
     bases = []
-    for base in _KNOWLEDGE_BASES:
+    for base in _knowledge_base_definitions():
         directory = _ensure_knowledge_base_seed(base)
         entries = [
             _knowledge_entry_summary(path, root)
@@ -1717,6 +1804,50 @@ async def list_knowledge_bases():
         "root": str(root),
         "storage": "markdown",
         "bases": bases,
+    }
+
+
+@app.post("/api/knowledge-bases")
+async def create_knowledge_base(payload: KnowledgeBaseCreate):
+    title = (payload.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Knowledge base title is required")
+    slug = _safe_knowledge_slug(payload.slug or title)
+    root = _knowledge_base_root()
+    root.mkdir(parents=True, exist_ok=True)
+    target = (root / slug).resolve()
+    if root not in target.parents and target != root:
+        raise HTTPException(status_code=400, detail="Invalid knowledge base path")
+    if target.exists():
+        raise HTTPException(status_code=409, detail=f"Knowledge base already exists: {slug}")
+
+    base = {
+        "slug": slug,
+        "title": title,
+        "kicker": (payload.kicker or "").strip() or "Custom knowledge",
+        "description": (payload.description or "").strip()
+        or "Markdown notes and research artifacts for this custom knowledge base.",
+    }
+    target.mkdir(parents=True, exist_ok=False)
+    _knowledge_base_metadata_path(target).write_text(
+        json.dumps(base, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    directory = _ensure_knowledge_base_seed(base)
+    entries = [
+        _knowledge_entry_summary(path, root)
+        for path in sorted(directory.rglob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)
+    ]
+    return {
+        "ok": True,
+        "base": {
+            **base,
+            "path": str(directory),
+            "entry_count": len(entries),
+            "folder_count": sum(1 for item in directory.rglob("*") if item.is_dir()),
+            "entries": entries[:12],
+            "tree": _knowledge_tree(directory, root),
+        },
     }
 
 
@@ -1767,6 +1898,18 @@ async def start_knowledge_base_research_job(slug: str, payload: KnowledgeBaseRes
 
     prompt = _knowledge_research_prompt(base, subject, payload.instructions, payload.folder_hint)
     profile = "hresearchstrategist"
+    research_definition = next(d for d in _PROFILE_TEAM_DEFINITIONS if d["team_id"] == "hermes-research")
+    try:
+        task_ids = _ensure_profile_team_kanban(
+            research_definition,
+            f"Subject: {subject}\n\nInstructions:\n{payload.instructions or ''}\n\nFolder hint: {payload.folder_hint or ''}",
+            "knowledge-base-research-job",
+        )
+        dispatch_proc, dispatch_reused = _spawn_profile_team_dispatch(research_definition)
+    except Exception as exc:
+        _log.exception("Failed to queue Hermes Research knowledge-base Kanban tasks")
+        raise HTTPException(status_code=500, detail=f"Could not queue Hermes Research team: {exc}") from exc
+    dispatch_action_name = f"mission-control-{_team_board_slug(research_definition)}-dispatch"
     proc = _spawn_hermes_action(
         ["-p", profile, "chat", "--source", "knowledge-base", "--quiet", "-q", prompt],
         action_name,
@@ -1778,7 +1921,14 @@ async def start_knowledge_base_research_job(slug: str, payload: KnowledgeBaseRes
         "profile": profile,
         "action_name": action_name,
         "pid": proc.pid,
-        "message": "Research agent started. It will decide folders and write Markdown files into this knowledge base.",
+        "dispatch_action_name": dispatch_action_name,
+        "dispatch_pid": dispatch_proc.pid if dispatch_proc else None,
+        "dispatch_reused": dispatch_reused,
+        "board": _team_board_slug(research_definition),
+        "workflow": _team_workflow_steps(research_definition),
+        "workflow_summary": _team_workflow_summary(research_definition),
+        "task_ids": task_ids,
+        "message": "Research agent started and Hermes Research team tasks were queued for dispatch.",
     }
 
 
@@ -2389,7 +2539,11 @@ def _record_completed_action(name: str, message: str, exit_code: int = 1) -> Non
     _ACTION_RESULTS[name] = {"exit_code": exit_code, "pid": None}
 
 
-def _spawn_hermes_action(subcommand: List[str], name: str) -> subprocess.Popen:
+def _spawn_hermes_action(
+    subcommand: List[str],
+    name: str,
+    env_overrides: Optional[Dict[str, str]] = None,
+) -> subprocess.Popen:
     """Spawn ``hermes <subcommand>`` detached and record the Popen handle.
 
     Uses the running interpreter's ``hermes_cli.main`` module so the action
@@ -2405,12 +2559,16 @@ def _spawn_hermes_action(subcommand: List[str], name: str) -> subprocess.Popen:
 
     cmd = [sys.executable, "-m", "hermes_cli.main", *subcommand]
 
+    action_env = {**os.environ, "HERMES_NONINTERACTIVE": "1"}
+    if env_overrides:
+        action_env.update(env_overrides)
+
     popen_kwargs: Dict[str, Any] = {
         "cwd": str(PROJECT_ROOT),
         "stdin": subprocess.DEVNULL,
         "stdout": log_file,
         "stderr": subprocess.STDOUT,
-        "env": {**os.environ, "HERMES_NONINTERACTIVE": "1"},
+        "env": action_env,
     }
     if sys.platform == "win32":
         popen_kwargs["creationflags"] = (
@@ -11632,6 +11790,34 @@ def _has_dashboard_ancestor(pid: int, process_table: Dict[int, Dict[str, Any]]) 
     return False
 
 
+def _has_dashboard_action_ancestor(pid: int, process_table: Dict[int, Dict[str, Any]]) -> bool:
+    """Return True when a process descends from a dashboard-spawned action job."""
+    action_pids = {
+        int(proc.pid)
+        for proc in _ACTION_PROCS.values()
+        if proc is not None and proc.poll() is None
+    }
+    if not action_pids:
+        return False
+
+    seen: set[int] = set()
+    current = pid
+    while current not in seen:
+        if current in action_pids:
+            return True
+        seen.add(current)
+        process = process_table.get(current)
+        if not process:
+            return False
+        try:
+            current = int(process.get("ppid") or -1)
+        except (TypeError, ValueError):
+            return False
+        if current <= 0:
+            return False
+    return False
+
+
 def _is_claude_code_command(command: str) -> bool:
     """Return True when the command is a Claude Code CLI session (not login/setup)."""
     if not (command == "claude" or command.startswith("claude ") or "claude.exe" in command or "@anthropic-ai/claude-code" in command):
@@ -11685,9 +11871,10 @@ def _snapshot_local_agent_processes(process_table: Optional[Dict[int, Dict[str, 
         if "hermes" in command:
             is_cli = "/bin/hermes" in command or "-m hermes_cli.main" in command or command.startswith("hermes ")
             is_tui = "ui-tui/dist/entry.js" in command
+            is_dashboard_action = _has_dashboard_action_ancestor(pid, process_table)
             if (is_cli or is_tui) and not (
                 _is_dashboard_process_command(command)
-                or _has_dashboard_ancestor(pid, process_table)
+                or (_has_dashboard_ancestor(pid, process_table) and not is_dashboard_action)
                 or any(token in command for token in ["slash_worker", "tools_mcp_server"])
             ):
                 hermes_candidates.append((pid, process, is_cli, is_tui))
@@ -11901,6 +12088,12 @@ _PROFILE_TEAM_DEFINITIONS = [
         "project_path": "/Users/roryavant/Dev/juror-research",
         "orchestrator": "jrplanner",
         "profiles": ["jrplanner", "jrbuilder", "jrreviewer", "jrsynth", "jrcurator"],
+        "workflow": [
+            {"label": "Plan", "mode": "sequence", "profiles": ["jrplanner"]},
+            {"label": "Build", "mode": "sequence", "profiles": ["jrbuilder"]},
+            {"label": "Review", "mode": "sequence", "profiles": ["jrreviewer"]},
+            {"label": "Synthesize + curate", "mode": "parallel", "profiles": ["jrsynth", "jrcurator"]},
+        ],
     },
     {
         "team_id": "hermes-agent",
@@ -11908,6 +12101,12 @@ _PROFILE_TEAM_DEFINITIONS = [
         "project_path": "/Users/roryavant/Dev/hermes-team-ui",
         "orchestrator": "hermesplanner",
         "profiles": ["hermesplanner", "hermesbuilder", "hermesreviewer", "hermessynth", "hermescurator"],
+        "workflow": [
+            {"label": "Plan", "mode": "sequence", "profiles": ["hermesplanner"]},
+            {"label": "Build", "mode": "sequence", "profiles": ["hermesbuilder"]},
+            {"label": "Review", "mode": "sequence", "profiles": ["hermesreviewer"]},
+            {"label": "Synthesize + curate", "mode": "parallel", "profiles": ["hermessynth", "hermescurator"]},
+        ],
     },
     {
         "team_id": "agent-arena",
@@ -11915,6 +12114,12 @@ _PROFILE_TEAM_DEFINITIONS = [
         "project_path": "/Users/roryavant/Dev/agent-arena",
         "orchestrator": "aaplanner",
         "profiles": ["aaplanner", "aaimplementor", "aadesigner", "aavisionqa", "aacurator"],
+        "workflow": [
+            {"label": "Plan", "mode": "sequence", "profiles": ["aaplanner"]},
+            {"label": "Implement + design", "mode": "parallel", "profiles": ["aaimplementor", "aadesigner"]},
+            {"label": "Visual QA", "mode": "sequence", "profiles": ["aavisionqa"]},
+            {"label": "Curate", "mode": "sequence", "profiles": ["aacurator"]},
+        ],
     },
     {
         "team_id": "hermes-marketing",
@@ -11931,6 +12136,12 @@ _PROFILE_TEAM_DEFINITIONS = [
             "hmarketingbrand",
             "hmarketingassets",
         ],
+        "workflow": [
+            {"label": "Strategy", "mode": "sequence", "profiles": ["hmarketingstrategist"]},
+            {"label": "Ideate", "mode": "sequence", "profiles": ["hmarketingideation"]},
+            {"label": "Draft + schedule + assets", "mode": "parallel", "profiles": ["hmarketingcopywriter", "hmarketingcalendar", "hmarketingassets"]},
+            {"label": "Analytics + growth + brand review", "mode": "parallel", "profiles": ["hmarketinganalytics", "hmarketinggrowth", "hmarketingbrand"]},
+        ],
     },
     {
         "team_id": "hermes-marketing-dev",
@@ -11938,6 +12149,11 @@ _PROFILE_TEAM_DEFINITIONS = [
         "project_path": "/Users/roryavant/Dev/hermes-marketing",
         "orchestrator": "hmarketingplanner",
         "profiles": ["hmarketingplanner", "hmarketingbuilder", "hmarketingreviewer"],
+        "workflow": [
+            {"label": "Plan", "mode": "sequence", "profiles": ["hmarketingplanner"]},
+            {"label": "Build", "mode": "sequence", "profiles": ["hmarketingbuilder"]},
+            {"label": "Review", "mode": "sequence", "profiles": ["hmarketingreviewer"]},
+        ],
     },
     {
         "team_id": "hermes-research",
@@ -11951,6 +12167,13 @@ _PROFILE_TEAM_DEFINITIONS = [
             "hresearchsynth",
             "hresearchfactcheck",
             "hresearchcurator",
+        ],
+        "workflow": [
+            {"label": "Strategy", "mode": "sequence", "profiles": ["hresearchstrategist"]},
+            {"label": "Source scout", "mode": "sequence", "profiles": ["hresearchscout"]},
+            {"label": "Analyze + fact-check", "mode": "parallel", "profiles": ["hresearchanalyst", "hresearchfactcheck"]},
+            {"label": "Synthesize", "mode": "sequence", "profiles": ["hresearchsynth"]},
+            {"label": "Curate", "mode": "sequence", "profiles": ["hresearchcurator"]},
         ],
     },
 ]
@@ -12042,8 +12265,339 @@ def _snapshot_profile_teams(activities: List[Dict[str, Any]]) -> List[Dict[str, 
                 "compressions": record.get("compressions"),
                 "is_orchestrator": profile == orchestrator_profile,
             })
-        teams.append({**definition, "agents": agents})
+        teams.append({
+            **definition,
+            "workflow": _team_workflow_steps(definition),
+            "workflow_summary": _team_workflow_summary(definition),
+            "agents": agents,
+        })
     return teams
+
+
+def _mission_control_profile_message_prompt(profile_name: str, message: str) -> Tuple[str, Dict[str, str]]:
+    """Build the one-shot prompt/env for a Mission Control profile message."""
+    if profile_name.startswith("hresearch"):
+        base = _known_knowledge_base("hermes-research")
+        research_dir = _knowledge_base_dir("hermes-research")
+        prompt = _knowledge_research_prompt(
+            base,
+            message,
+            (
+                "This request came from the Mission Control profile quick-message composer. "
+                "Treat Rory's message as the complete research brief. Do not stop at the strategy role. "
+                "The work must move through the Hermes Research sequence: strategist scopes the task, "
+                "scout gathers sources, analyst extracts claims and contradictions, factcheck audits citations, "
+                "synth writes the decision-ready brief, and curator files the durable Markdown. "
+                "If literal profile-to-profile spawning/delegation is available, use it for those named profiles; "
+                "if not, perform clearly labeled handoff sections in that exact order before finalizing."
+            ),
+            "derive a subject folder from Rory's requested title or topic",
+        )
+        return prompt, {
+            _KNOWLEDGE_BASE_ROOT_ENV: str(_knowledge_base_root()),
+            "HERMES_RESEARCH_KNOWLEDGE_BASE_DIR": str(research_dir),
+            "TERMINAL_CWD": str(research_dir),
+        }
+
+    return (
+        "You were sent this quick Mission Control message from Rory's dashboard. "
+        "Handle it as this profile. Keep any durable artifacts in your normal profile/team workspace, "
+        "and keep the final response concise because it will be read from the action log or profile session.\n\n"
+        f"Message from Rory:\n{message}"
+    ), {}
+
+
+_TEAM_BOARD_COLORS = {
+    "juror-research": "#22c55e",
+    "hermes-agent": "#8b5cf6",
+    "agent-arena": "#f59e0b",
+    "hermes-marketing": "#ec4899",
+    "hermes-marketing-dev": "#06b6d4",
+    "hermes-research": "#06b6d4",
+}
+
+_TEAM_BOARD_ICONS = {
+    "juror-research": "⚖️",
+    "hermes-agent": "🤖",
+    "agent-arena": "♠️",
+    "hermes-marketing": "📣",
+    "hermes-marketing-dev": "🛠️",
+    "hermes-research": "🔎",
+}
+
+_ROLE_OBJECTIVES = {
+    "strategist": "scope the goal, intended decision, audience, constraints, evidence standard, and acceptance criteria for the team.",
+    "planner": "turn the request into an execution plan with clear slices, dependencies, handoffs, and verification criteria.",
+    "source scout": "find candidate sources, record URLs/titles/dates/why relevant, and avoid source laundering.",
+    "analyst": "extract claims or requirements, separate fact from inference, and call out contradictions/open risks.",
+    "fact checker": "audit source/support quality and block unsupported, stale, or overstated claims.",
+    "synth": "produce a concise decision-ready synthesis from available handoffs with citations or verification notes.",
+    "curator": "file durable artifacts, tags, reusable lessons, and handoff notes in the project workspace.",
+    "builder": "implement the smallest safe vertical slice and report changed files plus verification evidence.",
+    "reviewer": "review the actual output/diff for correctness, regressions, safety, and missing verification.",
+    "implementor": "implement the assigned slice with tests or concrete smoke evidence.",
+    "designer": "shape the user-facing visual/product experience and verify the result against the requested taste/constraints.",
+    "vision qa": "perform visual/OCR/browser QA and report concrete screen evidence and polish blockers.",
+    "ideation": "generate grounded campaign/product angles and pass the strongest candidates forward with rationale.",
+    "copywriter": "draft concise audience-ready copy aligned with the brief and constraints.",
+    "calendar": "turn the plan into scheduled content/actions with dates, owners, and dependencies.",
+    "analytics": "define/read metrics, caveats, and success criteria so results can be evaluated honestly.",
+    "growth": "identify growth loops, distribution opportunities, and testable next experiments.",
+    "brand": "check positioning, voice, visual consistency, and brand risks.",
+    "assets": "identify or produce the concrete asset list and handoff requirements.",
+}
+
+
+def _short_team_task_title(message: str) -> str:
+    words = re.sub(r"\s+", " ", message or "").strip()
+    if not words:
+        return "Mission Control team brief"
+    return words if len(words) <= 72 else f"{words[:69].rstrip()}…"
+
+
+def _team_definition_for_orchestrator(profile_name: str) -> Optional[Dict[str, Any]]:
+    normalized = (profile_name or "").strip()
+    for definition in _PROFILE_TEAM_DEFINITIONS:
+        if definition.get("orchestrator") == normalized:
+            return definition
+    return None
+
+
+def _team_board_slug(definition: Dict[str, Any]) -> str:
+    return str(definition.get("board_slug") or definition["team_id"])
+
+
+def _team_task_prefix(definition: Dict[str, Any]) -> str:
+    letters = re.sub(r"[^A-Za-z0-9]+", " ", str(definition.get("label") or definition["team_id"])).split()
+    prefix = "".join(part[0] for part in letters if part)[:6].upper()
+    return prefix or "TEAM"
+
+
+def _team_workflow_steps(definition: Dict[str, Any]) -> List[Dict[str, Any]]:
+    raw_steps = definition.get("workflow") or []
+    if raw_steps:
+        return [
+            {
+                "label": str(step.get("label") or f"Phase {index + 1}"),
+                "mode": str(step.get("mode") or "sequence"),
+                "profiles": [str(profile) for profile in step.get("profiles", []) if str(profile)],
+            }
+            for index, step in enumerate(raw_steps)
+        ]
+    return [{"label": "Team fanout", "mode": "parallel", "profiles": list(definition.get("profiles") or [])}]
+
+
+def _team_workflow_summary(definition: Dict[str, Any]) -> str:
+    parts = []
+    for index, step in enumerate(_team_workflow_steps(definition), start=1):
+        profiles = ", ".join(step["profiles"])
+        mode = "parallel" if step.get("mode") == "parallel" else "sequence"
+        parts.append(f"{index}. {step['label']} ({mode}): {profiles}")
+    return "\n".join(parts)
+
+
+def _team_task_body(definition: Dict[str, Any], profile: str, message: str, source_label: str) -> str:
+    role = _profile_role(profile)
+    objective = _ROLE_OBJECTIVES.get(role, f"handle the {role} role and produce a concrete handoff for the team.")
+    brief = message.strip() or "No brief text was provided."
+    return (
+        f"Mission Control source: {source_label}\n"
+        f"Team: {definition.get('label') or definition['team_id']}\n"
+        f"Workspace: {definition['project_path']}\n"
+        f"Assigned profile: {profile}\n"
+        f"Role: {role}\n\n"
+        "Rory's brief:\n"
+        f"{brief}\n\n"
+        "Workflow template:\n"
+        f"{_team_workflow_summary(definition)}\n\n"
+        "Team contract:\n"
+        "- Treat this Kanban card as the signal that should light this role in Mission Control.\n"
+        "- Stay inside the assigned workspace and role scope unless the card explicitly says otherwise.\n"
+        "- Do not invent facts, source support, implementation results, or verification evidence.\n"
+        "- Complete with a concise handoff summary, changed/created files if any, commands run, and remaining risks.\n\n"
+        f"Role objective: {objective}\n"
+    )
+
+
+def _ensure_profile_team_kanban(definition: Dict[str, Any], message: str, source_label: str) -> List[str]:
+    """Ensure a profile team has a board plus dispatchable cards for each role."""
+    from hermes_cli import kanban_db as kb
+
+    board_slug = _team_board_slug(definition)
+    project_path = str(definition["project_path"])
+    kb.create_board(
+        board_slug,
+        name=str(definition.get("label") or board_slug),
+        description=f"Profile-team board for {project_path}",
+        icon=_TEAM_BOARD_ICONS.get(str(definition["team_id"]), "👥"),
+        color=_TEAM_BOARD_COLORS.get(str(definition["team_id"]), "#06b6d4"),
+        default_workdir=project_path,
+    )
+    digest = hashlib.sha1(f"{definition['team_id']}\n{source_label}\n{message}".encode("utf-8", errors="replace")).hexdigest()[:12]
+    title = _short_team_task_title(message)
+    prefix = _team_task_prefix(definition)
+    task_ids: List[str] = []
+    task_ids_by_profile: Dict[str, str] = {}
+    previous_phase_ids: List[str] = []
+    conn = kb.connect(board=board_slug)
+    try:
+        for phase_index, step in enumerate(_team_workflow_steps(definition)):
+            phase_ids: List[str] = []
+            for profile_index, profile in enumerate(step["profiles"]):
+                if profile not in definition["profiles"]:
+                    continue
+                role = _profile_role(profile)
+                role_key = re.sub(r"[^a-z0-9]+", "-", role.lower()).strip("-") or profile
+                task_id = kb.create_task(
+                    conn,
+                    title=f"{prefix}-{role_key.upper()} {role.title()}: {title}",
+                    body=_team_task_body(definition, profile, message, source_label),
+                    assignee=profile,
+                    created_by="mission-control",
+                    workspace_kind="dir",
+                    workspace_path=project_path,
+                    tenant="rorypersonal",
+                    priority=100 - (phase_index * 10) - profile_index,
+                    parents=previous_phase_ids,
+                    idempotency_key=f"mission-control:{board_slug}:{digest}:{profile}",
+                    max_runtime_seconds=45 * 60,
+                    board=board_slug,
+                )
+                task_ids.append(task_id)
+                task_ids_by_profile[profile] = task_id
+                phase_ids.append(task_id)
+            if phase_ids:
+                previous_phase_ids = phase_ids
+
+        # Safety net: if a profile is in the team roster but not in the workflow
+        # template, park it behind the last explicit phase instead of silently
+        # omitting it.
+        for index, profile in enumerate(definition["profiles"]):
+            if profile in task_ids_by_profile:
+                continue
+            role = _profile_role(profile)
+            role_key = re.sub(r"[^a-z0-9]+", "-", role.lower()).strip("-") or profile
+            task_ids.append(
+                kb.create_task(
+                    conn,
+                    title=f"{prefix}-{role_key.upper()} {role.title()}: {title}",
+                    body=_team_task_body(definition, profile, message, source_label),
+                    assignee=profile,
+                    created_by="mission-control",
+                    workspace_kind="dir",
+                    workspace_path=project_path,
+                    tenant="rorypersonal",
+                    priority=10 - index,
+                    parents=previous_phase_ids,
+                    idempotency_key=f"mission-control:{board_slug}:{digest}:{profile}",
+                    max_runtime_seconds=45 * 60,
+                    board=board_slug,
+                )
+            )
+    finally:
+        conn.close()
+    return task_ids
+
+
+def _team_first_phase_size(definition: Dict[str, Any]) -> int:
+    for step in _team_workflow_steps(definition):
+        count = len([profile for profile in step["profiles"] if profile in definition.get("profiles", [])])
+        if count:
+            return count
+    return 1
+
+
+def _spawn_profile_team_dispatch(definition: Dict[str, Any]) -> Tuple[Optional[subprocess.Popen], bool]:
+    """Kick the first ready phase for a team board unless one is already in flight."""
+    board_slug = _team_board_slug(definition)
+    action_name = f"mission-control-{board_slug}-dispatch"
+    _ACTION_LOG_FILES.setdefault(action_name, f"{action_name}.log")
+    existing = _ACTION_PROCS.get(action_name)
+    if existing is not None and existing.poll() is None:
+        return existing, True
+    max_workers = str(_team_first_phase_size(definition))
+    proc = _spawn_hermes_action(
+        ["kanban", "--board", board_slug, "dispatch", "--max", max_workers, "--json"],
+        action_name,
+    )
+    return proc, False
+
+
+# Back-compat wrappers used by tests and older dashboard code paths.
+def _ensure_hermes_research_team_kanban(message: str, source_label: str) -> List[str]:
+    definition = next(d for d in _PROFILE_TEAM_DEFINITIONS if d["team_id"] == "hermes-research")
+    return _ensure_profile_team_kanban(definition, message, source_label)
+
+
+def _spawn_hermes_research_dispatch() -> Tuple[Optional[subprocess.Popen], bool]:
+    definition = next(d for d in _PROFILE_TEAM_DEFINITIONS if d["team_id"] == "hermes-research")
+    return _spawn_profile_team_dispatch(definition)
+
+
+@app.post("/api/mission-control/profiles/{profile}/messages")
+async def start_mission_control_profile_message(profile: str, payload: MissionControlProfileMessageCreate):
+    """Send a one-off dashboard message to a profile without navigating to Chat."""
+    profile_name = (profile or "").strip()
+    message = (payload.message or "").strip()
+    if not profile_name:
+        raise HTTPException(status_code=400, detail="Profile is required")
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+    try:
+        available_profiles = _available_profile_names_fast()
+    except Exception:
+        available_profiles = set()
+    if available_profiles and profile_name not in available_profiles:
+        raise HTTPException(status_code=404, detail=f"Profile not found: {profile_name}")
+
+    team_definition = _team_definition_for_orchestrator(profile_name)
+    if team_definition is not None:
+        board_slug = _team_board_slug(team_definition)
+        action_name = f"mission-control-{board_slug}-dispatch"
+        existing = _ACTION_PROCS.get(action_name)
+        if existing is not None and existing.poll() is None:
+            raise HTTPException(status_code=409, detail=f"{team_definition.get('label', board_slug)} is already dispatching Mission Control team work")
+        try:
+            task_ids = _ensure_profile_team_kanban(team_definition, message, "mission-control-profile-message")
+            proc, reused = _spawn_profile_team_dispatch(team_definition)
+        except Exception as exc:
+            _log.exception("Failed to queue Mission Control team Kanban tasks")
+            label = team_definition.get("label") or board_slug
+            raise HTTPException(status_code=500, detail=f"Could not queue {label} team: {exc}") from exc
+        return {
+            "ok": True,
+            "profile": profile_name,
+            "action_name": action_name,
+            "pid": proc.pid if proc else None,
+            "reused": reused,
+            "board": board_slug,
+            "team_id": team_definition["team_id"],
+            "workflow": _team_workflow_steps(team_definition),
+            "workflow_summary": _team_workflow_summary(team_definition),
+            "task_ids": task_ids,
+            "message": f"{team_definition.get('label', board_slug)} team tasks queued and dispatcher started.",
+        }
+
+    action_name = f"mission-control-profile-message-{profile_name}"
+    _ACTION_LOG_FILES.setdefault(action_name, f"{action_name}.log")
+    existing = _ACTION_PROCS.get(action_name)
+    if existing is not None and existing.poll() is None:
+        raise HTTPException(status_code=409, detail=f"{profile_name} is already handling a Mission Control message")
+
+    prompt, env_overrides = _mission_control_profile_message_prompt(profile_name, message)
+    proc = _spawn_hermes_action(
+        ["-p", profile_name, "chat", "--source", "mission-control", "--quiet", "-q", prompt],
+        action_name,
+        env_overrides=env_overrides,
+    )
+    _ACTION_PROC_PROFILES[action_name] = profile_name
+    return {
+        "ok": True,
+        "profile": profile_name,
+        "action_name": action_name,
+        "pid": proc.pid,
+        "message": f"Message sent to {profile_name} from Mission Control.",
+    }
 
 
 @app.get("/api/mission-control/activity")
@@ -12084,15 +12638,16 @@ async def get_mission_control_activity():
     )
     activities = _dedupe_local_activities(activities, process_table)
     # Surface dashboard-spawned action jobs that _snapshot_local_agent_processes
-    # skips (they are children of the dashboard process).
-    live_profiles = {str(r.get("profile") or "") for r in activities}
+    # skips (they are children of the dashboard process). Always append these
+    # synthetic rows while running: an idle embedded profile chat may also be
+    # present for the same profile, but the action row is the live working state
+    # Mission Control needs to show.
     _now = time.time()
     for action_name, profile in _ACTION_PROC_PROFILES.items():
-        if profile in live_profiles:
-            continue
         proc = _ACTION_PROCS.get(action_name)
         if proc is None or proc.poll() is not None:
             continue
+        detail = "profile message" if action_name.startswith("mission-control-profile-message-") else "knowledge base research"
         activities.append({
             "activity_id": f"action:{action_name}:{proc.pid}",
             "pid": proc.pid,
@@ -12101,7 +12656,7 @@ async def get_mission_control_activity():
             "session_id": "",
             "cwd": str(PROJECT_ROOT),
             "status": "working",
-            "detail": "knowledge base research",
+            "detail": detail,
             "started_at": _now,
             "last_seen": _now,
         })

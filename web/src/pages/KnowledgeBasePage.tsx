@@ -215,6 +215,10 @@ export default function KnowledgeBasePage() {
   const [launchingResearch, setLaunchingResearch] = useState(false);
   const [researchStatus, setResearchStatus] = useState("");
   const [rightTab, setRightTab] = useState<RightTab>("research");
+  const [creatingBase, setCreatingBase] = useState(false);
+  const [newBaseTitle, setNewBaseTitle] = useState("");
+  const [newBaseSlug, setNewBaseSlug] = useState("");
+  const [newBaseDescription, setNewBaseDescription] = useState("");
 
   const active = useMemo(() => data.find((base) => base.slug === activeSlug) ?? null, [data, activeSlug]);
   const tone = TONES[TONE_BY_SLUG[active?.slug ?? ""] ?? "cyan"];
@@ -290,6 +294,27 @@ export default function KnowledgeBasePage() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLaunchingResearch(false);
+    }
+  };
+
+  const handleCreateBase = async () => {
+    setCreatingBase(true);
+    setError("");
+    try {
+      const result = await api.createKnowledgeBase({
+        title: newBaseTitle,
+        slug: newBaseSlug,
+        description: newBaseDescription,
+      });
+      setNewBaseTitle("");
+      setNewBaseSlug("");
+      setNewBaseDescription("");
+      await refresh();
+      setActiveSlug(result.base.slug);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreatingBase(false);
     }
   };
 
@@ -493,8 +518,50 @@ export default function KnowledgeBasePage() {
       ) : (
         /* List view */
         <section className="grid gap-4 lg:grid-cols-3">
+          <div className="relative overflow-hidden border border-dashed border-border/70 bg-background-base/60 p-5 shadow-2xl shadow-black/15">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="mb-2 font-mono-ui text-[10px] uppercase tracking-[0.2em] text-text-tertiary">New workspace</p>
+                <h2 className="font-expanded text-xl font-black uppercase leading-tight tracking-[0.08em] text-foreground">
+                  Create knowledge base
+                </h2>
+              </div>
+              <span className="grid size-11 shrink-0 place-items-center rounded-2xl border border-border/60 bg-black/24 text-text-secondary">
+                <Plus className="size-5" />
+              </span>
+            </div>
+            <div className="flex flex-col gap-3">
+              <input
+                value={newBaseTitle}
+                onChange={(e) => setNewBaseTitle(e.target.value)}
+                placeholder="Name, e.g. Client Intake Research"
+                className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+              />
+              <input
+                value={newBaseSlug}
+                onChange={(e) => setNewBaseSlug(e.target.value)}
+                placeholder="Optional slug"
+                className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+              />
+              <textarea
+                value={newBaseDescription}
+                onChange={(e) => setNewBaseDescription(e.target.value)}
+                placeholder="Optional description for the card"
+                rows={3}
+                className="w-full resize-none border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm leading-5 text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+              />
+              <Button
+                onClick={handleCreateBase}
+                disabled={creatingBase || !newBaseTitle.trim()}
+                className="w-full justify-center gap-2"
+              >
+                {creatingBase ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                {creatingBase ? "Creating…" : "Create knowledge base"}
+              </Button>
+            </div>
+          </div>
           {loading ? (
-            <div className="col-span-full flex items-center gap-2 border border-border/60 bg-card/70 p-5 text-sm text-text-secondary">
+            <div className="flex items-center gap-2 border border-border/60 bg-card/70 p-5 text-sm text-text-secondary">
               <Loader2 className="size-4 animate-spin" /> Loading…
             </div>
           ) : (

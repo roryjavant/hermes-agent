@@ -322,6 +322,52 @@ class TestWebServerEndpoints:
                 "synthesis",
             }
 
+    def test_knowledge_base_create_base_writes_markdown_workspace(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+
+        resp = self.client.post(
+            "/api/knowledge-bases",
+            json={
+                "title": "Client Intake Research",
+                "slug": "client-intake-research",
+                "description": "Research notes for client intake automation.",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        base = data["base"]
+        assert base["slug"] == "client-intake-research"
+        assert base["title"] == "Client Intake Research"
+        directory = Path(base["path"])
+        assert directory.is_dir()
+        assert (directory / ".knowledge-base.json").is_file()
+        assert (directory / "README.md").is_file()
+        assert {child["name"] for child in base["tree"]["children"] if child["type"] == "folder"} == {
+            "research-briefs",
+            "sources",
+            "synthesis",
+        }
+
+        listed = self.client.get("/api/knowledge-bases").json()["bases"]
+        assert "client-intake-research" in [item["slug"] for item in listed]
+
+    def test_knowledge_base_discovers_existing_slug_directories(self, tmp_path, monkeypatch):
+        root = tmp_path / "kb"
+        directory = root / "new-market-scan"
+        directory.mkdir(parents=True)
+        (directory / "README.md").write_text("# New Market Scan\n\nAd hoc notes.\n", encoding="utf-8")
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(root))
+
+        resp = self.client.get("/api/knowledge-bases")
+
+        assert resp.status_code == 200
+        bases = resp.json()["bases"]
+        discovered = next(base for base in bases if base["slug"] == "new-market-scan")
+        assert discovered["title"] == "New Market Scan"
+        assert discovered["path"] == str(directory)
+
     def test_knowledge_base_create_entry_writes_markdown(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
 
@@ -371,9 +417,10 @@ class TestWebServerEndpoints:
 
         captured = {}
 
-        def fake_spawn(subcommand, name):
+        def fake_spawn(subcommand, name, env_overrides=None):
             captured["subcommand"] = subcommand
             captured["name"] = name
+            captured["env_overrides"] = env_overrides
             return DummyProc()
 
         monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
@@ -395,11 +442,87 @@ class TestWebServerEndpoints:
         prompt = captured["subcommand"][-1]
         assert "Research subject: trial theme patterns" in prompt
         assert "Destination knowledge base: Juror Research" in prompt
+        assert "Global knowledge base root:" in prompt
         assert "Folder guidance: trial-themes" in prompt
+        assert "If Rory explicitly asks to create a new knowledge base" in prompt
         assert "You are hresearchstrategist" in prompt
         assert "Start the work at the strategy role, then move it through the research team" in prompt
         assert "hresearchcurator files the durable Markdown output in the knowledge base" in prompt
         assert "Do not write the Knowledge Base output into the current repo" in prompt
+
+    def test_mission_control_profile_message_spawns_profile_action(self, monkeypatch):
+        from hermes_cli import web_server
+
+        class DummyProc:
+            pid = 24680
+
+            def poll(self):
+                return None
+
+        captured = {}
+
+        def fake_spawn(subcommand, name, env_overrides=None):
+            captured["subcommand"] = subcommand
+            captured["name"] = name
+            captured["env_overrides"] = env_overrides
+            return DummyProc()
+
+        monkeypatch.setattr(web_server, "_available_profile_names_fast", lambda: {"hresearchscout"})
+        monkeypatch.setattr(web_server, "_spawn_hermes_action", fake_spawn)
+        web_server._ACTION_PROCS.pop("mission-control-profile-message-hresearchscout", None)
+        web_server._ACTION_PROC_PROFILES.pop("mission-control-profile-message-hresearchscout", None)
+
+        resp = self.client.post(
+            "/api/mission-control/profiles/hresearchscout/messages",
+            json={"message": "Please research juror attention spans."},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["profile"] == "hresearchscout"
+        assert data["action_name"] == "mission-control-profile-message-hresearchscout"
+        assert data["pid"] == 24680
+        assert captured["name"] == "mission-control-profile-message-hresearchscout"
+        assert captured["subcommand"][:3] == ["-p", "hresearchscout", "chat"]
+        assert "--source" in captured["subcommand"]
+        assert "mission-control" in captured["subcommand"]
+        prompt = captured["subcommand"][-1]
+        assert "Knowledge Base dashboard" in prompt
+        assert "This request came from the Mission Control profile quick-message composer" in prompt
+        assert "Do not stop at the strategy role" in prompt
+        assert "hresearchscout finds and records sources" in prompt
+        assert "hresearchcurator files the durable Markdown output in the knowledge base" in prompt
+        assert "Please research juror attention spans." in prompt
+        assert captured["env_overrides"]["HERMES_RESEARCH_KNOWLEDGE_BASE_DIR"]
+        assert captured["env_overrides"]["TERMINAL_CWD"] == captured["env_overrides"]["HERMES_RESEARCH_KNOWLEDGE_BASE_DIR"]
+        assert web_server._ACTION_PROC_PROFILES["mission-control-profile-message-hresearchscout"] == "hresearchscout"
+
+    def test_mission_control_profile_message_rejects_blank_message(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server, "_available_profile_names_fast", lambda: {"hresearchstrategist"})
+
+        resp = self.client.post(
+            "/api/mission-control/profiles/hresearchstrategist/messages",
+            json={"message": "   "},
+        )
+
+        assert resp.status_code == 400
+        assert "Message is required" in resp.json()["detail"]
+
+    def test_mission_control_profile_message_rejects_unknown_profile(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server, "_available_profile_names_fast", lambda: {"hresearchstrategist"})
+
+        resp = self.client.post(
+            "/api/mission-control/profiles/not-real/messages",
+            json={"message": "hello"},
+        )
+
+        assert resp.status_code == 404
+        assert "Profile not found" in resp.json()["detail"]
 
     def test_launchpad_stop_terminates_spawned_project(self, monkeypatch):
         from hermes_cli import web_server

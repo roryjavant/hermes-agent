@@ -387,6 +387,12 @@ export const api = {
       method: "POST",
     }),
   getKnowledgeBases: () => fetchJSON<KnowledgeBasesResponse>("/api/knowledge-bases"),
+  createKnowledgeBase: (payload: KnowledgeBaseCreate) =>
+    fetchJSON<KnowledgeBaseCreateResponse>("/api/knowledge-bases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
   createKnowledgeBaseEntry: (slug: string, payload: KnowledgeBaseEntryCreate) =>
     fetchJSON<KnowledgeBaseEntryCreateResponse>(`/api/knowledge-bases/${encodeURIComponent(slug)}/entries`, {
       method: "POST",
@@ -395,6 +401,12 @@ export const api = {
     }),
   startKnowledgeBaseResearchJob: (slug: string, payload: KnowledgeBaseResearchJobCreate) =>
     fetchJSON<KnowledgeBaseResearchJobResponse>(`/api/knowledge-bases/${encodeURIComponent(slug)}/research-jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  sendMissionControlProfileMessage: (profile: string, payload: MissionControlProfileMessageCreate) =>
+    fetchJSON<MissionControlProfileMessageResponse>(`/api/mission-control/profiles/${encodeURIComponent(profile)}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -1367,6 +1379,18 @@ export interface KnowledgeBasesResponse {
   bases: KnowledgeBaseSummary[];
 }
 
+export interface KnowledgeBaseCreate {
+  title: string;
+  slug?: string;
+  kicker?: string;
+  description?: string;
+}
+
+export interface KnowledgeBaseCreateResponse {
+  ok: boolean;
+  base: KnowledgeBaseSummary;
+}
+
 export interface KnowledgeBaseEntryCreate {
   title: string;
   body: string;
@@ -1390,6 +1414,18 @@ export interface KnowledgeBaseResearchJobResponse {
   ok: boolean;
   base: string;
   subject: string;
+  profile: string;
+  action_name: string;
+  pid: number;
+  message: string;
+}
+
+export interface MissionControlProfileMessageCreate {
+  message: string;
+}
+
+export interface MissionControlProfileMessageResponse {
+  ok: boolean;
   profile: string;
   action_name: string;
   pid: number;
@@ -1893,11 +1929,19 @@ export interface MissionControlProfileTeamAgent {
   is_orchestrator?: boolean;
 }
 
+export interface MissionControlTeamWorkflowStep {
+  label: string;
+  mode: "sequence" | "parallel" | string;
+  profiles: string[];
+}
+
 export interface MissionControlProfileTeam {
   team_id: string;
   label: string;
   project_path: string;
   profiles: string[];
+  workflow?: MissionControlTeamWorkflowStep[];
+  workflow_summary?: string;
   agents: MissionControlProfileTeamAgent[];
 }
 

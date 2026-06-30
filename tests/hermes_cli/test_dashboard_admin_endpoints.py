@@ -1195,6 +1195,157 @@ class TestMissionControlActivityEndpoint:
             "curator",
         ]
 
+    def test_hermes_research_team_kanban_bootstrap_creates_dispatchable_role_cards(self):
+        from hermes_cli import kanban_db as kb
+        from hermes_cli import web_server
+
+        task_ids = web_server._ensure_hermes_research_team_kanban(
+            "Research whether the team-light signal path is wired", "test"
+        )
+
+        assert len(task_ids) == 6
+        boards = {board["slug"]: board for board in kb.list_boards(include_archived=True)}
+        assert boards["hermes-research"]["default_workdir"] == "/Users/roryavant/Dev/hermes-research"
+        conn = kb.connect(board="hermes-research")
+        try:
+            rows = conn.execute(
+                "SELECT id, title, assignee, status, workspace_kind, workspace_path "
+                "FROM tasks ORDER BY priority DESC"
+            ).fetchall()
+            links = conn.execute("SELECT parent_id, child_id FROM task_links").fetchall()
+        finally:
+            conn.close()
+        assert [row["assignee"] for row in rows] == [
+            "hresearchstrategist",
+            "hresearchscout",
+            "hresearchanalyst",
+            "hresearchfactcheck",
+            "hresearchsynth",
+            "hresearchcurator",
+        ]
+        assert [row["status"] for row in rows] == ["ready", "todo", "todo", "todo", "todo", "todo"]
+        task_by_assignee = {row["assignee"]: row["id"] for row in rows}
+        assert {(row["parent_id"], row["child_id"]) for row in links} == {
+            (task_by_assignee["hresearchstrategist"], task_by_assignee["hresearchscout"]),
+            (task_by_assignee["hresearchscout"], task_by_assignee["hresearchanalyst"]),
+            (task_by_assignee["hresearchscout"], task_by_assignee["hresearchfactcheck"]),
+            (task_by_assignee["hresearchanalyst"], task_by_assignee["hresearchsynth"]),
+            (task_by_assignee["hresearchfactcheck"], task_by_assignee["hresearchsynth"]),
+            (task_by_assignee["hresearchsynth"], task_by_assignee["hresearchcurator"]),
+        }
+        assert {row["workspace_kind"] for row in rows} == {"dir"}
+        assert {row["workspace_path"] for row in rows} == {"/Users/roryavant/Dev/hermes-research"}
+
+    def test_hermes_research_team_kanban_bootstrap_is_idempotent(self):
+        from hermes_cli import kanban_db as kb
+        from hermes_cli import web_server
+
+        first = web_server._ensure_hermes_research_team_kanban("Same brief", "test")
+        second = web_server._ensure_hermes_research_team_kanban("Same brief", "test")
+
+        assert second == first
+        conn = kb.connect(board="hermes-research")
+        try:
+            total = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        finally:
+            conn.close()
+        assert total == 6
+
+    def test_generic_profile_team_kanban_bootstrap_supports_agent_arena(self):
+        from hermes_cli import kanban_db as kb
+        from hermes_cli import web_server
+
+        definition = next(item for item in web_server._PROFILE_TEAM_DEFINITIONS if item["team_id"] == "agent-arena")
+        task_ids = web_server._ensure_profile_team_kanban(definition, "Run an arena review swarm", "test")
+
+        assert len(task_ids) == 5
+        boards = {board["slug"]: board for board in kb.list_boards(include_archived=True)}
+        assert boards["agent-arena"]["default_workdir"] == "/Users/roryavant/Dev/agent-arena"
+        conn = kb.connect(board="agent-arena")
+        try:
+            rows = conn.execute(
+                "SELECT assignee, status, workspace_path FROM tasks ORDER BY priority DESC"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert [row["assignee"] for row in rows] == [
+            "aaplanner",
+            "aaimplementor",
+            "aadesigner",
+            "aavisionqa",
+            "aacurator",
+        ]
+        assert [row["status"] for row in rows] == ["ready", "todo", "todo", "todo", "todo"]
+        assert {row["workspace_path"] for row in rows} == {"/Users/roryavant/Dev/agent-arena"}
+
+    def test_strategy_profile_message_queues_research_team_and_dispatches(self, monkeypatch):
+        from hermes_cli import web_server
+
+        class FakeProc:
+            pid = 4242
+
+        spawned = []
+
+        def fake_spawn(subcommand, name, env_overrides=None):
+            spawned.append((subcommand, name, env_overrides))
+            return FakeProc()
+
+        monkeypatch.setattr(web_server, "_spawn_hermes_action", fake_spawn)
+        monkeypatch.setattr(web_server, "_available_profile_names_fast", lambda: {"hresearchstrategist"})
+
+        response = self.client.post(
+            "/api/mission-control/profiles/hresearchstrategist/messages",
+            json={"message": "Map the team signal path"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["board"] == "hermes-research"
+        assert payload["team_id"] == "hermes-research"
+        assert len(payload["task_ids"]) == 6
+        assert payload["action_name"] == "mission-control-hermes-research-dispatch"
+        assert spawned == [
+            (
+                ["kanban", "--board", "hermes-research", "dispatch", "--max", "1", "--json"],
+                "mission-control-hermes-research-dispatch",
+                None,
+            )
+        ]
+
+    def test_planner_profile_message_queues_any_profile_team_and_dispatches(self, monkeypatch):
+        from hermes_cli import web_server
+
+        class FakeProc:
+            pid = 5151
+
+        spawned = []
+
+        def fake_spawn(subcommand, name, env_overrides=None):
+            spawned.append((subcommand, name, env_overrides))
+            return FakeProc()
+
+        monkeypatch.setattr(web_server, "_spawn_hermes_action", fake_spawn)
+        monkeypatch.setattr(web_server, "_available_profile_names_fast", lambda: {"aaplanner"})
+
+        response = self.client.post(
+            "/api/mission-control/profiles/aaplanner/messages",
+            json={"message": "Run an arena polish swarm"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["board"] == "agent-arena"
+        assert payload["team_id"] == "agent-arena"
+        assert len(payload["task_ids"]) == 5
+        assert payload["action_name"] == "mission-control-agent-arena-dispatch"
+        assert spawned == [
+            (
+                ["kanban", "--board", "agent-arena", "dispatch", "--max", "1", "--json"],
+                "mission-control-agent-arena-dispatch",
+                None,
+            )
+        ]
+
     def test_activity_dedupe_keeps_non_terminal_sources_separate(self):
         from hermes_cli import web_server
 
@@ -1286,6 +1437,42 @@ class TestMissionControlActivityEndpoint:
 
         assert [row["pid"] for row in rows] == [202]
         assert rows[0]["activity_id"] == "local-process:202"
+
+    def test_local_agent_process_scan_includes_dashboard_action_children(self, monkeypatch):
+        from hermes_cli import web_server
+
+        class FakeProc:
+            pid = 300
+
+            def poll(self):
+                return None
+
+        process_table = {
+            100: {"ppid": 1, "stat": "S", "command": "python -m hermes_cli.main -p default dashboard --port 5199"},
+            300: {"ppid": 100, "stat": "S", "command": "python -m hermes_cli.main -p hresearchstrategist chat -q smoke"},
+            301: {"ppid": 300, "stat": "S", "command": "python -m hermes_cli.main -p hresearchscout chat -q scout"},
+            302: {"ppid": 100, "stat": "S", "command": "node /Users/roryavant/Dev/hermes-team-ui/ui-tui/dist/entry.js"},
+        }
+        monkeypatch.setitem(web_server._ACTION_PROCS, "knowledge-base-research-job", FakeProc())
+        monkeypatch.setattr(
+            web_server,
+            "_local_process_cwds",
+            lambda pids: {
+                300: "/Users/roryavant/Documents/Hermes Knowledge Base/hermes-research",
+                301: "/Users/roryavant/Documents/Hermes Knowledge Base/hermes-research",
+                302: "/Users/roryavant/Dev/hermes-team-ui/ui-tui",
+            },
+        )
+
+        try:
+            rows = web_server._snapshot_local_agent_processes(process_table)
+        finally:
+            web_server._ACTION_PROCS.pop("knowledge-base-research-job", None)
+
+        by_pid = {row["pid"]: row for row in rows}
+        assert set(by_pid) == {300, 301}
+        assert by_pid[300]["profile"] == "hresearchstrategist"
+        assert by_pid[301]["profile"] == "hresearchscout"
 
     def test_activity_dedupe_real_heartbeat_beats_newer_process_scan(self, monkeypatch):
         from hermes_cli import web_server

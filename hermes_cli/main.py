@@ -62,6 +62,7 @@ except ModuleNotFoundError:
     pass
 
 import os
+import shlex
 import sys
 
 
@@ -5428,13 +5429,33 @@ def _find_stale_dashboard_pids(
 
     Returns an empty list on any scan error (missing ps/wmic, timeout, etc.).
     """
-    patterns = [
-        "hermes dashboard",
-        "hermes_cli.main dashboard",
-        "hermes_cli/main.py dashboard",
-    ]
+    dashboard_pids = [pid for pid, _command in _scan_dashboard_processes()]
+
+    if exclude_pids:
+        dashboard_pids = [p for p in dashboard_pids if p not in exclude_pids]
+    return dashboard_pids
+
+
+def _dashboard_command_matches(command: str) -> bool:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    if "dashboard" not in parts:
+        return False
+    return any(
+        part == "hermes"
+        or part.endswith("/hermes")
+        or part == "hermes_cli.main"
+        or part.endswith("hermes_cli/main.py")
+        for part in parts
+    )
+
+
+def _scan_dashboard_processes() -> list[tuple[int, str]]:
+    """Return ``(pid, command)`` rows for running ``hermes dashboard`` servers."""
     self_pid = os.getpid()
-    dashboard_pids: list[int] = []
+    dashboard_processes: list[tuple[int, str]] = []
 
     try:
         if sys.platform == "win32":
@@ -5463,11 +5484,11 @@ def _find_stale_dashboard_pids(
                 elif line.startswith("ProcessId="):
                     pid_str = line[len("ProcessId=") :]
                     if (
-                        any(p in current_cmd for p in patterns)
+                        _dashboard_command_matches(current_cmd)
                         and int(pid_str) != self_pid
                     ):
                         try:
-                            dashboard_pids.append(int(pid_str))
+                            dashboard_processes.append((int(pid_str), current_cmd))
                         except ValueError:
                             pass
         else:
@@ -5496,14 +5517,45 @@ def _find_stale_dashboard_pids(
                     except ValueError:
                         continue
                     command = parts[1]
-                    if any(p in command for p in patterns) and pid != self_pid:
-                        dashboard_pids.append(pid)
+                    if _dashboard_command_matches(command) and pid != self_pid:
+                        dashboard_processes.append((pid, command))
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return []
 
-    if exclude_pids:
-        dashboard_pids = [p for p in dashboard_pids if p not in exclude_pids]
-    return dashboard_pids
+    return dashboard_processes
+
+
+def _dashboard_port_from_command(command: str) -> int:
+    """Best-effort parse of ``--port`` from a dashboard process command."""
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    for idx, part in enumerate(parts):
+        if part == "--port" and idx + 1 < len(parts):
+            try:
+                return int(parts[idx + 1])
+            except ValueError:
+                return 9119
+        if part.startswith("--port="):
+            try:
+                return int(part.split("=", 1)[1])
+            except ValueError:
+                return 9119
+    return 9119
+
+
+def _existing_machine_dashboard() -> tuple[int, int] | None:
+    """Return ``(pid, port)`` for an already-running shared dashboard."""
+    candidates: list[tuple[int, int]] = []
+    for pid, command in _scan_dashboard_processes():
+        if " --isolated" in f" {command} ":
+            continue
+        candidates.append((pid, _dashboard_port_from_command(command)))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: (row[1] != 9119, row[1], row[0]))
+    return candidates[0]
 
 
 def _print_curator_first_run_notice() -> None:
@@ -10486,6 +10538,39 @@ def cmd_dashboard(args):
         _launch_profile = get_active_profile_name()
     except Exception:
         _launch_profile = "default"
+
+    if (
+        not getattr(args, "isolated", False)
+        # Desktop pool backends are intentionally per-profile.
+        and os.environ.get("HERMES_DESKTOP") != "1"
+    ):
+        existing_dashboard = _existing_machine_dashboard()
+        if existing_dashboard is not None:
+            existing_pid, existing_port = existing_dashboard
+            if _dashboard_listening(args.host, existing_port):
+                profile_param = getattr(args, "open_profile", "") or (
+                    _launch_profile if _launch_profile not in ("default", "custom") else ""
+                )
+                url = f"http://{args.host or '127.0.0.1'}:{existing_port}/"
+                if profile_param:
+                    url = f"{url}?profile={profile_param}"
+                print(
+                    f"Machine dashboard already running on port {existing_port} "
+                    f"(PID {existing_pid})."
+                )
+                if existing_port != args.port:
+                    print(
+                        f"  Reusing it instead of starting another dashboard on "
+                        f"port {args.port}."
+                    )
+                print(f"  Open: {url}")
+                if not args.no_open:
+                    try:
+                        import webbrowser
+                        webbrowser.open(url)
+                    except Exception:
+                        pass
+                sys.exit(0)
 
     if (
         _launch_profile not in ("default", "custom")

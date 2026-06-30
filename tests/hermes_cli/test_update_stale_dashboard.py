@@ -21,6 +21,8 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from hermes_cli.main import (
+    _dashboard_port_from_command,
+    _existing_machine_dashboard,
     _find_stale_dashboard_pids,
     _kill_stale_dashboard_processes,
     _warn_stale_dashboard_processes,  # back-compat alias
@@ -45,6 +47,8 @@ def _refresh_bindings_against_live_module():
     ordering within the worker.  The fix lives in the test module because
     the two pollutants above are load-bearing for their own tests.
     """
+    global _dashboard_port_from_command
+    global _existing_machine_dashboard
     global _find_stale_dashboard_pids
     global _kill_stale_dashboard_processes
     global _warn_stale_dashboard_processes
@@ -53,6 +57,8 @@ def _refresh_bindings_against_live_module():
     if live is None:
         live = importlib.import_module("hermes_cli.main")
 
+    _dashboard_port_from_command = live._dashboard_port_from_command
+    _existing_machine_dashboard = live._existing_machine_dashboard
     _find_stale_dashboard_pids = live._find_stale_dashboard_pids
     _kill_stale_dashboard_processes = live._kill_stale_dashboard_processes
     _warn_stale_dashboard_processes = live._warn_stale_dashboard_processes
@@ -100,6 +106,18 @@ class TestFindStaleDashboardPids:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout=_ps_line(12345, "python3 -m hermes_cli.main dashboard --port 9119") + "\n",
+                stderr="",
+            )
+            assert _find_stale_dashboard_pids() == [12345]
+
+    def test_matches_profile_flag_before_dashboard(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=_ps_line(
+                    12345,
+                    "python3 -m hermes_cli.main -p default dashboard --port 9119",
+                ) + "\n",
                 stderr="",
             )
             assert _find_stale_dashboard_pids() == [12345]
@@ -226,6 +244,34 @@ class TestFindStaleDashboardPids:
             )
             pids = _find_stale_dashboard_pids(exclude_pids={12345})
         assert pids == []
+
+    def test_dashboard_port_from_command_defaults_and_parses(self):
+        assert _dashboard_port_from_command("hermes dashboard") == 9119
+        assert _dashboard_port_from_command("hermes dashboard --port 9127") == 9127
+        assert _dashboard_port_from_command("hermes dashboard --port=5199") == 5199
+        assert _dashboard_port_from_command("hermes dashboard --port nope") == 9119
+
+    def test_existing_machine_dashboard_excludes_isolated_and_prefers_canonical(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="\n".join([
+                    _ps_line(11111, "hermes dashboard --port 9120 --isolated"),
+                    _ps_line(22222, "python3 -m hermes_cli.main dashboard --port 9127"),
+                    _ps_line(33333, "hermes dashboard --port 9119 --no-open"),
+                ]) + "\n",
+                stderr="",
+            )
+            assert _existing_machine_dashboard() == (33333, 9119)
+
+    def test_existing_machine_dashboard_returns_none_for_only_isolated(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=_ps_line(11111, "hermes dashboard --port 9120 --isolated") + "\n",
+                stderr="",
+            )
+            assert _existing_machine_dashboard() is None
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX kill semantics")

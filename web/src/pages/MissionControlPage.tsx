@@ -5,6 +5,7 @@ import {
   useMemo,
   useState,
   type CSSProperties,
+  type FormEvent,
 } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -51,6 +52,7 @@ import type {
   MissionControlActivityResponse,
   MissionControlProfileTeam,
   MissionControlProfileTeamAgent,
+  MissionControlTeamWorkflowStep,
   PaginatedSessions,
   ProfileInfo,
   SessionInfo,
@@ -124,6 +126,9 @@ type OperationsItem = {
   projectPath?: string;
   currentTask?: MissionTask;
   outputPlan?: string;
+  workflow?: MissionControlTeamWorkflowStep[];
+  workflowSummary?: string;
+  isTeamLead?: boolean;
 };
 
 type PerformanceRisk = {
@@ -565,7 +570,30 @@ function LightAgentModal({
   const disabledSkills = details.skills.filter((skill) => !skill.enabled);
   const soulText = details.soul?.content.trim();
   const launchHref = profileChatPath(item.profileName || profile?.name);
+  const targetProfile = item.profileName || profile?.name || "";
   const currentTask = item.currentTask;
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendStatus, setSendStatus] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  const handleSendMessage = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = message.trim();
+    if (!targetProfile || !trimmed || sending) return;
+    setSending(true);
+    setSendStatus(null);
+    setSendError(null);
+    try {
+      const result = await api.sendMissionControlProfileMessage(targetProfile, { message: trimmed });
+      setMessage("");
+      setSendStatus(result.message || `Message sent to ${targetProfile}.`);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Could not send message");
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div
@@ -596,10 +624,10 @@ function LightAgentModal({
             <Link
               to={launchHref}
               onClick={onClose}
-              className="inline-flex h-9 items-center gap-2 border border-success/45 bg-success/10 px-3 font-mondwest text-display text-xs uppercase tracking-[0.14em] text-success transition-colors hover:border-success/70 hover:bg-success/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex h-9 items-center gap-2 border border-border bg-background-base/50 px-3 font-mondwest text-display text-xs uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:border-success/50 hover:text-success focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <Rocket className="h-3.5 w-3.5" />
-              Launch chat
+              Open full chat
+              <ChevronRight className="h-3.5 w-3.5" />
             </Link>
             <button
               type="button"
@@ -635,6 +663,67 @@ function LightAgentModal({
               </p>
             </div>
           </div>
+
+          <form onSubmit={handleSendMessage} className="mt-4 border border-success/25 bg-success/5 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-mondwest text-display text-sm uppercase tracking-[0.16em] text-foreground">Send a quick message</h3>
+                <p className="mt-1 text-xs text-muted-foreground">Runs in the background and keeps you on Mission Control.</p>
+              </div>
+              {targetProfile ? <Badge tone="success">{targetProfile}</Badge> : <Badge tone="outline">no profile</Badge>}
+            </div>
+            {item.isTeamLead && item.workflow && item.workflow.length > 0 && (
+              <div className="mb-3 border border-warning/25 bg-warning/5 p-3 text-xs">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="font-mondwest text-display uppercase tracking-[0.16em] text-warning">Team workflow template</p>
+                  <Badge tone="warning">lead-first</Badge>
+                </div>
+                <ol className="space-y-1.5 text-muted-foreground">
+                  {item.workflow.map((step, index) => (
+                    <li key={`${step.label}-${index}`} className="flex gap-2">
+                      <span className="font-mono-ui text-warning">{index + 1}.</span>
+                      <span>
+                        <span className="text-foreground">{step.label}</span>
+                        <span className="mx-1 text-muted-foreground">·</span>
+                        <span className="uppercase tracking-[0.12em]">{step.mode === "parallel" ? "parallel" : "sequence"}</span>
+                        <span className="mx-1 text-muted-foreground">·</span>
+                        <span className="font-mono-ui">{step.profiles.join(" → ")}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-2 leading-5 text-muted-foreground">
+                  Sending this lead queues the whole template, but only the first ready phase dispatches immediately; downstream cards wait on linked parent tasks.
+                </p>
+              </div>
+            )}
+            <textarea
+              value={message}
+              onChange={(event) => {
+                setMessage(event.target.value);
+                setSendStatus(null);
+                setSendError(null);
+              }}
+              rows={3}
+              disabled={sending || !targetProfile}
+              placeholder={targetProfile ? `Message ${targetProfile}…` : "This light is not tied to an installed profile."}
+              className="min-h-24 w-full resize-y border border-border bg-background-base/70 p-3 font-mono-ui text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-success/60 focus:ring-1 focus:ring-success/40 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-h-5 text-xs">
+                {sendStatus ? <span className="text-success">{sendStatus}</span> : null}
+                {sendError ? <span className="text-destructive">{sendError}</span> : null}
+              </div>
+              <button
+                type="submit"
+                disabled={sending || !targetProfile || !message.trim()}
+                className="inline-flex h-9 items-center gap-2 border border-success/45 bg-success/10 px-3 font-mondwest text-display text-xs uppercase tracking-[0.14em] text-success transition-colors hover:border-success/70 hover:bg-success/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sending ? <Spinner /> : <MessageSquare className="h-3.5 w-3.5" />}
+                {sending ? "Sending…" : "Send message"}
+              </button>
+            </div>
+          </form>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
             <section className="space-y-4">
@@ -903,6 +992,9 @@ function agentToOperationsItem(team: MissionControlProfileTeam, agent: MissionCo
     projectPath: team.project_path,
     currentTask,
     outputPlan: currentTask ? outputPlanForTask(currentTask) : undefined,
+    workflow: agent.is_orchestrator ? team.workflow : undefined,
+    workflowSummary: agent.is_orchestrator ? team.workflow_summary : undefined,
+    isTeamLead: Boolean(agent.is_orchestrator),
     performanceRisk: performanceRiskFromTelemetry(agent),
   } as const;
 }
