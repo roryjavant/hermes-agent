@@ -558,4 +558,41 @@ def test_mission_control_collapsed_team_orbs_are_clickable_role_lights_not_fake_
     assert "aria-label={`Open ${item.roleName || item.roleGlyph || item.kind} details`}" in source
     assert "onClick={() => openLightAgent(item)}" in source
     assert "max-w-[1.55rem] truncate text-center font-mono-ui" in source
+    assert "profile agents" not in source
+    assert "w-full text-center" not in source
+    assert "max-w-[8rem] text-center font-mono-ui text-[0.5rem] uppercase" not in source
+    assert "top-full pt-1" not in source
+    assert "const fanW = 64;" in source
+    assert "relative flex w-24 shrink-0 self-stretch" in source
+    assert "agent-wire__dot--y" not in source
+    assert "relative flex h-5 w-px" not in source
     assert "aria-hidden=\"true\">\n                                      {allTeamItems.map" not in source
+
+
+def test_mission_control_sound_controls_are_real_switches_and_terminal_voice_toggle_exists():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert 'import { Switch } from "@nous-research/ui/ui/components/switch";' in source
+    assert "function SoundToggle" in source
+    assert "Approval sound {soundSettings.approval" not in source
+    assert "Done sound {soundSettings.done" not in source
+    assert "11 Labs announce {soundSettings.announce" not in source
+    assert 'label="Approval ding"' in source
+    assert 'label="Done ding"' in source
+    assert 'label="Voice task updates"' in source
+    assert 'label="Announce terminal results"' in source
+    assert 'terminalAnnounce: false' in source
+    assert 'onSoundSettingChange("terminalAnnounce", checked)' in source
+
+
+def test_mission_control_terminal_result_announcements_cover_done_and_approval():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert "function terminalResultAnnouncement" in source
+    assert "Juror Research task" in source
+    assert "Hermes Team UI task" in source
+    assert "Dev task" in source
+    assert "needs your approval" in source
+    assert "completed." in source
+    assert 'tone === "review" ? "approval" : "done"' in source
+    assert "soundSettings.terminalAnnounce && previousTones" in source

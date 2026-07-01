@@ -18,6 +18,7 @@ import {
   ChevronRight,
   CircleDot,
   Cpu,
+  FileText,
   Gauge,
   MessageSquare,
   Radio,
@@ -39,6 +40,7 @@ import {
   CardTitle,
 } from "@nous-research/ui/ui/components/card";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
+import { Switch } from "@nous-research/ui/ui/components/switch";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { api } from "@/lib/api";
 import type {
@@ -78,7 +80,7 @@ type LoadState = {
 type BadgeTone = "success" | "warning" | "destructive" | "secondary" | "outline";
 type MissionView = "overview" | "work" | "ops";
 type TeamFilter = "all" | string;
-type MissionControlSoundSetting = MissionControlDing | "announce";
+type MissionControlSoundSetting = MissionControlDing | "announce" | "terminalAnnounce";
 type MissionControlSoundSettings = Record<MissionControlSoundSetting, boolean>;
 type MissionTask = KanbanTaskSummary & {
   column: string;
@@ -190,7 +192,7 @@ function cacheTeamFilter(value: TeamFilter): void {
 }
 
 function readCachedSoundSettings(): MissionControlSoundSettings {
-  const defaults: MissionControlSoundSettings = { approval: true, done: true, announce: true };
+  const defaults: MissionControlSoundSettings = { approval: true, done: true, announce: true, terminalAnnounce: false };
   if (typeof window === "undefined") return defaults;
   try {
     const raw = window.localStorage.getItem(MISSION_CONTROL_SOUND_SETTINGS_KEY);
@@ -200,6 +202,7 @@ function readCachedSoundSettings(): MissionControlSoundSettings {
       approval: parsed.approval ?? defaults.approval,
       done: parsed.done ?? defaults.done,
       announce: parsed.announce ?? defaults.announce,
+      terminalAnnounce: parsed.terminalAnnounce ?? defaults.terminalAnnounce,
     };
   } catch {
     return defaults;
@@ -515,8 +518,26 @@ async function playMissionControlDoneDing(): Promise<void> {
   await playMissionControlDing("done");
 }
 
-async function playMissionControlAnnouncement(text: string): Promise<void> {
-  await api.playMissionControlAnnouncement(text, "done");
+async function playMissionControlAnnouncement(text: string, kind: MissionControlDing = "done"): Promise<void> {
+  await api.playMissionControlAnnouncement(text, kind);
+}
+
+function terminalAnnouncementSubject(item: OperationsItem): string {
+  const marker = `${item.title} ${item.detail} ${item.meta}`.toLowerCase();
+  if (marker.includes("juror")) return "Juror Research task";
+  if (marker.includes("hermes-team-ui") || marker.includes("hermes team ui") || marker.includes("mission control")) {
+    return "Hermes Team UI task";
+  }
+  if (marker.includes("/users/roryavant/dev") || marker.includes(" dev · ")) return "Dev task";
+  if (item.kind.toLowerCase().includes("claude")) return "Claude Code task";
+  if (item.kind.toLowerCase().includes("hermes")) return "Hermes task";
+  return "Terminal task";
+}
+
+function terminalResultAnnouncement(item: OperationsItem, tone: ReadinessTone): string {
+  const subject = terminalAnnouncementSubject(item);
+  if (tone === "review") return `${subject} needs your approval.`;
+  return `${subject} completed.`;
 }
 
 async function playMissionControlDing(kind: MissionControlDing): Promise<void> {
@@ -2003,6 +2024,23 @@ function MissionQueue({
   );
 }
 
+function SoundToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-1.5 rounded border border-border/60 bg-background-base/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
+      <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
+      <span className="font-mondwest text-display uppercase tracking-[0.12em]">{label}</span>
+    </label>
+  );
+}
+
 function ActiveOperationsBoard({
   items,
   profiles,
@@ -2140,33 +2178,26 @@ function ActiveOperationsBoard({
             <Badge tone="success">{counts.ready} green</Badge>
             <Badge tone="warning">{counts.working} working</Badge>
             <Badge tone="destructive">{counts.review} review</Badge>
-            <Button
-              type="button"
-              ghost
-              size="sm"
-              aria-pressed={soundSettings.approval}
-              onClick={() => onSoundSettingChange("approval", !soundSettings.approval)}
-            >
-              Approval sound {soundSettings.approval ? "on" : "off"}
-            </Button>
-            <Button
-              type="button"
-              ghost
-              size="sm"
-              aria-pressed={soundSettings.done}
-              onClick={() => onSoundSettingChange("done", !soundSettings.done)}
-            >
-              Done sound {soundSettings.done ? "on" : "off"}
-            </Button>
-            <Button
-              type="button"
-              ghost
-              size="sm"
-              aria-pressed={soundSettings.announce}
-              onClick={() => onSoundSettingChange("announce", !soundSettings.announce)}
-            >
-              11 Labs announce {soundSettings.announce ? "on" : "off"}
-            </Button>
+            <SoundToggle
+              label="Approval ding"
+              checked={soundSettings.approval}
+              onChange={(checked) => onSoundSettingChange("approval", checked)}
+            />
+            <SoundToggle
+              label="Done ding"
+              checked={soundSettings.done}
+              onChange={(checked) => onSoundSettingChange("done", checked)}
+            />
+            <SoundToggle
+              label="Voice task updates"
+              checked={soundSettings.announce}
+              onChange={(checked) => onSoundSettingChange("announce", checked)}
+            />
+            <SoundToggle
+              label="Announce terminal results"
+              checked={soundSettings.terminalAnnounce}
+              onChange={(checked) => onSoundSettingChange("terminalAnnounce", checked)}
+            />
             <Button
               type="button"
               ghost
@@ -2254,6 +2285,7 @@ function ActiveOperationsBoard({
                               const riskTitle = item.performanceRisk ? ` · ${item.performanceRisk.detail}` : "";
                               const title = `${opts.rowLabel} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}${riskTitle}`;
                               const ariaLabel = `${opts.rowLabel} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${riskTitle}`;
+                              const shouldPulse = item.tone === "working" || item.tone === "review";
                               const className = cn(
                                 "agent-light group relative flex items-center justify-center rounded-full transition-all duration-300",
                                 sizeClass, "border-2",
@@ -2263,7 +2295,7 @@ function ActiveOperationsBoard({
                               const contents = (
                                 <>
                                   <ActivityLightPopover item={item} rowLabel={opts.rowLabel} />
-                                  {(item.tone === "working" || item.tone === "review") && (
+                                  {shouldPulse && (
                                     <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", tc.border)} />
                                   )}
                                   <span className="absolute inset-[5px] rounded-full border border-current/20" />
@@ -2321,6 +2353,35 @@ function ActiveOperationsBoard({
                                   ? "working"
                                   : "ready";
                               const rowTc = toneColors[rowTone] ?? toneColors.ready;
+                              const workflowStages = workflowStagesForTeam(row.items, "workflow" in row ? row.workflow : undefined);
+                              const showsFinalResearchOutput = rowTitle.toLowerCase() === "hermes research";
+
+                              const buildFinalResearchOutputElement = () => (
+                                <span className="flex items-center">
+                                  <span
+                                    className="relative flex w-20 shrink-0 self-stretch items-center justify-center text-amber-200/70"
+                                    aria-hidden="true"
+                                  >
+                                    <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/30" />
+                                    <span className="absolute right-1 top-1/2 -translate-y-1/2 font-mono-ui text-[0.7rem] text-current/80">›</span>
+                                  </span>
+                                  <span
+                                    className="relative flex h-[4.75rem] min-w-[8.5rem] flex-col items-center justify-center rounded-lg border border-amber-200/50 bg-amber-300/[0.07] px-4 text-center text-amber-100 shadow-[0_0_26px_rgba(251,191,36,0.18),inset_0_0_22px_rgba(251,191,36,0.05)]"
+                                    title="Final research output · polished brief or saved knowledge-base artifact"
+                                    aria-label="Final research output: polished brief or saved knowledge-base artifact"
+                                  >
+                                    <span className="absolute inset-1 rounded-md border border-amber-100/10" />
+                                    <span className="absolute inset-x-3 top-2 h-px bg-gradient-to-r from-transparent via-amber-100/35 to-transparent" />
+                                    <FileText className="relative z-10 h-4 w-4 text-amber-100/85" />
+                                    <span className="relative z-10 mt-1 font-mono-ui text-[0.58rem] font-bold uppercase leading-none tracking-[0.12em] text-amber-50/90">
+                                      Final output
+                                    </span>
+                                    <span className="relative z-10 mt-1 font-mono-ui text-[0.46rem] uppercase tracking-[0.12em] text-amber-100/55">
+                                      Research brief
+                                    </span>
+                                  </span>
+                                </span>
+                              );
 
                               return (
                                 <div key={row.label} className="border-t border-border/60 pt-2 first:border-t-0 first:pt-0">
@@ -2366,6 +2427,9 @@ function ActiveOperationsBoard({
                                             title={`${item.roleName || item.roleGlyph || item.kind}${item.currentTask ? ` · ${item.currentTask.title || item.currentTask.id}` : ""}`}
                                             aria-label={`Open ${item.roleName || item.roleGlyph || item.kind} details`}
                                           >
+                                            {(item.tone === "working" || item.tone === "review") && (
+                                              <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", itemTc.border)} />
+                                            )}
                                             <span className="absolute inset-[3px] rounded-full border border-current/20" />
                                             <span className="absolute inset-[9px] rounded-full border border-current/10" />
                                             {item.roleGlyph ? (
@@ -2394,37 +2458,33 @@ function ActiveOperationsBoard({
                                   </div>
 
                                   {isExpanded && (
-                                    <div className="flex flex-col items-center gap-4 px-3 pb-2 pt-5">
-                                      <div className="w-full text-center">
-                                        <p className="text-xs font-medium text-foreground">{rowTitle}</p>
-                                        {rowMeta && <p className="mt-0.5 text-[0.68rem] text-muted-foreground">{rowMeta}</p>}
-                                        <p className="mt-0.5 text-[0.68rem] text-muted-foreground">{row.items.length} profile agents</p>
-                                      </div>
-
-                                      <div className={orchestratorItem ? "flex flex-col items-center gap-0" : "flex flex-wrap items-center justify-center gap-y-2"}>
+                                    <div className="flex flex-col items-center gap-4 px-3 py-4">
+                                      <div className="flex flex-wrap items-center justify-center gap-y-2">
                                         {orchestratorItem && (() => {
                                           const orch = orchestratorItem;
                                           const orchTc = toneColors[orch.tone] ?? toneColors.ready;
                                           return (
-                                            <div className="flex flex-col items-center">
-                                              <div className="flex flex-col items-center">
+                                            <span className="flex items-center">
+                                              <span className="flex flex-col items-center">
                                                 {buildLightElement(orch, { size: "xl", rowLabel: row.label })}
                                                 <span className="mt-1 font-mono-ui text-[0.48rem] uppercase tracking-[0.12em] text-muted-foreground">lead</span>
-                                              </div>
+                                              </span>
                                               <span
-                                                className={cn("relative flex h-5 w-px shrink-0 items-center justify-center", orchTc.wire)}
+                                                className={cn("relative flex w-24 shrink-0 self-stretch items-center justify-center", orchTc.wire)}
                                                 aria-hidden="true"
                                               >
-                                                <span className="absolute bottom-0 top-0 border-l border-dashed border-current/30" />
-                                                <span className="agent-wire__dot--y h-1.5 w-1.5 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
+                                                <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
+                                                <span className="agent-wire__dot absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current/70 shadow-[0_0_6px_currentColor]" />
+                                                <span className="absolute right-1 top-1/2 -translate-y-1/2 font-mono-ui text-[0.7rem] text-current/80">›</span>
                                               </span>
-                                            </div>
+                                            </span>
                                           );
                                         })()}
 
                                         <div className="flex flex-wrap items-center justify-center gap-y-3">
-                                          {workflowStagesForTeam(row.items, "workflow" in row ? row.workflow : undefined).map((stage, index, stages) => {
+                                          {workflowStages.map((stage, index, stages) => {
                                             const isLastStage = index === stages.length - 1;
+                                            const shouldShowStageWire = !isLastStage || showsFinalResearchOutput;
                                             const stageTone: ReadinessTone = stage.items.some((item) => item.tone === "review")
                                               ? "review"
                                               : stage.items.some((item) => item.tone === "working")
@@ -2448,7 +2508,7 @@ function ActiveOperationsBoard({
                                                     // Fan SVG starts at py-1=4px, so midY (SVG coords) = (totalH/2+4) - 4 = totalH/2. ✓
                                                     const midY = totalH / 2;
                                                     const centers = Array.from({ length: n }, (_, i) => i * (nodeH + gapH) + nodeH / 2);
-                                                    const fanW = 48;
+                                                    const fanW = 64;
                                                     // For N=2 animate all branches; for N>2 cap at first+last (avoids clutter)
                                                     const animDots = n <= 2 ? centers : [centers[0], centers[n - 1]];
                                                     const dotStagger = 0;
@@ -2480,7 +2540,7 @@ function ActiveOperationsBoard({
                                                             </span>
                                                           ))}
                                                         </span>
-                                                        {!isLastStage && (
+                                                        {shouldShowStageWire && (
                                                           <svg aria-hidden="true" className="pointer-events-none shrink-0" style={{ display: "block" }} width={fanW} height={totalH} viewBox={`0 0 ${fanW} ${totalH}`}>
                                                             <defs>
                                                               <filter id={glowR} x="-80%" y="-80%" width="260%" height="260%">
@@ -2508,13 +2568,10 @@ function ActiveOperationsBoard({
                                                       </span>
                                                     ))
                                                   )}
-                                                  <span className={cn("max-w-[8rem] text-center font-mono-ui text-[0.5rem] uppercase leading-tight tracking-[0.12em] text-muted-foreground", isParallel ? "absolute top-full pt-1" : "")}>
-                                                    {stage.label}
-                                                  </span>
                                                 </span>
-                                                {!isLastStage && (
+                                                {shouldShowStageWire && (
                                                   <span
-                                                    className={cn("relative flex w-16 shrink-0 self-stretch items-center justify-center", tc.wire)}
+                                                    className={cn("relative flex w-24 shrink-0 self-stretch items-center justify-center", tc.wire)}
                                                     aria-hidden="true"
                                                   >
                                                     <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
@@ -2525,6 +2582,7 @@ function ActiveOperationsBoard({
                                               </span>
                                             );
                                           })}
+                                          {showsFinalResearchOutput && buildFinalResearchOutputElement()}
                                         </div>
                                       </div>
 
@@ -2981,6 +3039,14 @@ export default function MissionControlPage() {
     ),
     [operations],
   );
+  const terminalItemsById = useMemo(
+    () => new Map(
+      operations
+        .filter((item) => activitySegment(item) === "terminals")
+        .map((item) => [item.id, item] as const),
+    ),
+    [operations],
+  );
   const teamTaskByProfile = useMemo(() => currentTaskByProfile(data), [data]);
   const score = useMemo(() => computeMissionScore(data), [data]);
   const selectedMetricData =
@@ -3043,7 +3109,36 @@ export default function MissionControlPage() {
         pendingDoneDingRef.current = true;
       });
     }
-  }, [soundSettings.approval, soundSettings.done, terminalReviewIds, terminalTones]);
+    if (soundSettings.terminalAnnounce && previousTones) {
+      const announcements = [...terminalTones]
+        .filter(([, tone]) => tone === "ready" || tone === "review")
+        .filter(([id, tone]) => {
+          const previousTone = previousTones?.get(id);
+          return tone === "review"
+            ? previousTone !== "review"
+            : previousTone === "working" || previousTone === "review";
+        })
+        .map(([id, tone]) => {
+          const item = terminalItemsById.get(id);
+          return item ? { item, tone } : null;
+        })
+        .filter((entry): entry is { item: OperationsItem; tone: ReadinessTone } => Boolean(entry))
+        .slice(0, 2);
+
+      for (const { item, tone } of announcements) {
+        void playMissionControlAnnouncement(
+          terminalResultAnnouncement(item, tone),
+          tone === "review" ? "approval" : "done",
+        ).catch(() => {
+          if (tone === "review" && soundSettings.approval) {
+            void playMissionControlApprovalDing().catch(() => undefined);
+          } else if (tone === "ready" && soundSettings.done) {
+            void playMissionControlDoneDing().catch(() => undefined);
+          }
+        });
+      }
+    }
+  }, [soundSettings.approval, soundSettings.done, soundSettings.terminalAnnounce, terminalItemsById, terminalReviewIds, terminalTones]);
 
   useEffect(() => {
     const playPendingDing = () => {
