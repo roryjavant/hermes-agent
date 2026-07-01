@@ -566,7 +566,22 @@ def test_mission_control_collapsed_team_orbs_are_clickable_role_lights_not_fake_
     assert "relative flex w-24 shrink-0 self-stretch" in source
     assert "agent-wire__dot--y" not in source
     assert "relative flex h-5 w-px" not in source
+    assert "animBranchIndexes" in source
+    assert "lights only its own diagonals" in source
+    assert "stage.items[branchIndex]?.tone" in source
+    assert "stage.items[i]?.tone" in source
     assert "aria-hidden=\"true\">\n                                      {allTeamItems.map" not in source
+
+
+def test_mission_control_actual_working_lights_are_yellow_but_starting_lead_pulses_blue():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert 'working: { border: "border-amber-400/60"' in source
+    assert 'ping: "bg-amber-400"' in source
+    assert 'starting: { border: "border-sky-300/70"' in source
+    assert 'ping: "bg-sky-300"' in source
+    assert 'const immediateBluePulse = item.tone === "working" && /\\bstarting\\b/i.test(item.detail);' in source
+    assert 'const visualTone = immediateBluePulse ? "starting" : item.tone;' in source
 
 
 def test_mission_control_sound_controls_are_real_switches_and_terminal_voice_toggle_exists():

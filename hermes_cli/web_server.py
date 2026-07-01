@@ -826,6 +826,7 @@ _KNOWLEDGE_BASES = [
         "description": "Positioning research, content ideas, analytics notes, growth experiments, and brand-review references.",
     },
 ]
+_STATIC_KNOWLEDGE_BASE_SLUGS = {base["slug"] for base in _KNOWLEDGE_BASES}
 
 
 def _knowledge_base_root() -> Path:
@@ -1804,6 +1805,7 @@ async def list_knowledge_bases():
         bases.append({
             **base,
             "path": str(directory),
+            "deletable": base["slug"] not in _STATIC_KNOWLEDGE_BASE_SLUGS,
             "entry_count": len(entries),
             "folder_count": folder_count,
             "entries": entries[:12],
@@ -1852,12 +1854,34 @@ async def create_knowledge_base(payload: KnowledgeBaseCreate):
         "base": {
             **base,
             "path": str(directory),
+            "deletable": True,
             "entry_count": len(entries),
             "folder_count": sum(1 for item in directory.rglob("*") if item.is_dir()),
             "entries": entries[:12],
             "tree": _knowledge_tree(directory, root),
         },
     }
+
+
+@app.delete("/api/knowledge-bases/{slug}")
+async def delete_knowledge_base(slug: str):
+    safe = _safe_knowledge_slug(slug)
+    if safe in _STATIC_KNOWLEDGE_BASE_SLUGS:
+        raise HTTPException(status_code=400, detail="Built-in knowledge bases cannot be deleted")
+
+    root = _knowledge_base_root()
+    target = (root / safe).resolve()
+    if root not in target.parents or target == root:
+        raise HTTPException(status_code=400, detail="Invalid knowledge base path")
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail=f"Unknown knowledge base: {slug}")
+
+    try:
+        shutil.rmtree(target)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not delete knowledge base: {exc}") from exc
+
+    return {"ok": True, "slug": safe, "path": str(target)}
 
 
 @app.post("/api/knowledge-bases/{slug}/entries")
@@ -2557,6 +2581,12 @@ _ACTION_PROC_PROFILES: Dict[str, str] = {
     "knowledge-base-research-job": "hresearchstrategist",
 }
 
+# ``name`` → time the dashboard accepted an action but has not yet spawned the
+# child process. Mission Control polls independently from the POST request, so
+# this optimistic row lets the relevant profile/team lead pulse blue as soon as
+# Rory presses Send instead of waiting for Kanban setup + subprocess spawn.
+_ACTION_PROC_PENDING_STARTED: Dict[str, float] = {}
+
 # ``name`` → completed synthetic action result for actions the server handled
 # without spawning a subprocess (for example, unsupported Docker updates).
 _ACTION_RESULTS: Dict[str, Dict[str, Any]] = {}
@@ -2575,7 +2605,53 @@ def _record_completed_action(name: str, message: str, exit_code: int = 1) -> Non
         if not message.endswith("\n"):
             log_file.write(b"\n")
     _ACTION_PROCS.pop(name, None)
+    _ACTION_PROC_PENDING_STARTED.pop(name, None)
     _ACTION_RESULTS[name] = {"exit_code": exit_code, "pid": None}
+
+
+def _mark_action_pending(name: str, profile: str) -> None:
+    _ACTION_PROC_PROFILES[name] = profile
+    _ACTION_PROC_PENDING_STARTED[name] = time.time()
+
+
+def _clear_action_pending(name: str) -> None:
+    _ACTION_PROC_PENDING_STARTED.pop(name, None)
+
+
+def _snapshot_action_activity_rows(now: Optional[float] = None) -> List[Dict[str, Any]]:
+    """Return synthetic activity rows for dashboard-spawned profile actions."""
+    checked_at = time.time() if now is None else now
+    rows: List[Dict[str, Any]] = []
+    for action_name, profile in list(_ACTION_PROC_PROFILES.items()):
+        proc = _ACTION_PROCS.get(action_name)
+        pending_started = _ACTION_PROC_PENDING_STARTED.get(action_name)
+        if proc is None or proc.poll() is not None:
+            if pending_started is None:
+                continue
+            pid = None
+            started_at = pending_started
+        else:
+            pid = proc.pid
+            started_at = pending_started or checked_at
+        if action_name.startswith("mission-control-profile-message-"):
+            detail = "profile message starting" if pid is None else "profile message"
+        elif action_name.startswith("mission-control-") and action_name.endswith("-dispatch"):
+            detail = "team dispatch starting" if pid is None else "team dispatch running"
+        else:
+            detail = "knowledge base research"
+        rows.append({
+            "activity_id": f"action:{action_name}:{pid if pid is not None else 'pending'}",
+            "pid": pid,
+            "profile": profile,
+            "source": "cli",
+            "session_id": "",
+            "cwd": str(PROJECT_ROOT),
+            "status": "working",
+            "detail": detail,
+            "started_at": started_at,
+            "last_seen": checked_at,
+        })
+    return rows
 
 
 def _spawn_hermes_action(
@@ -2624,6 +2700,7 @@ def _spawn_hermes_action(
     log_file.close()
     _ACTION_RESULTS.pop(name, None)
     _ACTION_PROCS[name] = proc
+    _clear_action_pending(name)
     return proc
 
 
@@ -12435,10 +12512,35 @@ def _team_workflow_summary(definition: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _team_artifact_contract(definition: Dict[str, Any], role: str) -> str:
+    """Return team-specific durable-output instructions for Kanban role cards."""
+    if str(definition.get("team_id") or "") != "hermes-research":
+        return ""
+
+    root = _knowledge_base_root()
+    base = _known_knowledge_base("hermes-research")
+    directory = _ensure_knowledge_base_seed(base)
+    curator_line = ""
+    if role == "curator":
+        curator_line = (
+            "- Curator mandatory finish: write the final reusable Markdown artifacts to the selected knowledge base before completing this card; do not only summarize them in chat.\n"
+        )
+    return (
+        "Hermes Research knowledge-base artifact contract:\n"
+        f"- Global knowledge base root: {root}\n"
+        f"- Default Hermes Research knowledge base: {directory}\n"
+        "- If Rory asks to create a new knowledge base, create a safe slug-named sibling folder directly under the global root, add .knowledge-base.json, README.md, and research-briefs/sources/synthesis folders, then write the final brief/source-map there.\n"
+        "- If Rory does not request a new knowledge base, write durable research output under the default Hermes Research knowledge base, not under the team workspace/repo.\n"
+        "- Temporary scratch files in the project workspace do not satisfy the Knowledge Base deliverable; final handoffs must list the absolute Markdown files written under the knowledge-base root.\n"
+        f"{curator_line}\n"
+    )
+
+
 def _team_task_body(definition: Dict[str, Any], profile: str, message: str, source_label: str) -> str:
     role = _profile_role(profile)
     objective = _ROLE_OBJECTIVES.get(role, f"handle the {role} role and produce a concrete handoff for the team.")
     brief = message.strip() or "No brief text was provided."
+    artifact_contract = _team_artifact_contract(definition, role)
     return (
         f"Mission Control source: {source_label}\n"
         f"Team: {definition.get('label') or definition['team_id']}\n"
@@ -12449,9 +12551,10 @@ def _team_task_body(definition: Dict[str, Any], profile: str, message: str, sour
         f"{brief}\n\n"
         "Workflow template:\n"
         f"{_team_workflow_summary(definition)}\n\n"
-        "Team contract:\n"
+        + (f"{artifact_contract}" if artifact_contract else "")
+        + "Team contract:\n"
         "- Treat this Kanban card as the signal that should light this role in Mission Control.\n"
-        "- Stay inside the assigned workspace and role scope unless the card explicitly says otherwise.\n"
+        "- Stay inside the assigned workspace and role scope unless the artifact contract above explicitly names a durable output destination outside the workspace.\n"
         "- Do not invent facts, source support, implementation results, or verification evidence.\n"
         "- Complete with a concise handoff summary, changed/created files if any, commands run, and remaining risks.\n\n"
         f"Role objective: {objective}\n"
@@ -12596,14 +12699,18 @@ async def start_mission_control_profile_message(profile: str, payload: MissionCo
         existing = _ACTION_PROCS.get(action_name)
         if existing is not None and existing.poll() is None:
             raise HTTPException(status_code=409, detail=f"{team_definition.get('label', board_slug)} is already dispatching Mission Control team work")
+        _mark_action_pending(action_name, profile_name)
         try:
             task_ids = _ensure_profile_team_kanban(team_definition, message, "mission-control-profile-message")
             proc, reused = _spawn_profile_team_dispatch(team_definition)
+            _clear_action_pending(action_name)
         except Exception as exc:
+            _clear_action_pending(action_name)
+            if action_name not in _ACTION_PROCS:
+                _ACTION_PROC_PROFILES.pop(action_name, None)
             _log.exception("Failed to queue Mission Control team Kanban tasks")
             label = team_definition.get("label") or board_slug
             raise HTTPException(status_code=500, detail=f"Could not queue {label} team: {exc}") from exc
-        _ACTION_PROC_PROFILES[action_name] = profile_name
         return {
             "ok": True,
             "profile": profile_name,
@@ -12625,12 +12732,19 @@ async def start_mission_control_profile_message(profile: str, payload: MissionCo
         raise HTTPException(status_code=409, detail=f"{profile_name} is already handling a Mission Control message")
 
     prompt, env_overrides = _mission_control_profile_message_prompt(profile_name, message)
-    proc = _spawn_hermes_action(
-        ["-p", profile_name, "chat", "--source", "mission-control", "--quiet", "-q", prompt],
-        action_name,
-        env_overrides=env_overrides,
-    )
-    _ACTION_PROC_PROFILES[action_name] = profile_name
+    _mark_action_pending(action_name, profile_name)
+    try:
+        proc = _spawn_hermes_action(
+            ["-p", profile_name, "chat", "--source", "mission-control", "--quiet", "-q", prompt],
+            action_name,
+            env_overrides=env_overrides,
+        )
+        _clear_action_pending(action_name)
+    except Exception:
+        _clear_action_pending(action_name)
+        if action_name not in _ACTION_PROCS:
+            _ACTION_PROC_PROFILES.pop(action_name, None)
+        raise
     return {
         "ok": True,
         "profile": profile_name,
@@ -12678,28 +12792,10 @@ async def get_mission_control_activity():
     )
     activities = _dedupe_local_activities(activities, process_table)
     # Surface dashboard-spawned action jobs that _snapshot_local_agent_processes
-    # skips (they are children of the dashboard process). Always append these
-    # synthetic rows while running: an idle embedded profile chat may also be
-    # present for the same profile, but the action row is the live working state
-    # Mission Control needs to show.
-    _now = time.time()
-    for action_name, profile in _ACTION_PROC_PROFILES.items():
-        proc = _ACTION_PROCS.get(action_name)
-        if proc is None or proc.poll() is not None:
-            continue
-        detail = "profile message" if action_name.startswith("mission-control-profile-message-") else "knowledge base research"
-        activities.append({
-            "activity_id": f"action:{action_name}:{proc.pid}",
-            "pid": proc.pid,
-            "profile": profile,
-            "source": "cli",
-            "session_id": "",
-            "cwd": str(PROJECT_ROOT),
-            "status": "working",
-            "detail": detail,
-            "started_at": _now,
-            "last_seen": _now,
-        })
+    # skips (they are children of the dashboard process). This includes the
+    # short pending window before the child exists so team leads pulse blue
+    # immediately when Rory sends the Mission Control chat.
+    activities.extend(_snapshot_action_activity_rows())
     return {
         "checked_at": time.time(),
         "activities": activities,

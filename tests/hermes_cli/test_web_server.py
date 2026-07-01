@@ -314,6 +314,7 @@ class TestWebServerEndpoints:
             readme = Path(base["path"]) / "README.md"
             assert readme.is_file()
             assert readme.suffix == ".md"
+            assert base["deletable"] is False
             assert base["folder_count"] == 3
             assert base["tree"]["type"] == "folder"
             assert {child["name"] for child in base["tree"]["children"] if child["type"] == "folder"} == {
@@ -340,6 +341,7 @@ class TestWebServerEndpoints:
         base = data["base"]
         assert base["slug"] == "client-intake-research"
         assert base["title"] == "Client Intake Research"
+        assert base["deletable"] is True
         directory = Path(base["path"])
         assert directory.is_dir()
         assert (directory / ".knowledge-base.json").is_file()
@@ -352,6 +354,35 @@ class TestWebServerEndpoints:
 
         listed = self.client.get("/api/knowledge-bases").json()["bases"]
         assert "client-intake-research" in [item["slug"] for item in listed]
+
+    def test_knowledge_base_delete_custom_workspace_removes_directory(self, tmp_path, monkeypatch):
+        root = tmp_path / "kb"
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(root))
+        created = self.client.post(
+            "/api/knowledge-bases",
+            json={"title": "Delete Me", "slug": "delete-me"},
+        ).json()["base"]
+        directory = Path(created["path"])
+        (directory / "research-briefs" / "note.md").write_text("# Note\n", encoding="utf-8")
+
+        resp = self.client.delete("/api/knowledge-bases/delete-me")
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert resp.json()["slug"] == "delete-me"
+        assert not directory.exists()
+        listed = self.client.get("/api/knowledge-bases").json()["bases"]
+        assert "delete-me" not in [item["slug"] for item in listed]
+
+    def test_knowledge_base_delete_blocks_built_in_workspace(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+        self.client.get("/api/knowledge-bases")
+
+        resp = self.client.delete("/api/knowledge-bases/hermes-research")
+
+        assert resp.status_code == 400
+        assert "Built-in knowledge bases cannot be deleted" in resp.json()["detail"]
+        assert (tmp_path / "kb" / "hermes-research" / "README.md").is_file()
 
     def test_knowledge_base_discovers_existing_slug_directories(self, tmp_path, monkeypatch):
         root = tmp_path / "kb"
@@ -520,6 +551,35 @@ class TestWebServerEndpoints:
         assert captured["env_overrides"]["TERMINAL_CWD"] == captured["env_overrides"]["HERMES_RESEARCH_KNOWLEDGE_BASE_DIR"]
         assert web_server._ACTION_PROC_PROFILES["mission-control-profile-message-hresearchscout"] == "hresearchscout"
 
+    def test_mission_control_research_team_cards_include_knowledge_base_contract(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+        definition = next(d for d in web_server._PROFILE_TEAM_DEFINITIONS if d["team_id"] == "hermes-research")
+
+        curator_body = web_server._team_task_body(
+            definition,
+            "hresearchcurator",
+            "Create a new knowledge base for Louisiana jury selection at the end.",
+            "mission-control-profile-message",
+        )
+        strategist_body = web_server._team_task_body(
+            definition,
+            "hresearchstrategist",
+            "Create a new knowledge base for Louisiana jury selection at the end.",
+            "mission-control-profile-message",
+        )
+
+        assert "Hermes Research knowledge-base artifact contract" in curator_body
+        assert f"Global knowledge base root: {tmp_path / 'kb'}" in curator_body
+        assert f"Default Hermes Research knowledge base: {tmp_path / 'kb' / 'hermes-research'}" in curator_body
+        assert "If Rory asks to create a new knowledge base" in curator_body
+        assert "Temporary scratch files in the project workspace do not satisfy" in curator_body
+        assert "Curator mandatory finish: write the final reusable Markdown artifacts" in curator_body
+        assert "artifact contract above explicitly names a durable output destination" in curator_body
+        assert "Hermes Research knowledge-base artifact contract" in strategist_body
+        assert "Curator mandatory finish" not in strategist_body
+
     def test_mission_control_orchestrator_message_surfaces_working_team_lead(self, monkeypatch):
         from hermes_cli import runtime_activity, web_server
 
@@ -560,6 +620,43 @@ class TestWebServerEndpoints:
         assert strategist["status"] == "working"
         assert strategist["active"] is True
         assert strategist["pid"] == 13579
+
+    def test_mission_control_pending_orchestrator_message_surfaces_working_team_lead(self, monkeypatch):
+        from hermes_cli import web_server
+
+        action_name = "mission-control-hermes-research-dispatch"
+        monkeypatch.setattr(web_server, "_available_profile_names_fast", lambda: {"hresearchstrategist"})
+        web_server._ACTION_PROCS.pop(action_name, None)
+        web_server._ACTION_PROC_PROFILES.pop(action_name, None)
+        web_server._ACTION_PROC_PENDING_STARTED.pop(action_name, None)
+
+        web_server._ACTION_PROC_PROFILES[action_name] = "hresearchstrategist"
+        web_server._ACTION_PROC_PENDING_STARTED[action_name] = 123.0
+
+        rows = [
+            row for row in web_server._snapshot_action_activity_rows(now=124.0)
+            if row["activity_id"].startswith(f"action:{action_name}:")
+        ]
+        research_team = next(team for team in web_server._snapshot_profile_teams(rows) if team["team_id"] == "hermes-research")
+        strategist = next(agent for agent in research_team["agents"] if agent["profile"] == "hresearchstrategist")
+
+        assert rows == [
+            {
+                "activity_id": "action:mission-control-hermes-research-dispatch:pending",
+                "pid": None,
+                "profile": "hresearchstrategist",
+                "source": "cli",
+                "session_id": "",
+                "cwd": str(web_server.PROJECT_ROOT),
+                "status": "working",
+                "detail": "team dispatch starting",
+                "started_at": 123.0,
+                "last_seen": 124.0,
+            }
+        ]
+        assert strategist["status"] == "working"
+        assert strategist["active"] is True
+        assert strategist["pid"] is None
 
     def test_mission_control_profile_message_rejects_blank_message(self, monkeypatch):
         from hermes_cli import web_server

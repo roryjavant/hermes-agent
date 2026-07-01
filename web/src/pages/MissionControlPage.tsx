@@ -2273,14 +2273,17 @@ function ActiveOperationsBoard({
                                 : null;
 
                             const toneColors = {
-                              ready:   { border: "border-cyan-400/55",    bg: "bg-cyan-500/8",     text: "text-cyan-300",    shadow: "shadow-[0_0_28px_rgba(34,211,238,0.45),inset_0_0_24px_rgba(34,211,238,0.10)]",  wire: "text-cyan-400",   ping: "bg-cyan-400" },
-                              working: { border: "border-amber-400/55",   bg: "bg-amber-500/8",    text: "text-amber-300",   shadow: "shadow-[0_0_28px_rgba(251,191,36,0.45),inset_0_0_24px_rgba(251,191,36,0.10)]",  wire: "text-amber-400",  ping: "bg-amber-400" },
+                              ready:   { border: "border-cyan-400/45",    bg: "bg-cyan-500/6",     text: "text-cyan-300/80", shadow: "shadow-[0_0_22px_rgba(34,211,238,0.24),inset_0_0_20px_rgba(34,211,238,0.07)]",  wire: "text-cyan-400/70", ping: "bg-cyan-400" },
+                              working: { border: "border-amber-400/60",   bg: "bg-amber-500/10",   text: "text-amber-200",   shadow: "shadow-[0_0_30px_rgba(251,191,36,0.5),inset_0_0_24px_rgba(251,191,36,0.12)]",   wire: "text-amber-400",  ping: "bg-amber-400" },
+                              starting: { border: "border-sky-300/70",    bg: "bg-sky-400/12",     text: "text-sky-200",     shadow: "shadow-[0_0_34px_rgba(56,189,248,0.62),inset_0_0_28px_rgba(56,189,248,0.14)]",  wire: "text-sky-300",    ping: "bg-sky-300" },
                               review:  { border: "border-rose-400/55",    bg: "bg-rose-500/8",     text: "text-rose-300",    shadow: "shadow-[0_0_28px_rgba(244,63,94,0.45),inset_0_0_24px_rgba(244,63,94,0.10)]",    wire: "text-rose-400",   ping: "bg-rose-400" },
                             } as const;
 
                             const buildLightElement = (item: OperationsItem, opts: { size: "sm" | "lg" | "xl"; rowLabel: string }) => {
                               const Icon = item.icon;
-                              const tc = toneColors[item.tone] ?? toneColors.ready;
+                              const immediateBluePulse = item.tone === "working" && /\bstarting\b/i.test(item.detail);
+                              const visualTone = immediateBluePulse ? "starting" : item.tone;
+                              const tc = toneColors[visualTone] ?? toneColors.ready;
                               const sizeClass = opts.size === "xl" ? "h-[6rem] w-[6rem]" : opts.size === "lg" ? "h-[5rem] w-[5rem]" : "h-12 w-12";
                               const riskTitle = item.performanceRisk ? ` · ${item.performanceRisk.detail}` : "";
                               const title = `${opts.rowLabel} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}${riskTitle}`;
@@ -2509,8 +2512,9 @@ function ActiveOperationsBoard({
                                                     const midY = totalH / 2;
                                                     const centers = Array.from({ length: n }, (_, i) => i * (nodeH + gapH) + nodeH / 2);
                                                     const fanW = 64;
-                                                    // For N=2 animate all branches; for N>2 cap at first+last (avoids clutter)
-                                                    const animDots = n <= 2 ? centers : [centers[0], centers[n - 1]];
+                                                    // Color each fan branch by the node it serves so a single active parallel worker
+                                                    // lights only its own diagonals instead of tinting every branch.
+                                                    const animBranchIndexes = n <= 2 ? centers.map((_, i) => i) : [0, n - 1];
                                                     const dotStagger = 0;
                                                     const glowL = `fan-glow-l-${index}`;
                                                     const glowR = `fan-glow-r-${index}`;
@@ -2523,14 +2527,23 @@ function ActiveOperationsBoard({
                                                               <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
                                                             </filter>
                                                           </defs>
-                                                          {centers.map((ny, i) => (
-                                                            <line key={i} x1={0} y1={midY} x2={fanW} y2={ny} stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5" strokeDasharray="4 3" />
-                                                          ))}
-                                                          {animDots.map((ny, i) => (
-                                                            <circle key={i} r="2" fill="currentColor" fillOpacity="0.7" filter={`url(#${glowL})`}>
-                                                              <animateMotion dur="3s" begin={`${(i * dotStagger).toFixed(1)}s`} repeatCount="indefinite" path={`M 0 ${midY} L ${fanW} ${ny}`} />
-                                                            </circle>
-                                                          ))}
+                                                          {centers.map((ny, i) => {
+                                                            const branchTc = toneColors[stage.items[i]?.tone ?? "ready"] ?? toneColors.ready;
+                                                            return (
+                                                              <g key={i} className={branchTc.wire}>
+                                                                <line x1={0} y1={midY} x2={fanW} y2={ny} stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5" strokeDasharray="4 3" />
+                                                              </g>
+                                                            );
+                                                          })}
+                                                          {animBranchIndexes.map((branchIndex, i) => {
+                                                            const ny = centers[branchIndex];
+                                                            const branchTc = toneColors[stage.items[branchIndex]?.tone ?? "ready"] ?? toneColors.ready;
+                                                            return (
+                                                              <circle key={branchIndex} className={branchTc.wire} r="2" fill="currentColor" fillOpacity="0.7" filter={`url(#${glowL})`}>
+                                                                <animateMotion dur="3s" begin={`${(i * dotStagger).toFixed(1)}s`} repeatCount="indefinite" path={`M 0 ${midY} L ${fanW} ${ny}`} />
+                                                              </circle>
+                                                            );
+                                                          })}
                                                           <circle cx={0} cy={midY} r={3} fill="currentColor" fillOpacity="0.7" />
                                                         </svg>
                                                         <span className="flex flex-col gap-3">
@@ -2548,14 +2561,23 @@ function ActiveOperationsBoard({
                                                                 <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
                                                               </filter>
                                                             </defs>
-                                                            {centers.map((ny, i) => (
-                                                              <line key={i} x1={0} y1={ny} x2={fanW} y2={midY} stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5" strokeDasharray="4 3" />
-                                                            ))}
-                                                            {animDots.map((ny, i) => (
-                                                              <circle key={i} r="2" fill="currentColor" fillOpacity="0.7" filter={`url(#${glowR})`}>
-                                                                <animateMotion dur="3s" begin={`${(i * dotStagger).toFixed(1)}s`} repeatCount="indefinite" path={`M 0 ${ny} L ${fanW} ${midY}`} />
-                                                              </circle>
-                                                            ))}
+                                                            {centers.map((ny, i) => {
+                                                              const branchTc = toneColors[stage.items[i]?.tone ?? "ready"] ?? toneColors.ready;
+                                                              return (
+                                                                <g key={i} className={branchTc.wire}>
+                                                                  <line x1={0} y1={ny} x2={fanW} y2={midY} stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5" strokeDasharray="4 3" />
+                                                                </g>
+                                                              );
+                                                            })}
+                                                            {animBranchIndexes.map((branchIndex, i) => {
+                                                              const ny = centers[branchIndex];
+                                                              const branchTc = toneColors[stage.items[branchIndex]?.tone ?? "ready"] ?? toneColors.ready;
+                                                              return (
+                                                                <circle key={branchIndex} className={branchTc.wire} r="2" fill="currentColor" fillOpacity="0.7" filter={`url(#${glowR})`}>
+                                                                  <animateMotion dur="3s" begin={`${(i * dotStagger).toFixed(1)}s`} repeatCount="indefinite" path={`M 0 ${ny} L ${fanW} ${midY}`} />
+                                                                </circle>
+                                                              );
+                                                            })}
                                                             <circle cx={fanW} cy={midY} r={3} fill="currentColor" fillOpacity="0.7" />
                                                           </svg>
                                                         )}

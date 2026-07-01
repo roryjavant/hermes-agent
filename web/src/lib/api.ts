@@ -405,6 +405,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
+  deleteKnowledgeBase: (slug: string) =>
+    fetchJSON<{ ok: boolean; slug: string; path: string }>(`/api/knowledge-bases/${encodeURIComponent(slug)}`, {
+      method: "DELETE",
+    }),
   getKnowledgeBaseEntry: (slug: string, entryPath: string) =>
     fetchJSON<KnowledgeBaseEntryDetailResponse>(
       `/api/knowledge-bases/${encodeURIComponent(slug)}/entries/${entryPath
@@ -1390,6 +1394,7 @@ export interface KnowledgeBaseSummary {
   kicker: string;
   description: string;
   path: string;
+  deletable: boolean;
   entry_count: number;
   folder_count: number;
   entries: KnowledgeBaseEntrySummary[];
