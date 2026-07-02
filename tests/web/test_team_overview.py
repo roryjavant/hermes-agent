@@ -522,11 +522,27 @@ def test_mission_control_team_role_lights_open_dossier_with_profile_chat_launch(
 
 def test_chat_page_honors_profile_query_from_team_launch():
     source = (REPO_ROOT / "web" / "src" / "pages" / "ChatPage.tsx").read_text()
-
+    assert "export default function ChatPage" in source
+    assert "embeddedHeroText?: string;" in source
+    assert "const EMBEDDED_HERO_ART" in source
+    assert "function embeddedHeroArt" in source
+    assert "const embeddedHero = embeddedHeroText ? embeddedHeroArt(embeddedHeroText) : \"\";" in source
+    assert "if (hero) qs.set(\"hero\", hero);" in source
     assert 'const profileParam = searchParams.get("profile")?.trim() ?? "";' in source
-    assert "const chatProfile = profileParam || scopedProfile;" in source
-    assert "buildWsUrl(authParam, resumeParam, channel, chatProfile)" in source
-    assert "[channel, resumeParam, chatProfile]" in source
+    assert "const chatProfile = profileOverride.trim() || profileParam || scopedProfile;" in source
+    assert "host.addEventListener(\"pointerdown\", focusTerminalFromPointer, { capture: true });" in source
+    assert "host.addEventListener(\"click\", focusTerminalFromPointer, { capture: true });" in source
+    assert "host.addEventListener(\"mousedown\", focusTerminalFromPointer, { capture: true });" in source
+    assert "if (host.contains(document.activeElement)) return;" in source
+    assert 'host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")' in source
+    assert "textarea.focus({ preventScroll: true });" in source
+    assert "const warmFocusTimer = embedded" in source
+    assert "term.blur();" in source
+    assert "onPointerDownCapture={embedded ? handleTerminalFramePointerDown : undefined}" in source
+    assert "focus-within:ring-2" in source
+    assert "host.tabIndex = 0;" in source
+    assert "buildWsUrl(authParam, resumeParam, channel, chatProfile, embeddedHero)" in source
+    assert "[channel, resumeParam, chatProfile, embedded, embeddedHero]" in source
 
 
 def test_mission_control_active_sessions_metric_uses_terminal_lights():
@@ -538,6 +554,29 @@ def test_mission_control_active_sessions_metric_uses_terminal_lights():
     assert "const activeSessions =" not in source
 
 
+def test_mission_control_metric_cards_do_not_render_tone_badges():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+    metric_card = source[source.index("function MetricCard") : source.index("function Timeline")]
+
+    assert "<Badge tone={metric.tone}" not in metric_card
+    assert 'metric.tone === "success" ? "live" : metric.tone' not in metric_card
+    assert 'className="flex items-start gap-2"' in metric_card
+    assert 'className="flex items-start justify-between gap-2"' not in metric_card
+
+
+def test_mission_control_uses_all_teams_without_nav_strip_controls():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert "mission-control-strip" not in source
+    assert "function ViewSwitch" not in source
+    assert "function TeamFilterSelect" not in source
+    assert "Queue team" not in source
+    assert "Open {selectedMetricData.label}" not in source
+    assert "const effectiveTeamFilter = ALL_TEAMS_FILTER;" in source
+    assert "readCachedTeamFilter" not in source
+    assert "cacheTeamFilter" not in source
+
+
 def test_mission_control_profile_light_dossier_shows_current_work_and_output_plan():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
 
@@ -545,11 +584,54 @@ def test_mission_control_profile_light_dossier_shows_current_work_and_output_pla
     assert "Planned output use" in source
     assert "outputPlanForTask" in source
     assert "currentTaskByProfile" in source
+    assert "currentTasksByTeam" in source
+    assert "visibleTeamTasks" in source
+    assert "Cancel/remove Kanban task" in source
+    assert "api.deleteKanbanTask(deleteTaskTarget.id, deleteTaskTarget.boardSlug)" in source
+    assert "Remove task" in source
+    assert "Kanban</span>" in source
     assert "feeds forward" in source
     assert "next teammate" in source
     assert "Working: {item.currentTask.title || item.currentTask.id}" in source
     assert "taskByProfile={teamTaskByProfile}" in source
+    assert "tasksByTeam={teamTasksById}" in source
     assert "No running Kanban item is assigned to this profile right now." in source
+
+
+def test_mission_control_embeds_four_terminal_panes_at_bottom():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+    chat_source = (REPO_ROOT / "web" / "src" / "pages" / "ChatPage.tsx").read_text()
+
+    assert 'import ChatPage from "@/pages/ChatPage";' in source
+    assert "function MissionControlTerminalDock" in source
+    assert "Embedded terminals" in source
+    assert '<Badge tone="secondary">4 terminals</Badge>' in source
+    assert "<ChatPage embedded isActive profileOverride={terminal.profile} embeddedHeroText={terminal.hero} />" in source
+    assert 'hero: "ONLY"' in source
+    assert 'hero: "ONE"' in source
+    assert 'hero: "PROMPT"' in source
+    assert 'hero: "AWAY"' in source
+    assert '"████▄ ████▄ ▄███▄ ███ ███ ████▄ █████"' in chat_source
+    assert '"▄███▄ ██   ██ ▄███▄ ██ ██  "' in chat_source
+    assert 'className="h-[28rem] min-h-0 bg-black"' in source
+    assert "<MissionControlTerminalDock />" in source
+    for profile in ["rorypersonal", "jurorcoordinator", "hresearchstrategist", "hmarketingplanner"]:
+        assert profile in source
+    assert "embedded = false" in chat_source
+    assert "profileOverride = \"\"" in chat_source
+    assert "const chatProfile = profileOverride.trim() || profileParam || scopedProfile;" in chat_source
+    assert "!embedded && <PluginSlot name=\"chat:top\" />" in chat_source
+    assert "!embedded && !narrow" in chat_source
+
+
+def test_mission_control_live_activity_refreshes_active_team_kanbans():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert "lastKanbanActivityRefreshRef" in source
+    assert "activeTeamIds" in source
+    assert "api.getKanbanBoards({ timeoutMs: MISSION_CONTROL_ACTIVITY_TIMEOUT_MS })" in source
+    assert "boardMetas.map((board) => api.getKanbanBoard(board.slug" in source
+    assert "kanbanByBoard: { ...previous.kanbanByBoard, ...kanbanByBoard }" in source
 
 
 def test_mission_control_collapsed_team_orbs_are_clickable_role_lights_not_fake_icons():
@@ -582,6 +664,39 @@ def test_mission_control_actual_working_lights_are_yellow_but_starting_lead_puls
     assert 'ping: "bg-sky-300"' in source
     assert 'const immediateBluePulse = item.tone === "working" && /\\bstarting\\b/i.test(item.detail);' in source
     assert 'const visualTone = immediateBluePulse ? "starting" : item.tone;' in source
+
+
+def test_mission_control_ready_kanban_role_pulses_blue_until_worker_starts():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert 'function shouldPulseLight(item: OperationsItem): boolean' in source
+    assert 'item.currentTask?.status === "ready"' in source
+    assert 'const shouldPulse = shouldPulseLight(item);' in source
+    assert '{shouldPulseLight(item) && (' in source
+    assert 'workVerbForTaskStatus(currentTask.status)' in source
+    assert '`working ${currentTask.id}: ${currentTask.title || currentTask.id}`' not in source
+
+
+def test_mission_control_running_kanban_task_overrides_stale_profile_ready_tone():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert 'function toneFromCurrentTask(task: MissionTask | undefined, fallback: ReadinessTone): ReadinessTone' in source
+    assert 'if (task.status === "running") return "working";' in source
+    assert 'const visualTone = toneFromCurrentTask(currentTask, toneFromProfileStatus(visibleStatus, agent.configured));' in source
+    assert 'tone: visualTone,' in source
+
+
+def test_mission_control_team_graph_uses_live_profile_activity_for_role_tone():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert "function liveActivityByProfile" in source
+    assert 'record.source !== "dashboard" && record.profile' in source
+    assert "const liveActivity = liveProfiles.get(agent.profile.toLowerCase())" in source
+    assert "agent.is_orchestrator ? liveProfiles.get(team.team_id.toLowerCase())" in source
+    assert "const visibleStatus = liveActivity?.status ?? agent.status;" in source
+    assert 'const visualTone = toneFromCurrentTask(currentTask, toneFromProfileStatus(visibleStatus, agent.configured));' in source
+    assert "teamRowsFromProfileTeams(profileTeams, taskByProfile, liveProfiles)" in source
+    assert "liveProfiles={liveProfiles}" in source
 
 
 def test_mission_control_sound_controls_are_real_switches_and_terminal_voice_toggle_exists():

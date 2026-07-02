@@ -802,6 +802,7 @@ class KnowledgeBaseResearchJobCreate(BaseModel):
     subject: str
     instructions: str = ""
     folder_hint: str = ""
+    use_existing_base: bool = False
 
 
 _KNOWLEDGE_BASE_ROOT_ENV = "HERMES_KNOWLEDGE_BASE_ROOT"
@@ -911,6 +912,37 @@ def _knowledge_base_definitions() -> List[Dict[str, str]]:
     return definitions + dynamic
 
 
+def _latest_custom_knowledge_base_summary() -> Optional[Dict[str, Any]]:
+    """Return the newest non-static top-level KB for Mission Control artifact state."""
+    root = _knowledge_base_root()
+    if not root.is_dir():
+        return None
+    latest: Optional[Dict[str, Any]] = None
+    latest_time = -1.0
+    for directory in root.iterdir():
+        discovered = _knowledge_base_from_directory(directory)
+        if discovered is None or discovered["slug"] in _STATIC_KNOWLEDGE_BASE_SLUGS:
+            continue
+        try:
+            markdown_files = [path for path in directory.rglob("*.md") if path.is_file()]
+            updated_at = max(
+                [directory.stat().st_mtime, _knowledge_base_metadata_path(directory).stat().st_mtime if _knowledge_base_metadata_path(directory).exists() else 0.0]
+                + [path.stat().st_mtime for path in markdown_files]
+            )
+        except OSError:
+            continue
+        if updated_at <= latest_time:
+            continue
+        latest_time = updated_at
+        latest = {
+            **discovered,
+            "path": str(directory),
+            "entry_count": len(markdown_files),
+            "updated_at": datetime.fromtimestamp(updated_at, tz=timezone.utc).isoformat(),
+        }
+    return latest
+
+
 def _known_knowledge_base(slug: str) -> Dict[str, str]:
     safe = _safe_knowledge_slug(slug)
     for base in _knowledge_base_definitions():
@@ -1015,11 +1047,28 @@ def _knowledge_tree(directory: Path, root: Path) -> Dict[str, Any]:
     return build(directory)
 
 
-def _knowledge_research_prompt(base: Dict[str, str], subject: str, instructions: str, folder_hint: str) -> str:
+def _knowledge_research_prompt(
+    base: Dict[str, str],
+    subject: str,
+    instructions: str,
+    folder_hint: str,
+    *,
+    destination_mode: str,
+) -> str:
     directory = _ensure_knowledge_base_seed(base)
     root = _knowledge_base_root()
     hint = (folder_hint or "").strip() or "decide the appropriate folder structure"
     extra = (instructions or "").strip()
+    if destination_mode == "existing":
+        destination_note = (
+            "Rory explicitly selected this existing knowledge base as the destination. "
+            "Do not create a sibling top-level knowledge base unless Rory's additional instructions explicitly override that."
+        )
+    else:
+        destination_note = (
+            "A new top-level knowledge base card has already been created for this research job. "
+            "File the final durable output there; do not bury the result under Hermes Research or another existing bucket."
+        )
     return (
         "You are hresearchstrategist, the Hermes Research strategy lead, launched from the Knowledge Base dashboard.\n"
         "Start the work at the strategy role, then move it through the research team before finalizing: "
@@ -1028,11 +1077,12 @@ def _knowledge_research_prompt(base: Dict[str, str], subject: str, instructions:
         "and hresearchcurator files the durable Markdown output in the knowledge base. If you cannot literally spawn "
         "those profiles from this chat, still perform the handoff sections in that order and label each role's contribution.\n\n"
         f"Research subject: {subject}\n"
+        f"Destination mode: {destination_mode}\n"
         f"Destination knowledge base: {base['title']} ({base['slug']})\n"
         f"Global knowledge base root: {root}\n"
         f"Destination folder root: {directory}\n"
-        f"Folder guidance: {hint}\n\n"
-        "If Rory explicitly asks to create a new knowledge base, create a new safe slug-named sibling folder directly under the global knowledge base root, add a README.md describing it, and write the requested Markdown there instead of filing it under the currently selected destination.\n\n"
+        f"Folder guidance: {hint}\n"
+        f"Destination note: {destination_note}\n\n"
         "Task:\n"
         "1. Research the subject using available tools and cite source URLs when web sources are used.\n"
         "2. Keep provenance visible: include source URLs, access dates when available, confidence/caveat notes, and open questions.\n"
@@ -1818,12 +1868,32 @@ async def list_knowledge_bases():
     }
 
 
-@app.post("/api/knowledge-bases")
-async def create_knowledge_base(payload: KnowledgeBaseCreate):
-    title = (payload.title or "").strip()
+def _unique_knowledge_slug(raw: str) -> str:
+    slug = _safe_knowledge_slug(raw)
+    root = _knowledge_base_root()
+    if not (root / slug).exists():
+        return slug
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    candidate = f"{slug}-{stamp}"
+    counter = 2
+    while (root / candidate).exists():
+        candidate = f"{slug}-{stamp}-{counter}"
+        counter += 1
+    return candidate
+
+
+def _create_knowledge_base_response(
+    *,
+    title: str,
+    slug: str = "",
+    kicker: str = "",
+    description: str = "",
+    uniquify_slug: bool = False,
+) -> Dict[str, Any]:
+    title = (title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Knowledge base title is required")
-    slug = _safe_knowledge_slug(payload.slug or title)
+    slug = _unique_knowledge_slug(slug or title) if uniquify_slug else _safe_knowledge_slug(slug or title)
     root = _knowledge_base_root()
     root.mkdir(parents=True, exist_ok=True)
     target = (root / slug).resolve()
@@ -1835,8 +1905,8 @@ async def create_knowledge_base(payload: KnowledgeBaseCreate):
     base = {
         "slug": slug,
         "title": title,
-        "kicker": (payload.kicker or "").strip() or "Custom knowledge",
-        "description": (payload.description or "").strip()
+        "kicker": (kicker or "").strip() or "Custom knowledge",
+        "description": (description or "").strip()
         or "Markdown notes and research artifacts for this custom knowledge base.",
     }
     target.mkdir(parents=True, exist_ok=False)
@@ -1861,6 +1931,16 @@ async def create_knowledge_base(payload: KnowledgeBaseCreate):
             "tree": _knowledge_tree(directory, root),
         },
     }
+
+
+@app.post("/api/knowledge-bases")
+async def create_knowledge_base(payload: KnowledgeBaseCreate):
+    return _create_knowledge_base_response(
+        title=payload.title,
+        slug=payload.slug,
+        kicker=payload.kicker,
+        description=payload.description,
+    )
 
 
 @app.delete("/api/knowledge-bases/{slug}")
@@ -1917,10 +1997,7 @@ async def create_knowledge_base_entry(slug: str, payload: KnowledgeBaseEntryCrea
     }
 
 
-@app.get("/api/knowledge-bases/{slug}/entries/{entry_path:path}")
-async def get_knowledge_base_entry(slug: str, entry_path: str):
-    base = _known_knowledge_base(slug)
-    root = _knowledge_base_root()
+def _resolve_knowledge_entry_target(base: Dict[str, str], entry_path: str) -> Tuple[Path, Path]:
     directory = _ensure_knowledge_base_seed(base)
     cleaned = (entry_path or "").strip().strip("/")
     if not cleaned:
@@ -1930,8 +2007,20 @@ async def get_knowledge_base_entry(slug: str, entry_path: str):
         raise HTTPException(status_code=400, detail="Invalid knowledge entry path")
     if parts and parts[0] == base["slug"]:
         parts = parts[1:]
+    if not parts:
+        raise HTTPException(status_code=400, detail="Cannot target the knowledge base root")
     target = (directory / Path(*parts)).resolve()
-    if directory not in target.parents or target.suffix.lower() != ".md" or not target.is_file():
+    if directory not in target.parents:
+        raise HTTPException(status_code=400, detail="Invalid knowledge entry path")
+    return directory, target
+
+
+@app.get("/api/knowledge-bases/{slug}/entries/{entry_path:path}")
+async def get_knowledge_base_entry(slug: str, entry_path: str):
+    base = _known_knowledge_base(slug)
+    root = _knowledge_base_root()
+    directory, target = _resolve_knowledge_entry_target(base, entry_path)
+    if target.suffix.lower() != ".md" or not target.is_file():
         raise HTTPException(status_code=404, detail="Knowledge entry not found")
     try:
         content = target.read_text(encoding="utf-8", errors="replace")
@@ -1947,9 +2036,36 @@ async def get_knowledge_base_entry(slug: str, entry_path: str):
     }
 
 
+@app.delete("/api/knowledge-bases/{slug}/entries/{entry_path:path}")
+async def delete_knowledge_base_entry(slug: str, entry_path: str):
+    base = _known_knowledge_base(slug)
+    directory, target = _resolve_knowledge_entry_target(base, entry_path)
+    if target == directory:
+        raise HTTPException(status_code=400, detail="Cannot delete the knowledge base root")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Knowledge entry not found")
+    if target.is_file():
+        if target.suffix.lower() != ".md":
+            raise HTTPException(status_code=400, detail="Only Markdown files can be deleted from the Knowledge Base")
+        kind = "file"
+        try:
+            target.unlink()
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Could not delete knowledge entry: {exc}") from exc
+    elif target.is_dir():
+        kind = "folder"
+        try:
+            shutil.rmtree(target)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Could not delete knowledge folder: {exc}") from exc
+    else:
+        raise HTTPException(status_code=400, detail="Knowledge entry is not deletable")
+    return {"ok": True, "base": base["slug"], "path": str(target), "kind": kind}
+
+
 @app.post("/api/knowledge-bases/{slug}/research-jobs")
 async def start_knowledge_base_research_job(slug: str, payload: KnowledgeBaseResearchJobCreate):
-    base = _known_knowledge_base(slug)
+    selected_base = _known_knowledge_base(slug)
     subject = (payload.subject or "").strip()
     if not subject:
         raise HTTPException(status_code=400, detail="Research subject is required")
@@ -1959,13 +2075,53 @@ async def start_knowledge_base_research_job(slug: str, payload: KnowledgeBaseRes
     if existing is not None and existing.poll() is None:
         raise HTTPException(status_code=409, detail="A Knowledge Base research job is already running")
 
-    prompt = _knowledge_research_prompt(base, subject, payload.instructions, payload.folder_hint)
+    if payload.use_existing_base:
+        base = selected_base
+        destination_mode = "existing"
+        created_base = None
+    else:
+        created = _create_knowledge_base_response(
+            title=subject,
+            kicker="Research brief",
+            description=f"Source-backed research workspace for: {subject}",
+            uniquify_slug=True,
+        )
+        base = created["base"]
+        destination_mode = "new"
+        created_base = created["base"]
+
+    prompt = _knowledge_research_prompt(
+        base,
+        subject,
+        payload.instructions,
+        payload.folder_hint,
+        destination_mode=destination_mode,
+    )
     profile = "hresearchstrategist"
     research_definition = next(d for d in _PROFILE_TEAM_DEFINITIONS if d["team_id"] == "hermes-research")
+    directory = _ensure_knowledge_base_seed(base)
+    root = _knowledge_base_root()
+    existing_note = (
+        "Yes — Rory explicitly chose to file this job into an existing knowledge-base bucket."
+        if payload.use_existing_base
+        else "No — this job must appear as its own top-level Knowledge Base card by default."
+    )
+    kanban_brief = (
+        f"Subject: {subject}\n\n"
+        f"Instructions:\n{payload.instructions or ''}\n\n"
+        f"Folder hint: {payload.folder_hint or ''}\n\n"
+        f"Use existing bucket: {existing_note}\n"
+        f"Selected dashboard bucket: {selected_base['title']} ({selected_base['slug']})\n"
+        f"Destination knowledge base: {base['title']} ({base['slug']})\n"
+        f"Global knowledge base root: {root}\n"
+        f"Destination folder root: {directory}\n"
+        "Mandatory artifact rule: final durable Markdown must be written under the Destination folder root above. "
+        "Scratch files in the team repo do not satisfy this job."
+    )
     try:
         task_ids = _ensure_profile_team_kanban(
             research_definition,
-            f"Subject: {subject}\n\nInstructions:\n{payload.instructions or ''}\n\nFolder hint: {payload.folder_hint or ''}",
+            kanban_brief,
             "knowledge-base-research-job",
         )
         dispatch_proc, dispatch_reused = _spawn_profile_team_dispatch(research_definition)
@@ -1976,6 +2132,11 @@ async def start_knowledge_base_research_job(slug: str, payload: KnowledgeBaseRes
     proc = _spawn_hermes_action(
         ["-p", profile, "chat", "--source", "knowledge-base", "--quiet", "-q", prompt],
         action_name,
+    )
+    message = (
+        "Research agent started; a new Knowledge Base card was created and Hermes Research team tasks were queued."
+        if destination_mode == "new"
+        else "Research agent started and Hermes Research team tasks were queued for the selected existing Knowledge Base."
     )
     return {
         "ok": True,
@@ -1991,7 +2152,9 @@ async def start_knowledge_base_research_job(slug: str, payload: KnowledgeBaseRes
         "workflow": _team_workflow_steps(research_definition),
         "workflow_summary": _team_workflow_summary(research_definition),
         "task_ids": task_ids,
-        "message": "Research agent started and Hermes Research team tasks were queued for dispatch.",
+        "destination_mode": destination_mode,
+        "created_base": created_base,
+        "message": message,
     }
 
 
@@ -11475,6 +11638,7 @@ def _resolve_chat_argv(
     resume: Optional[str] = None,
     sidecar_url: Optional[str] = None,
     profile: Optional[str] = None,
+    hero: Optional[str] = None,
 ) -> tuple[list[str], Optional[str], Optional[dict]]:
     """Resolve the argv + cwd + env for the chat PTY.
 
@@ -11528,6 +11692,8 @@ def _resolve_chat_argv(
     # the dashboard PTY path.
     env.setdefault("HERMES_TUI_DISABLE_MOUSE", "1")
     env.setdefault("HERMES_TUI_INLINE", "1")
+    if hero:
+        env["HERMES_TUI_BANNER_HERO"] = str(hero).replace("\r", "")[:4096]
 
     if profile_dir is not None:
         env["HERMES_HOME"] = str(profile_dir)
@@ -12381,26 +12547,41 @@ def _snapshot_profile_teams(activities: List[Dict[str, Any]]) -> List[Dict[str, 
                 "compressions": record.get("compressions"),
                 "is_orchestrator": profile == orchestrator_profile,
             })
-        teams.append({
+        team_payload = {
             **definition,
             "workflow": _team_workflow_steps(definition),
             "workflow_summary": _team_workflow_summary(definition),
             "agents": agents,
-        })
+        }
+        if definition.get("team_id") == "hermes-research":
+            team_payload["final_output"] = {
+                "kind": "knowledge_base",
+                "label": "Knowledge Base",
+                "latest_base": _latest_custom_knowledge_base_summary(),
+            }
+        teams.append(team_payload)
     return teams
 
 
 def _mission_control_profile_message_prompt(profile_name: str, message: str) -> Tuple[str, Dict[str, str]]:
     """Build the one-shot prompt/env for a Mission Control profile message."""
     if profile_name.startswith("hresearch"):
-        base = _known_knowledge_base("hermes-research")
-        research_dir = _knowledge_base_dir("hermes-research")
+        created = _create_knowledge_base_response(
+            title=message,
+            kicker="Research brief",
+            description=f"Source-backed research workspace for: {message}",
+            uniquify_slug=True,
+        )
+        base = created["base"]
+        research_dir = _ensure_knowledge_base_seed(base)
         prompt = _knowledge_research_prompt(
             base,
             message,
             (
                 "This request came from the Mission Control profile quick-message composer. "
                 "Treat Rory's message as the complete research brief. Do not stop at the strategy role. "
+                "The dashboard has already created a new top-level Knowledge Base card for this request; "
+                "that card is the required durable destination and is visible across profiles. "
                 "The work must move through the Hermes Research sequence: strategist scopes the task, "
                 "scout gathers sources, analyst extracts claims and contradictions, factcheck audits citations, "
                 "synth writes the decision-ready brief, and curator files the durable Markdown. "
@@ -12408,6 +12589,7 @@ def _mission_control_profile_message_prompt(profile_name: str, message: str) -> 
                 "if not, perform clearly labeled handoff sections in that exact order before finalizing."
             ),
             "derive a subject folder from Rory's requested title or topic",
+            destination_mode="new",
         )
         return prompt, {
             _KNOWLEDGE_BASE_ROOT_ENV: str(_knowledge_base_root()),
@@ -12446,7 +12628,7 @@ _ROLE_OBJECTIVES = {
     "planner": "turn the request into an execution plan with clear slices, dependencies, handoffs, and verification criteria.",
     "source scout": "find candidate sources, record URLs/titles/dates/why relevant, and avoid source laundering.",
     "analyst": "extract claims or requirements, separate fact from inference, and call out contradictions/open risks.",
-    "fact checker": "audit source/support quality and block unsupported, stale, or overstated claims.",
+    "fact checker": "audit source/support quality; flag unsupported, stale, or overstated claims in the handoff instead of blocking the research pipeline.",
     "synth": "produce a concise decision-ready synthesis from available handoffs with citations or verification notes.",
     "curator": "file durable artifacts, tags, reusable lessons, and handoff notes in the project workspace.",
     "builder": "implement the smallest safe vertical slice and report changed files plus verification evidence.",
@@ -12527,10 +12709,11 @@ def _team_artifact_contract(definition: Dict[str, Any], role: str) -> str:
         )
     return (
         "Hermes Research knowledge-base artifact contract:\n"
-        f"- Global knowledge base root: {root}\n"
-        f"- Default Hermes Research knowledge base: {directory}\n"
-        "- If Rory asks to create a new knowledge base, create a safe slug-named sibling folder directly under the global root, add .knowledge-base.json, README.md, and research-briefs/sources/synthesis folders, then write the final brief/source-map there.\n"
-        "- If Rory does not request a new knowledge base, write durable research output under the default Hermes Research knowledge base, not under the team workspace/repo.\n"
+        "- Honor any explicit Destination knowledge base / Destination folder root in Rory's brief above. That explicit destination wins over the defaults below.\n"
+        "- If the brief says a new top-level Knowledge Base card was created, write the final brief/source-map under that destination root so the dashboard card is populated.\n"
+        f"- Fallback global knowledge base root: {root}\n"
+        f"- Fallback Hermes Research knowledge base: {directory}\n"
+        "- Only default to Hermes Research when the brief does not specify a destination knowledge base/root.\n"
         "- Temporary scratch files in the project workspace do not satisfy the Knowledge Base deliverable; final handoffs must list the absolute Markdown files written under the knowledge-base root.\n"
         f"{curator_line}\n"
     )
@@ -12603,6 +12786,7 @@ def _ensure_profile_team_kanban(definition: Dict[str, Any], message: str, source
                     parents=previous_phase_ids,
                     idempotency_key=f"mission-control:{board_slug}:{digest}:{profile}",
                     max_runtime_seconds=45 * 60,
+                    max_retries=10 if definition.get("team_id") == "hermes-research" else None,
                     board=board_slug,
                 )
                 task_ids.append(task_id)
@@ -12633,6 +12817,7 @@ def _ensure_profile_team_kanban(definition: Dict[str, Any], message: str, source
                     parents=previous_phase_ids,
                     idempotency_key=f"mission-control:{board_slug}:{digest}:{profile}",
                     max_runtime_seconds=45 * 60,
+                    max_retries=10 if definition.get("team_id") == "hermes-research" else None,
                     board=board_slug,
                 )
             )
@@ -12699,9 +12884,30 @@ async def start_mission_control_profile_message(profile: str, payload: MissionCo
         existing = _ACTION_PROCS.get(action_name)
         if existing is not None and existing.poll() is None:
             raise HTTPException(status_code=409, detail=f"{team_definition.get('label', board_slug)} is already dispatching Mission Control team work")
+        team_message = message
+        created_base = None
+        if team_definition.get("team_id") == "hermes-research":
+            created = _create_knowledge_base_response(
+                title=message,
+                kicker="Research brief",
+                description=f"Source-backed research workspace for: {message}",
+                uniquify_slug=True,
+            )
+            created_base = created["base"]
+            destination_dir = _ensure_knowledge_base_seed(created_base)
+            team_message = (
+                f"Subject: {message}\n\n"
+                "Mission Control quick research request: create and populate a new top-level Knowledge Base card.\n"
+                f"Destination knowledge base: {created_base['title']} ({created_base['slug']})\n"
+                f"Global knowledge base root: {_knowledge_base_root()}\n"
+                f"Destination folder root: {destination_dir}\n"
+                "Use existing bucket: No — this job must appear as its own top-level Knowledge Base card.\n"
+                "Mandatory artifact rule: final durable Markdown must be written under the Destination folder root above. "
+                "Scratch files in the team repo do not satisfy this job."
+            )
         _mark_action_pending(action_name, profile_name)
         try:
-            task_ids = _ensure_profile_team_kanban(team_definition, message, "mission-control-profile-message")
+            task_ids = _ensure_profile_team_kanban(team_definition, team_message, "mission-control-profile-message")
             proc, reused = _spawn_profile_team_dispatch(team_definition)
             _clear_action_pending(action_name)
         except Exception as exc:
@@ -12722,7 +12928,11 @@ async def start_mission_control_profile_message(profile: str, payload: MissionCo
             "workflow": _team_workflow_steps(team_definition),
             "workflow_summary": _team_workflow_summary(team_definition),
             "task_ids": task_ids,
-            "message": f"{team_definition.get('label', board_slug)} team tasks queued and dispatcher started.",
+            "created_base": created_base,
+            "message": (
+                f"{team_definition.get('label', board_slug)} team tasks queued; Knowledge Base card {created_base['title']} was created."
+                if created_base else f"{team_definition.get('label', board_slug)} team tasks queued and dispatcher started."
+            ),
         }
 
     action_name = f"mission-control-profile-message-{profile_name}"
@@ -12941,13 +13151,15 @@ async def pty_ws(ws: WebSocket) -> None:
     # --- spawn PTY ------------------------------------------------------
     resume = ws.query_params.get("resume") or None
     profile = ws.query_params.get("profile") or None
+    hero = ws.query_params.get("hero") or None
     channel = _channel_or_close_code(ws)
     sidecar_url = _build_sidecar_url(channel) if channel else None
 
     try:
-        argv, cwd, env = _resolve_chat_argv(
-            resume=resume, sidecar_url=sidecar_url, profile=profile
-        )
+        resolve_kwargs = {"resume": resume, "sidecar_url": sidecar_url, "profile": profile}
+        if hero:
+            resolve_kwargs["hero"] = hero
+        argv, cwd, env = _resolve_chat_argv(**resolve_kwargs)
     except HTTPException as exc:
         # Unknown/invalid profile from _resolve_profile_dir.
         await ws.send_text(f"\r\n\x1b[31mChat unavailable: {exc.detail}\x1b[0m\r\n")

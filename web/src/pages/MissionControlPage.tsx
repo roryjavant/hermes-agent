@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,15 +16,14 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleDot,
-  Cpu,
   FileText,
   Gauge,
   MessageSquare,
   Radio,
-  RefreshCw,
   Rocket,
   ShieldCheck,
   Terminal,
+  Trash2,
   Users,
   X,
   Zap,
@@ -41,7 +39,6 @@ import {
 } from "@nous-research/ui/ui/components/card";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Switch } from "@nous-research/ui/ui/components/switch";
-import { usePageHeader } from "@/contexts/usePageHeader";
 import { api } from "@/lib/api";
 import type {
   CronJob,
@@ -52,6 +49,7 @@ import type {
   KanbanTaskRun,
   KanbanTaskSummary,
   KanbanTaskUpdate,
+  MissionControlActivity,
   MissionControlActivityResponse,
   MissionControlProfileTeam,
   MissionControlProfileTeamAgent,
@@ -63,6 +61,7 @@ import type {
   StatusResponse,
 } from "@/lib/api";
 import { PluginSlot } from "@/plugins";
+import ChatPage from "@/pages/ChatPage";
 import { cn, timeAgo } from "@/lib/utils";
 
 type LoadState = {
@@ -78,7 +77,6 @@ type LoadState = {
 };
 
 type BadgeTone = "success" | "warning" | "destructive" | "secondary" | "outline";
-type MissionView = "overview" | "work" | "ops";
 type TeamFilter = "all" | string;
 type MissionControlSoundSetting = MissionControlDing | "announce" | "terminalAnnounce";
 type MissionControlSoundSettings = Record<MissionControlSoundSetting, boolean>;
@@ -158,8 +156,8 @@ const MISSION_CONTROL_ACTIVITY_REFRESH_MS = 1000;
 const MISSION_CONTROL_FULL_REFRESH_MS = 15000;
 const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 5000;
 const MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS = 6000;
-const MISSION_CONTROL_TEAM_FILTER_KEY = "missionControl.teamFilter";
 const MISSION_CONTROL_SOUND_SETTINGS_KEY = "missionControl.soundSettings";
+const MISSION_CONTROL_FINAL_OUTPUT_SEEN_KEY = "missionControl.finalOutputSeen";
 const ALL_TEAMS_FILTER = "all";
 const TEAM_FEED_RECENT_SESSION_SECONDS = 60 * 60;
 const MISSION_QUEUE_ATTENTION_STATUSES = new Set(["blocked", "review", "running"]);
@@ -180,16 +178,6 @@ const emptyState: LoadState = {
   activity: null,
   kanbanUnavailable: false,
 };
-
-function readCachedTeamFilter(): TeamFilter {
-  if (typeof window === "undefined") return ALL_TEAMS_FILTER;
-  return window.localStorage.getItem(MISSION_CONTROL_TEAM_FILTER_KEY) || ALL_TEAMS_FILTER;
-}
-
-function cacheTeamFilter(value: TeamFilter): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(MISSION_CONTROL_TEAM_FILTER_KEY, value);
-}
 
 function readCachedSoundSettings(): MissionControlSoundSettings {
   const defaults: MissionControlSoundSettings = { approval: true, done: true, announce: true, terminalAnnounce: false };
@@ -212,6 +200,24 @@ function readCachedSoundSettings(): MissionControlSoundSettings {
 function cacheSoundSettings(value: MissionControlSoundSettings): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(MISSION_CONTROL_SOUND_SETTINGS_KEY, JSON.stringify(value));
+}
+
+function readSeenFinalOutputs(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(MISSION_CONTROL_FINAL_OUTPUT_SEEN_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed as Record<string, string> : {};
+  } catch {
+    return {};
+  }
+}
+
+function markFinalOutputSeen(teamId: string, marker: string): void {
+  if (typeof window === "undefined" || !marker) return;
+  const seen = readSeenFinalOutputs();
+  window.localStorage.setItem(MISSION_CONTROL_FINAL_OUTPUT_SEEN_KEY, JSON.stringify({ ...seen, [teamId]: marker }));
 }
 
 function boardLabel(board: { slug: string; name?: string | null }): string {
@@ -405,42 +411,6 @@ function buildMetrics(data: LoadState): MissionMetric[] {
       accent: "from-amber-400/18 via-orange-300/6 to-transparent",
     },
   ];
-}
-
-function teamFilterOptions(data: LoadState): Array<{ value: TeamFilter; label: string }> {
-  const boardOptions = (data.kanbanBoards?.boards ?? []).map((board) => ({
-    value: board.slug,
-    label: boardLabel(board),
-  }));
-  return [{ value: ALL_TEAMS_FILTER, label: "All teams" }, ...boardOptions];
-}
-
-function TeamFilterSelect({
-  data,
-  value,
-  onChange,
-  label = "Team",
-}: {
-  data: LoadState;
-  value: TeamFilter;
-  onChange: (value: TeamFilter) => void;
-  label?: string;
-}) {
-  const options = teamFilterOptions(data);
-  return (
-    <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-      <span className="uppercase tracking-[0.12em]">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="border border-border bg-background-base/70 px-2 py-1 text-xs text-foreground outline-none transition-colors hover:border-current/30 focus:border-midground"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </select>
-    </label>
-  );
 }
 
 function buildTimeline(data: LoadState, teamFilter: TeamFilter = ALL_TEAMS_FILTER): TimelineItem[] {
@@ -1094,6 +1064,14 @@ function toneFromProfileStatus(status: string, configured: boolean): ReadinessTo
   return "ready";
 }
 
+function toneFromCurrentTask(task: MissionTask | undefined, fallback: ReadinessTone): ReadinessTone {
+  if (!task) return fallback;
+  if (task.status === "running") return "working";
+  if (task.status === "review" || task.status === "blocked") return "review";
+  if (task.status === "ready") return "ready";
+  return fallback;
+}
+
 function glyphForTeamRole(role: string): string {
   const normalized = role.toLowerCase();
   if (normalized.includes("strategist")) return "strategy";
@@ -1121,6 +1099,19 @@ function glyphForTeamRole(role: string): string {
 function linkedChildCount(task: MissionTask): number {
   const maybeCounts = task as MissionTask & { link_counts?: { children?: number } };
   return Math.max(0, Number(maybeCounts.link_counts?.children ?? 0) || 0);
+}
+
+function workVerbForTaskStatus(status: string): string {
+  if (status === "running") return "working";
+  if (status === "ready") return "queued";
+  if (status === "review") return "reviewing";
+  if (status === "blocked") return "blocked";
+  if (status === "scheduled") return "scheduled";
+  return "assigned";
+}
+
+function shouldPulseLight(item: OperationsItem): boolean {
+  return item.tone === "working" || item.tone === "review" || item.currentTask?.status === "ready";
 }
 
 function outputPlanForTask(task: MissionTask): string {
@@ -1159,6 +1150,25 @@ function currentTaskByProfile(data: LoadState): Map<string, MissionTask> {
   return byProfile;
 }
 
+function currentTasksByTeam(data: LoadState): Map<string, MissionTask[]> {
+  const byTeam = new Map<string, MissionTask[]>();
+  const currentTasks = allTasks(data)
+    .filter((task) => ["running", "review", "blocked", "ready", "scheduled", "todo"].includes(task.status))
+    .sort((a, b) => {
+      const aKey = taskSortKey(a);
+      const bKey = taskSortKey(b);
+      return aKey[0] - bKey[0] || aKey[1] - bKey[1] || a.id.localeCompare(b.id);
+    });
+  for (const task of currentTasks) {
+    const teamTasks = byTeam.get(task.boardSlug) ?? [];
+    if (teamTasks.length < 3) {
+      teamTasks.push(task);
+      byTeam.set(task.boardSlug, teamTasks);
+    }
+  }
+  return byTeam;
+}
+
 function missionTaskStatusSnapshot(data: LoadState): Map<string, string> {
   return new Map(allTasks(data).map((task) => [`${task.boardSlug}:${task.id}`, task.status]));
 }
@@ -1178,19 +1188,48 @@ function missionTaskDoneAnnouncements(data: LoadState, previousStatuses: Map<str
     });
 }
 
-function agentToOperationsItem(team: MissionControlProfileTeam, agent: MissionControlProfileTeamAgent, taskByProfile: Map<string, MissionTask>) {
+function liveActivityByProfile(data: LoadState): Map<string, MissionControlActivity> {
+  const statusRank: Record<MissionControlActivity["status"], number> = { review: 0, working: 1, ready: 2 };
+  const liveActivities = (data.activity?.activities ?? [])
+    .filter((record) => record.source !== "dashboard" && record.profile)
+    .sort((a, b) => {
+      const aRank = statusRank[a.status] ?? 99;
+      const bRank = statusRank[b.status] ?? 99;
+      return aRank - bRank || b.last_seen - a.last_seen;
+    });
+  const byProfile = new Map<string, MissionControlActivity>();
+  for (const record of liveActivities) {
+    const key = record.profile.trim().toLowerCase();
+    if (key && !byProfile.has(key)) byProfile.set(key, record);
+  }
+  return byProfile;
+}
+
+function agentToOperationsItem(
+  team: MissionControlProfileTeam,
+  agent: MissionControlProfileTeamAgent,
+  taskByProfile: Map<string, MissionTask>,
+  liveProfiles: Map<string, MissionControlActivity>,
+) {
   const currentTask = taskByProfile.get(agent.profile.toLowerCase());
+  const liveActivity = liveProfiles.get(agent.profile.toLowerCase())
+    ?? (agent.is_orchestrator ? liveProfiles.get(team.team_id.toLowerCase()) : undefined);
+  const visibleStatus = liveActivity?.status ?? agent.status;
+  const visualTone = toneFromCurrentTask(currentTask, toneFromProfileStatus(visibleStatus, agent.configured));
+  const visibleActive = Boolean(liveActivity) || agent.active;
+  const visiblePid = liveActivity?.pid ?? agent.pid;
+  const visibleSource = liveActivity?.source ?? agent.source;
   return {
     id: `team-profile:${team.team_id}:${agent.profile}`,
     kind: "Team profile",
     title: `${agent.role} · ${agent.profile}`,
     detail: currentTask
-      ? `working ${currentTask.id}: ${currentTask.title || currentTask.id}`
-      : agent.detail || (agent.active ? "live profile agent" : "profile standby"),
-    meta: agent.active
-      ? [agent.source, agent.pid ? `pid ${agent.pid}` : ""].filter(Boolean).join(" · ")
+      ? `${workVerbForTaskStatus(currentTask.status)} ${currentTask.id}: ${currentTask.title || currentTask.id}`
+      : liveActivity?.detail || agent.detail || (visibleActive ? "live profile agent" : "profile standby"),
+    meta: visibleActive
+      ? [visibleSource, visiblePid ? `pid ${visiblePid}` : ""].filter(Boolean).join(" · ")
       : agent.configured ? "standby profile" : "missing profile",
-    tone: toneFromProfileStatus(agent.status, agent.configured),
+    tone: visualTone,
     href: "/profiles",
     icon: Users,
     popoverTitle: agent.role,
@@ -1205,20 +1244,26 @@ function agentToOperationsItem(team: MissionControlProfileTeam, agent: MissionCo
     workflow: agent.is_orchestrator ? team.workflow : undefined,
     workflowSummary: agent.is_orchestrator ? team.workflow_summary : undefined,
     isTeamLead: Boolean(agent.is_orchestrator),
-    performanceRisk: performanceRiskFromTelemetry(agent),
+    performanceRisk: performanceRiskFromTelemetry(liveActivity ?? agent),
   } as const;
 }
 
-function teamRowsFromProfileTeams(profileTeams: MissionControlProfileTeam[], taskByProfile: Map<string, MissionTask>) {
+function teamRowsFromProfileTeams(
+  profileTeams: MissionControlProfileTeam[],
+  taskByProfile: Map<string, MissionTask>,
+  liveProfiles: Map<string, MissionControlActivity>,
+) {
   return profileTeams.map((team) => {
     const orchestratorAgent = team.agents.find((a) => a.is_orchestrator) ?? null;
     const memberAgents = team.agents.filter((a) => !a.is_orchestrator);
     return {
       label: `${team.label} · ${team.project_path}`,
-      orchestratorItem: orchestratorAgent ? agentToOperationsItem(team, orchestratorAgent, taskByProfile) : null,
-      items: memberAgents.map((agent) => agentToOperationsItem(team, agent, taskByProfile)),
+      orchestratorItem: orchestratorAgent ? agentToOperationsItem(team, orchestratorAgent, taskByProfile, liveProfiles) : null,
+      items: memberAgents.map((agent) => agentToOperationsItem(team, agent, taskByProfile, liveProfiles)),
       workflow: team.workflow ?? [],
       workflowSummary: team.workflow_summary ?? "",
+      teamId: team.team_id,
+      finalOutput: team.final_output,
     };
   });
 }
@@ -1465,11 +1510,10 @@ function MetricCard({
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.04] to-transparent" />
 
       <div className="relative flex h-full flex-col justify-between gap-8">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2">
           <p className="text-[0.58rem] font-semibold uppercase tracking-[0.3em] text-white/30">
             {metric.label}
           </p>
-          <Badge tone={metric.tone}>{metric.tone === "success" ? "live" : metric.tone}</Badge>
         </div>
         <div>
           <p className="font-mono-ui text-[3.2rem] leading-none text-white">{metric.value}</p>
@@ -1485,49 +1529,10 @@ function MetricCard({
   );
 }
 
-function ViewSwitch({ view, onChange }: { view: MissionView; onChange: (view: MissionView) => void }) {
-  const items: Array<{ id: MissionView; label: string; icon: LucideIcon }> = [
-    { id: "overview", label: "Overview", icon: Gauge },
-    { id: "work", label: "Work", icon: Users },
-    { id: "ops", label: "Ops", icon: Terminal },
-  ];
-
-  return (
-    <div className="inline-flex rounded-full border border-white/[0.08] bg-white/[0.04] p-1 backdrop-blur-xl">
-      {items.map((item) => {
-        const Icon = item.icon;
-        const active = view === item.id;
-        return (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onChange(item.id)}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs transition-all duration-200",
-              active
-                ? "bg-white/10 text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
-                : "text-white/30 hover:text-white/60",
-            )}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {item.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function Timeline({
   items,
-  data,
-  teamFilter,
-  onTeamFilterChange,
 }: {
   items: TimelineItem[];
-  data: LoadState;
-  teamFilter: TeamFilter;
-  onTeamFilterChange: (value: TeamFilter) => void;
 }) {
   return (
     <Card className="overflow-hidden">
@@ -1542,10 +1547,7 @@ function Timeline({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <TeamFilterSelect data={data} value={teamFilter} onChange={onTeamFilterChange} />
-            <Badge tone="outline">{items.length} signals</Badge>
-          </div>
+          <Badge tone="outline">{items.length} signals</Badge>
         </div>
       </CardHeader>
       <CardContent>
@@ -1882,12 +1884,10 @@ function MissionQueue({
   data,
   onRefresh,
   teamFilter,
-  onTeamFilterChange,
 }: {
   data: LoadState;
   onRefresh: () => Promise<void> | void;
   teamFilter: TeamFilter;
-  onTeamFilterChange: (value: TeamFilter) => void;
 }) {
   const [filter, setFilter] = useState<"attention" | "all">("attention");
   const [selectedTask, setSelectedTask] = useState<MissionTask | null>(null);
@@ -1942,7 +1942,6 @@ function MissionQueue({
             <CardTitle className="text-base">Mission queue</CardTitle>
           </div>
           <div className="flex items-center gap-2">
-            <TeamFilterSelect data={data} value={teamFilter} onChange={onTeamFilterChange} />
             <div className="inline-flex border border-border bg-muted/10 p-0.5">
               {(["attention", "all"] as const).map((id) => (
                 <button
@@ -2045,16 +2044,22 @@ function ActiveOperationsBoard({
   items,
   profiles,
   profileTeams,
+  liveProfiles,
   soundSettings,
   onSoundSettingChange,
+  onRefresh,
   taskByProfile,
+  tasksByTeam,
 }: {
   items: OperationsItem[];
   profiles: ProfileInfo[];
   profileTeams: MissionControlProfileTeam[];
+  liveProfiles: Map<string, MissionControlActivity>;
   soundSettings: MissionControlSoundSettings;
   onSoundSettingChange: (kind: MissionControlSoundSetting, enabled: boolean) => void;
+  onRefresh: () => Promise<void> | void;
   taskByProfile: Map<string, MissionTask>;
+  tasksByTeam: Map<string, MissionTask[]>;
 }) {
   const [selectedLightAgent, setSelectedLightAgent] = useState<LightAgentModalState | null>(null);
   const [selectedLightAgentDetails, setSelectedLightAgentDetails] = useState<LightAgentProfileDetails>({
@@ -2064,7 +2069,11 @@ function ActiveOperationsBoard({
     error: null,
   });
   const [expandedTeamRows, setExpandedTeamRows] = useState<Set<string>>(() => new Set());
+  const [seenFinalOutputs, setSeenFinalOutputs] = useState<Record<string, string>>(() => readSeenFinalOutputs());
   const [testAnnounceState, setTestAnnounceState] = useState<"idle" | "playing" | "ok" | "error">("idle");
+  const [deleteTaskTarget, setDeleteTaskTarget] = useState<MissionTask | null>(null);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [deleteTaskError, setDeleteTaskError] = useState<string | null>(null);
 
   const toggleTeamRow = useCallback((rowKey: string) => {
     setExpandedTeamRows((current) => {
@@ -2081,7 +2090,7 @@ function ActiveOperationsBoard({
   });
   const agentItems = sortedItems.filter((item) => activitySegment(item) === "agents");
   const agentRows = groupedActivityRows("agents", agentItems);
-  const teamRows = teamRowsFromProfileTeams(profileTeams, taskByProfile);
+  const teamRows = teamRowsFromProfileTeams(profileTeams, taskByProfile, liveProfiles);
   const subagentItems = sortedItems.filter((item) => activitySegment(item) === "subagents");
   const subagentRows = groupedActivityRows("subagents", subagentItems);
   const terminalSignalItems = sortedItems.filter((item) => activitySegment(item) === "terminals");
@@ -2122,6 +2131,26 @@ function ActiveOperationsBoard({
         window.setTimeout(() => setTestAnnounceState("idle"), 4000);
       });
   }, []);
+
+  const requestDeleteTeamTask = (task: MissionTask) => {
+    setDeleteTaskTarget(task);
+    setDeleteTaskError(null);
+  };
+
+  const confirmDeleteTeamTask = async () => {
+    if (!deleteTaskTarget) return;
+    setDeletingTaskId(deleteTaskTarget.id);
+    setDeleteTaskError(null);
+    try {
+      await api.deleteKanbanTask(deleteTaskTarget.id, deleteTaskTarget.boardSlug);
+      setDeleteTaskTarget(null);
+      await onRefresh();
+    } catch (err) {
+      setDeleteTaskError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingTaskId(null);
+    }
+  };
 
   useEffect(() => {
     const profileName = selectedLightAgent?.item.profileName;
@@ -2288,7 +2317,7 @@ function ActiveOperationsBoard({
                               const riskTitle = item.performanceRisk ? ` · ${item.performanceRisk.detail}` : "";
                               const title = `${opts.rowLabel} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}${riskTitle}`;
                               const ariaLabel = `${opts.rowLabel} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${riskTitle}`;
-                              const shouldPulse = item.tone === "working" || item.tone === "review";
+                              const shouldPulse = shouldPulseLight(item);
                               const className = cn(
                                 "agent-light group relative flex items-center justify-center rounded-full transition-all duration-300",
                                 sizeClass, "border-2",
@@ -2358,31 +2387,52 @@ function ActiveOperationsBoard({
                               const rowTc = toneColors[rowTone] ?? toneColors.ready;
                               const workflowStages = workflowStagesForTeam(row.items, "workflow" in row ? row.workflow : undefined);
                               const showsFinalResearchOutput = rowTitle.toLowerCase() === "hermes research";
+                              const rowTeamId = "teamId" in row ? row.teamId : row.label;
+                              const finalOutput = "finalOutput" in row ? row.finalOutput : undefined;
+                              const latestKb = finalOutput?.latest_base ?? null;
+                              const finalOutputMarker = latestKb ? `${latestKb.slug}:${latestKb.updated_at}` : "";
+                              const finalOutputSeen = finalOutputMarker ? seenFinalOutputs[rowTeamId] === finalOutputMarker : false;
+                              const finalOutputIsNew = Boolean(latestKb && !finalOutputSeen);
+                              const visibleTeamTasks = tasksByTeam.get(rowTeamId) ?? [];
+
+                              const handleFinalResearchOutputClick = () => {
+                                if (finalOutputMarker) {
+                                  markFinalOutputSeen(rowTeamId, finalOutputMarker);
+                                  setSeenFinalOutputs((current) => ({ ...current, [rowTeamId]: finalOutputMarker }));
+                                }
+                              };
 
                               const buildFinalResearchOutputElement = () => (
                                 <span className="flex items-center">
                                   <span
-                                    className="relative flex w-20 shrink-0 self-stretch items-center justify-center text-amber-200/70"
+                                    className={cn("relative flex w-20 shrink-0 self-stretch items-center justify-center", finalOutputIsNew ? "text-emerald-200/80" : "text-amber-200/70")}
                                     aria-hidden="true"
                                   >
                                     <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/30" />
                                     <span className="absolute right-1 top-1/2 -translate-y-1/2 font-mono-ui text-[0.7rem] text-current/80">›</span>
                                   </span>
-                                  <span
-                                    className="relative flex h-[4.75rem] min-w-[8.5rem] flex-col items-center justify-center rounded-lg border border-amber-200/50 bg-amber-300/[0.07] px-4 text-center text-amber-100 shadow-[0_0_26px_rgba(251,191,36,0.18),inset_0_0_22px_rgba(251,191,36,0.05)]"
-                                    title="Final research output · polished brief or saved knowledge-base artifact"
-                                    aria-label="Final research output: polished brief or saved knowledge-base artifact"
+                                  <Link
+                                    to={latestKb ? `/knowledge-base?base=${encodeURIComponent(latestKb.slug)}` : "/knowledge-base"}
+                                    onClick={handleFinalResearchOutputClick}
+                                    className={cn(
+                                      "relative flex h-[4.75rem] min-w-[8.5rem] flex-col items-center justify-center rounded-lg px-4 text-center transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-1",
+                                      finalOutputIsNew
+                                        ? "border border-emerald-200/65 bg-emerald-300/[0.10] text-emerald-100 shadow-[0_0_30px_rgba(52,211,153,0.28),inset_0_0_22px_rgba(52,211,153,0.06)] focus-visible:ring-emerald-300/70"
+                                        : "border border-amber-200/50 bg-amber-300/[0.07] text-amber-100 shadow-[0_0_26px_rgba(251,191,36,0.18),inset_0_0_22px_rgba(251,191,36,0.05)] focus-visible:ring-amber-300/70",
+                                    )}
+                                    title={latestKb ? `Knowledge Base added: ${latestKb.title}` : "Final research output · polished brief or saved knowledge-base artifact"}
+                                    aria-label={latestKb ? `Final research output: Knowledge Base added ${latestKb.title}` : "Final research output: polished brief or saved knowledge-base artifact"}
                                   >
-                                    <span className="absolute inset-1 rounded-md border border-amber-100/10" />
-                                    <span className="absolute inset-x-3 top-2 h-px bg-gradient-to-r from-transparent via-amber-100/35 to-transparent" />
-                                    <FileText className="relative z-10 h-4 w-4 text-amber-100/85" />
-                                    <span className="relative z-10 mt-1 font-mono-ui text-[0.58rem] font-bold uppercase leading-none tracking-[0.12em] text-amber-50/90">
+                                    <span className="absolute inset-1 rounded-md border border-current/10" />
+                                    <span className="absolute inset-x-3 top-2 h-px bg-gradient-to-r from-transparent via-current/35 to-transparent" />
+                                    <FileText className="relative z-10 h-4 w-4 text-current/85" />
+                                    <span className="relative z-10 mt-1 font-mono-ui text-[0.58rem] font-bold uppercase leading-none tracking-[0.12em] text-current/95">
                                       Final output
                                     </span>
-                                    <span className="relative z-10 mt-1 font-mono-ui text-[0.46rem] uppercase tracking-[0.12em] text-amber-100/55">
-                                      Research brief
+                                    <span className="relative z-10 mt-1 font-mono-ui text-[0.46rem] uppercase tracking-[0.12em] text-current/60">
+                                      {finalOutputIsNew ? "KB added" : latestKb ? "Knowledge Base" : "Research brief"}
                                     </span>
-                                  </span>
+                                  </Link>
                                 </span>
                               );
 
@@ -2430,7 +2480,7 @@ function ActiveOperationsBoard({
                                             title={`${item.roleName || item.roleGlyph || item.kind}${item.currentTask ? ` · ${item.currentTask.title || item.currentTask.id}` : ""}`}
                                             aria-label={`Open ${item.roleName || item.roleGlyph || item.kind} details`}
                                           >
-                                            {(item.tone === "working" || item.tone === "review") && (
+                                            {shouldPulseLight(item) && (
                                               <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", itemTc.border)} />
                                             )}
                                             <span className="absolute inset-[3px] rounded-full border border-current/20" />
@@ -2459,6 +2509,43 @@ function ActiveOperationsBoard({
                                       })}
                                     </span>
                                   </div>
+
+                                  {visibleTeamTasks.length > 0 && (
+                                    <div className="mt-2 grid gap-2 md:grid-cols-3">
+                                      {visibleTeamTasks.map((task) => (
+                                        <div
+                                          key={`${task.boardSlug}:${task.id}`}
+                                          className="group relative border border-border/50 bg-background-base/35 text-left transition-colors hover:border-amber-300/45 hover:bg-amber-300/[0.06]"
+                                        >
+                                          <Link
+                                            to={`/kanban?task=${encodeURIComponent(task.id)}`}
+                                            className="block px-2.5 py-2 pr-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-300/60"
+                                          >
+                                            <span className="flex items-center justify-between gap-2">
+                                              <span className="font-mono-ui text-[0.55rem] uppercase tracking-[0.16em] text-amber-200/80">Kanban</span>
+                                              <Badge tone={taskTone(task)}>{task.status}</Badge>
+                                            </span>
+                                            <span className="mt-1 block line-clamp-1 text-xs font-medium text-foreground group-hover:text-amber-50">
+                                              {task.title || task.id}
+                                            </span>
+                                            <span className="mt-1 block truncate font-mono-ui text-[0.58rem] uppercase tracking-[0.1em] text-muted-foreground">
+                                              {task.id} · {task.assignee || "unassigned"}
+                                            </span>
+                                          </Link>
+                                          <button
+                                            type="button"
+                                            onClick={() => requestDeleteTeamTask(task)}
+                                            disabled={deletingTaskId === task.id}
+                                            className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border border-border/60 bg-black/35 text-muted-foreground opacity-85 transition-colors hover:border-destructive/55 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60 disabled:cursor-wait disabled:opacity-50"
+                                            aria-label={`Cancel/remove Kanban task ${task.id}`}
+                                            title={`Cancel/remove ${task.id}`}
+                                          >
+                                            {deletingTaskId === task.id ? <Spinner /> : <X className="h-3.5 w-3.5" />}
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
 
                                   {isExpanded && (
                                     <div className="flex flex-col items-center gap-4 px-3 py-4">
@@ -2682,6 +2769,54 @@ function ActiveOperationsBoard({
           </div>
         )}
       </CardContent>
+      {deleteTaskTarget && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-background-base/80 p-4 backdrop-blur-md"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mission-team-task-delete-title"
+          onClick={(event) => event.target === event.currentTarget && setDeleteTaskTarget(null)}
+        >
+          <div className="w-full max-w-md border border-destructive/35 bg-card p-5 shadow-2xl shadow-black/45">
+            <p className="font-mondwest text-display text-xs uppercase tracking-[0.18em] text-destructive/80">
+              Cancel/remove Kanban
+            </p>
+            <h2 id="mission-team-task-delete-title" className="mt-2 text-lg font-semibold text-foreground">
+              {deleteTaskTarget.title || deleteTaskTarget.id}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              This removes the task from the Kanban board and Mission Control. Use this for stale, duplicate, or unwanted queued work.
+            </p>
+            <p className="mt-3 break-all border border-border/60 bg-background-base/45 px-3 py-2 font-mono-ui text-xs text-muted-foreground">
+              {deleteTaskTarget.boardName} · {deleteTaskTarget.id} · {deleteTaskTarget.status}
+            </p>
+            {deleteTaskError && (
+              <p className="mt-3 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {deleteTaskError}
+              </p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                onClick={() => setDeleteTaskTarget(null)}
+                disabled={Boolean(deletingTaskId)}
+                className="border border-border/60 bg-background-base/70 text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={confirmDeleteTeamTask}
+                disabled={Boolean(deletingTaskId)}
+                className="gap-2 border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25"
+              >
+                {deletingTaskId ? <Spinner /> : <Trash2 className="h-4 w-4" />}
+                {deletingTaskId ? "Removing…" : "Remove task"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {selectedLightAgent && (
         <LightAgentModal
           details={selectedLightAgentDetails}
@@ -2693,101 +2828,41 @@ function ActiveOperationsBoard({
   );
 }
 
-function OpsDeck({ data }: { data: LoadState }) {
-  const attentionJobs = data.cronJobs
-    .filter((job) => job.last_error || !job.enabled || getJobState(job).toLowerCase() === "paused")
-    .slice(0, 5);
-  const gatewayProfiles = data.profiles.filter((profile) => profile.gateway_running).length;
-  const envReady = data.profiles.filter((profile) => profile.has_env).length;
+function MissionControlTerminalDock() {
+  const terminals = [
+    { id: "personal", label: "Personal", profile: "rorypersonal", hero: "ONLY" },
+    { id: "juror", label: "Juror", profile: "jurorcoordinator", hero: "ONE" },
+    { id: "research", label: "Research", profile: "hresearchstrategist", hero: "PROMPT" },
+    { id: "marketing", label: "Marketing", profile: "hmarketingplanner", hero: "AWAY" },
+  ];
 
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-base">Automation console</CardTitle>
+    <section className="mission-terminal-dock border border-border/70 bg-background-base/45 p-3 shadow-2xl shadow-black/20">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-mondwest text-display text-sm uppercase tracking-[0.16em] text-foreground">Embedded terminals</p>
+          <p className="mt-1 text-xs text-muted-foreground">Four live Hermes panes for quick steering without leaving Mission Control.</p>
+        </div>
+        <Badge tone="secondary">4 terminals</Badge>
+      </div>
+      <div className="grid gap-3 xl:grid-cols-2">
+        {terminals.map((terminal) => (
+          <div key={terminal.id} className="overflow-hidden border border-border/70 bg-black/40 shadow-[0_0_30px_rgba(0,0,0,0.35)]">
+            <div className="flex items-center gap-2 border-b border-border/60 bg-background-base/70 px-3 py-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-400/90" />
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-300/90" />
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
+              <span className="ml-2 truncate font-mono-ui text-[0.64rem] uppercase tracking-[0.12em] text-muted-foreground">
+                {terminal.label} · {terminal.profile}
+              </span>
             </div>
-            <SectionLink to="/cron" label="Open Cron" />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-3 pb-4">
-            <MiniMetric label="Total" value={data.cronJobs.length} />
-            <MiniMetric label="Enabled" value={data.cronJobs.filter((job) => job.enabled).length} />
-            <MiniMetric label="Attention" value={attentionJobs.length} />
-          </div>
-          {attentionJobs.length === 0 ? (
-            <EmptySignal
-              icon={CheckCircle2}
-              tone="success"
-              title="Automation board clean"
-              body="No paused or failed automations need attention."
-            />
-          ) : (
-            <div className="divide-y divide-border">
-              {attentionJobs.map((job) => (
-                <Link
-                  key={`${job.profile ?? "default"}:${job.id}`}
-                  to="/cron"
-                  className="flex items-start justify-between gap-3 py-3 transition-colors hover:bg-muted/20"
-                >
-                  <div className="min-w-0 px-1">
-                    <p className="truncate text-sm text-foreground">{getJobTitle(job)}</p>
-                    <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                      {job.last_error || job.schedule_display || job.schedule?.display || job.id}
-                    </p>
-                  </div>
-                  <Badge tone={jobTone(job)}>{getJobState(job)}</Badge>
-                </Link>
-              ))}
+            <div className="h-[28rem] min-h-0 bg-black">
+              <ChatPage embedded isActive profileOverride={terminal.profile} embeddedHeroText={terminal.hero} />
             </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Cpu className="h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-base">Profile readiness</CardTitle>
-            </div>
-            <SectionLink to="/profiles" label="Open Profiles" />
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-3 pb-4">
-            <MiniMetric label="Installed" value={data.profiles.length} />
-            <MiniMetric label="Env ready" value={envReady} />
-            <MiniMetric label="Gateways" value={gatewayProfiles} />
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {data.profiles.slice(0, 8).map((profile) => (
-              <Link
-                key={profile.name}
-                to="/profiles"
-                className="group border border-border bg-muted/10 p-3 transition-colors hover:border-current/30 hover:bg-muted/20"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="truncate font-mono-ui text-sm text-foreground">{profile.name}</p>
-                  <span
-                    className={cn(
-                      "h-2 w-2 shrink-0 rounded-full",
-                      profile.gateway_running ? "bg-success shadow-[0_0_12px_var(--color-success)]" : "bg-muted-foreground/40",
-                    )}
-                  />
-                </div>
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                  {profile.provider || "provider default"} · {profile.model || "model default"}
-                </p>
-              </Link>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -2873,38 +2948,20 @@ function EmptySignal({
   );
 }
 
-function MiniMetric({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="relative overflow-hidden border border-white/[0.08] bg-white/[0.04] p-3 backdrop-blur-xl">
-      <p className="text-[0.58rem] font-medium uppercase tracking-[0.22em] text-white/30">
-        {label}
-      </p>
-      <p className="mt-1.5 truncate font-mono-ui text-2xl leading-none text-white/80">{value}</p>
-    </div>
-  );
-}
-
 export default function MissionControlPage() {
   const [data, setData] = useState<LoadState>(emptyState);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<MissionView>("overview");
   const [spotlight, setSpotlight] = useState({ x: 72, y: 18 });
   const [selectedMetric, setSelectedMetric] = useState("gateway");
-  const [teamFilter, setTeamFilter] = useState<TeamFilter>(() => readCachedTeamFilter());
   const [soundSettings, setSoundSettings] = useState<MissionControlSoundSettings>(() => readCachedSoundSettings());
   const previousTerminalTonesRef = useRef<Map<string, ReadinessTone> | null>(null);
   const previousTaskStatusesRef = useRef<Map<string, string> | null>(null);
   const currentTerminalReviewIdsRef = useRef<Set<string>>(new Set());
   const pendingApprovalDingRef = useRef(false);
   const pendingDoneDingRef = useRef(false);
-  const { setEnd } = usePageHeader();
-
-  const updateTeamFilter = useCallback((value: TeamFilter) => {
-    setTeamFilter(value);
-    cacheTeamFilter(value);
-  }, []);
+  const lastKanbanActivityRefreshRef = useRef(0);
 
   const updateSoundSetting = useCallback((kind: MissionControlSoundSetting, enabled: boolean) => {
     setSoundSettings((current) => {
@@ -2917,7 +2974,40 @@ export default function MissionControlPage() {
   const loadActivity = useCallback(async () => {
     try {
       const activity = await api.getMissionControlActivity({ timeoutMs: MISSION_CONTROL_ACTIVITY_TIMEOUT_MS });
-      setData((previous) => ({ ...previous, activity }));
+      const activeTeamIds = new Set(
+        (activity.profile_teams ?? [])
+          .filter((team) => team.agents.some((agent) => agent.active || agent.status === "working" || agent.status === "review"))
+          .map((team) => team.team_id),
+      );
+      const shouldRefreshKanban = activeTeamIds.size > 0 && Date.now() - lastKanbanActivityRefreshRef.current > 4000;
+      if (!shouldRefreshKanban) {
+        setData((previous) => ({ ...previous, activity }));
+      } else {
+        lastKanbanActivityRefreshRef.current = Date.now();
+        try {
+          const kanbanBoards = await api.getKanbanBoards({ timeoutMs: MISSION_CONTROL_ACTIVITY_TIMEOUT_MS });
+          const boardMetas = kanbanBoards.boards.filter((board) => activeTeamIds.has(board.slug));
+          const boardResults = await Promise.allSettled(
+            boardMetas.map((board) => api.getKanbanBoard(board.slug, { timeoutMs: MISSION_CONTROL_ACTIVITY_TIMEOUT_MS })),
+          );
+          const kanbanByBoard = boardResults.reduce<Record<string, KanbanBoardResponse>>((acc, result, index) => {
+            if (result.status === "fulfilled") {
+              acc[boardMetas[index].slug] = result.value;
+            }
+            return acc;
+          }, {});
+          setData((previous) => ({
+            ...previous,
+            activity,
+            kanbanBoards,
+            kanbanByBoard: { ...previous.kanbanByBoard, ...kanbanByBoard },
+            kanban: previous.kanban ?? (kanbanBoards.current && kanbanByBoard[kanbanBoards.current] ? kanbanByBoard[kanbanBoards.current] : previous.kanban),
+            kanbanUnavailable: false,
+          }));
+        } catch {
+          setData((previous) => ({ ...previous, activity }));
+        }
+      }
       setError(null);
       setLoading(false);
     } catch {
@@ -2978,29 +3068,6 @@ export default function MissionControlPage() {
     setRefreshing(false);
   }, []);
 
-  useLayoutEffect(() => {
-    setEnd(
-      <div className="flex items-center gap-2">
-        <ViewSwitch view={view} onChange={setView} />
-        <Button
-          type="button"
-          ghost
-          size="icon"
-          className="text-muted-foreground hover:text-foreground"
-          onClick={() => {
-            void load();
-            void loadActivity();
-          }}
-          disabled={refreshing}
-          aria-label="Refresh mission control"
-        >
-          {refreshing ? <Spinner /> : <RefreshCw />}
-        </Button>
-      </div>,
-    );
-    return () => setEnd(null);
-  }, [load, loadActivity, refreshing, setEnd, view]);
-
   useEffect(() => {
     void Promise.resolve().then(load);
     void Promise.resolve().then(loadActivity);
@@ -3038,13 +3105,11 @@ export default function MissionControlPage() {
     return () => window.clearInterval(interval);
   }, [load]);
 
-  const effectiveTeamFilter = useMemo(() => {
-    if (!data.kanbanBoards) return teamFilter;
-    return teamFilterOptions(data).some((option) => option.value === teamFilter) ? teamFilter : ALL_TEAMS_FILTER;
-  }, [data, teamFilter]);
+  const effectiveTeamFilter = ALL_TEAMS_FILTER;
   const metrics = useMemo(() => buildMetrics(data), [data]);
   const timeline = useMemo(() => buildTimeline(data, effectiveTeamFilter), [data, effectiveTeamFilter]);
   const operations = useMemo(() => buildOperationsItems(data), [data]);
+  const liveProfiles = useMemo(() => liveActivityByProfile(data), [data]);
   const terminalReviewIds = useMemo(
     () => new Set(
       operations
@@ -3070,9 +3135,8 @@ export default function MissionControlPage() {
     [operations],
   );
   const teamTaskByProfile = useMemo(() => currentTaskByProfile(data), [data]);
+  const teamTasksById = useMemo(() => currentTasksByTeam(data), [data]);
   const score = useMemo(() => computeMissionScore(data), [data]);
-  const selectedMetricData =
-    metrics.find((metric) => metric.id === selectedMetric) ?? metrics[0];
   const readiness = useMemo(() => {
     if (data.status?.gateway_exit_reason) {
       return { tone: "destructive" as BadgeTone, label: "Gateway needs attention" };
@@ -3275,27 +3339,6 @@ export default function MissionControlPage() {
         </div>
       )}
 
-      {/* ── OS nav strip ──────────────────────────── */}
-      <div className="mission-control-strip flex flex-col gap-2 border-y border-white/[0.06] bg-white/[0.02] px-4 py-2.5 backdrop-blur-2xl sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <ViewSwitch view={view} onChange={setView} />
-          <div className="hidden h-3 w-px bg-white/10 sm:block" />
-          <TeamFilterSelect data={data} value={effectiveTeamFilter} onChange={updateTeamFilter} label="Queue team" />
-          {selectedMetricData && (
-            <span className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-white/30">
-              ↳ {selectedMetricData.label} · {selectedMetricData.value}
-            </span>
-          )}
-        </div>
-        {selectedMetricData && (
-          <Link
-            to={selectedMetricData.href}
-            className="inline-flex items-center gap-1.5 text-[0.68rem] uppercase tracking-[0.14em] text-white/25 transition-colors hover:text-white/55"
-          >
-            Open {selectedMetricData.label} <ArrowRight className="h-3 w-3" />
-          </Link>
-        )}
-      </div>
 
       {/* ── Bento metric grid ─────────────────────── */}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr_1fr]">
@@ -3313,22 +3356,20 @@ export default function MissionControlPage() {
         items={operations}
         profiles={data.profiles}
         profileTeams={data.activity?.profile_teams ?? []}
+        liveProfiles={liveProfiles}
         soundSettings={soundSettings}
         onSoundSettingChange={updateSoundSetting}
+        onRefresh={load}
         taskByProfile={teamTaskByProfile}
+        tasksByTeam={teamTasksById}
       />
 
-      {view === "overview" && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-          <MissionQueue data={data} onRefresh={load} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />
-          <Timeline items={timeline} data={data} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />
-        </div>
-      )}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+        <MissionQueue data={data} onRefresh={load} teamFilter={effectiveTeamFilter} />
+        <Timeline items={timeline} />
+      </div>
 
-      {view === "work" && <MissionQueue data={data} onRefresh={load} teamFilter={effectiveTeamFilter} onTeamFilterChange={updateTeamFilter} />}
-
-      {view === "ops" && <OpsDeck data={data} />}
-
+      <MissionControlTerminalDock />
       <CommandDock />
       <PluginSlot name="mission-control:bottom" />
     </div>

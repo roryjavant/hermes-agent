@@ -44,6 +44,7 @@ function buildWsUrl(
   resume: string | null,
   channel: string,
   profile: string,
+  hero: string,
 ): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   // ``authParam`` is ``["token", <session>]`` in loopback mode and
@@ -55,6 +56,7 @@ function buildWsUrl(
   // selected profile, so the conversation runs with that profile's model,
   // skills, memory, and sessions (see web_server._resolve_chat_argv).
   if (profile) qs.set("profile", profile);
+  if (hero) qs.set("hero", hero);
   return `${proto}//${window.location.host}${HERMES_BASE_PATH}/api/pty?${qs.toString()}`;
 }
 
@@ -115,7 +117,60 @@ function terminalLineHeightForWidth(layoutWidthPx: number): number {
   return layoutWidthPx < 1024 ? 1.02 : 1.15;
 }
 
-export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
+// Mini-Hermes block font: 5-row solid letterforms with half-block corner
+// rounding — the same chunky, gradient-ready look as HERMES_AGENT_LOGO,
+// condensed so the widest word (PROMPT, 37 cols) still fits the embedded
+// hero column (capped at 40% of pane cols; panes run ~90+ cols). Plain
+// lines (no rich markup) so the TUI's customHero() applies each pane's
+// skin gradient, matching how the default caduceus is colored.
+const EMBEDDED_HERO_ART: Record<string, string[]> = {
+  ONLY: [
+    "▄███▄ ███  ██ ██    ██ ██",
+    "██ ██ ██▀▄ ██ ██    ██ ██",
+    "██ ██ ██ █ ██ ██    ▀███▀",
+    "██ ██ ██ ▀▄██ ██     ▐█▌ ",
+    "▀███▀ ██  ███ █████  ▐█▌ ",
+  ],
+  ONE: [
+    "▄███▄ ███  ██ █████",
+    "██ ██ ██▀▄ ██ ██   ",
+    "██ ██ ██ █ ██ ████ ",
+    "██ ██ ██ ▀▄██ ██   ",
+    "▀███▀ ██  ███ █████",
+  ],
+  PROMPT: [
+    "████▄ ████▄ ▄███▄ ███ ███ ████▄ █████",
+    "██ ██ ██ ██ ██ ██ ██▀█▀██ ██ ██  ▐█▌ ",
+    "████▀ ████▀ ██ ██ ██ ▀ ██ ████▀  ▐█▌ ",
+    "██    ████  ██ ██ ██   ██ ██     ▐█▌ ",
+    "██    ██ ██ ▀███▀ ██   ██ ██     ▐█▌ ",
+  ],
+  AWAY: [
+    "▄███▄ ██   ██ ▄███▄ ██ ██  ",
+    "██ ██ ██   ██ ██ ██ ██ ██  ",
+    // AWAY uses hand-biased trailing cells so the colored top and lower blocks
+    // sit on the same left edge after customHero() centers the fixed hero block.
+    "█████ ██ ▄ ██ █████ ▀███▀  ",
+    "██ ██ ██▄█▄██ ██ ██  ▐█▌   ",
+    "██ ██ ███ ███ ██ ██  ▐█▌   ",
+  ],
+};
+
+function embeddedHeroArt(word: string): string {
+  return (EMBEDDED_HERO_ART[word.trim().toUpperCase()] ?? [word.toUpperCase()]).join("\n");
+}
+
+export default function ChatPage({
+  isActive = true,
+  embedded = false,
+  profileOverride = "",
+  embeddedHeroText = "",
+}: {
+  isActive?: boolean;
+  embedded?: boolean;
+  profileOverride?: string;
+  embeddedHeroText?: string;
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -186,8 +241,9 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // starts a fresh scoped session.
   const { profile: scopedProfile } = useProfileScope();
   const profileParam = searchParams.get("profile")?.trim() ?? "";
-  const chatProfile = profileParam || scopedProfile;
-  const channel = useMemo(() => generateChannelId(), [resumeParam, chatProfile]);
+  const chatProfile = profileOverride.trim() || profileParam || scopedProfile;
+  const embeddedHero = embeddedHeroText ? embeddedHeroArt(embeddedHeroText) : "";
+  const channel = useMemo(() => generateChannelId(), [resumeParam, chatProfile, embeddedHero]);
 
   useEffect(() => {
     if (!resumeParam) return;
@@ -248,7 +304,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   useEffect(() => {
     // When hidden (non-chat tab) we must not register the header button —
     // another page owns the header's end slot at that point.
-    if (!isActive) {
+    if (!isActive || embedded) {
       setEnd(null);
       return;
     }
@@ -275,7 +331,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       </Button>,
     );
     return () => setEnd(null);
-  }, [isActive, narrow, mobilePanelOpen, modelToolsLabel, setEnd]);
+  }, [isActive, embedded, narrow, mobilePanelOpen, modelToolsLabel, setEnd]);
 
   const handleCopyLast = () => {
     const ws = wsRef.current;
@@ -295,6 +351,17 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     copyResetRef.current = setTimeout(() => setCopyState("idle"), 1500);
     termRef.current?.focus();
   };
+
+  const handleTerminalFramePointerDown = useCallback(() => {
+    const host = hostRef.current;
+    if (!host || host.contains(document.activeElement)) return;
+    const textarea = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+    if (textarea) {
+      textarea.focus({ preventScroll: true });
+      return;
+    }
+    termRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -460,6 +527,33 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     term.loadAddon(new WebLinksAddon());
 
     term.open(host);
+    host.tabIndex = 0;
+    const focusTerminalFromPointer = () => {
+      if (host.contains(document.activeElement)) return;
+      const textarea = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+      if (textarea) {
+        textarea.focus({ preventScroll: true });
+        return;
+      }
+      term.focus();
+    };
+    // Embedded Mission Control panes do not auto-focus on mount, but a click
+    // anywhere in the xterm host must claim keyboard focus so typing goes
+    // to the clicked pane instead of the dashboard page.
+    host.addEventListener("pointerdown", focusTerminalFromPointer, { capture: true });
+    host.addEventListener("mousedown", focusTerminalFromPointer, { capture: true });
+    host.addEventListener("click", focusTerminalFromPointer, { capture: true });
+    const warmFocusTimer = embedded
+      ? window.setTimeout(() => {
+          if (!host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) return;
+          const previousActive = document.activeElement;
+          term.focus();
+          term.blur();
+          if (previousActive instanceof HTMLElement && previousActive !== document.body) {
+            previousActive.focus({ preventScroll: true });
+          }
+        }, 250)
+      : 0;
 
     // WebGL draws from a texture atlas sized with device pixels. On phones and
     // in DevTools device mode that often produces *visually* much larger cells
@@ -590,7 +684,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     void (async () => {
       const authParam = await buildWsAuthParam();
       if (unmounting) return;
-      const url = buildWsUrl(authParam, resumeParam, channel, chatProfile);
+      const url = buildWsUrl(authParam, resumeParam, channel, chatProfile, embeddedHero);
       const ws = new WebSocket(url);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
@@ -696,7 +790,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       });
     })();
 
-    term.focus();
+    if (!embedded) term.focus();
 
     return () => {
       unmounting = true;
@@ -710,6 +804,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         scheduleSyncTerminalMetrics,
       );
       ro.disconnect();
+      host.removeEventListener("pointerdown", focusTerminalFromPointer, { capture: true });
+      host.removeEventListener("mousedown", focusTerminalFromPointer, { capture: true });
+      host.removeEventListener("click", focusTerminalFromPointer, { capture: true });
+      if (warmFocusTimer) window.clearTimeout(warmFocusTimer);
       if (hostSyncRaf) cancelAnimationFrame(hostSyncRaf);
       if (settleRaf1) cancelAnimationFrame(settleRaf1);
       if (settleRaf2) cancelAnimationFrame(settleRaf2);
@@ -728,7 +826,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         copyResetRef.current = null;
       }
     };
-  }, [channel, resumeParam, chatProfile]);
+  }, [channel, resumeParam, chatProfile, embedded, embeddedHero]);
 
   // When the user returns to the chat tab (isActive: false → true), the
   // terminal host just transitioned from display:none to display:flex.
@@ -873,9 +971,9 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <PluginSlot name="chat:top" />
-      {mobileModelToolsPortal}
+    <div className={cn("flex min-h-0 flex-1 flex-col gap-2", embedded && "h-full")}> 
+      {!embedded && <PluginSlot name="chat:top" />}
+      {!embedded && mobileModelToolsPortal}
 
       {banner && (
         <div className="border border-warning/50 bg-warning/10 text-warning px-3 py-2 text-xs tracking-wide">
@@ -885,9 +983,13 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
 
       <div className="flex min-h-0 flex-1 flex-col gap-2 lg:flex-row lg:gap-3">
         <div
+          role={embedded ? "application" : undefined}
+          aria-label={embedded ? `${chatProfile} terminal` : undefined}
+          onPointerDownCapture={embedded ? handleTerminalFramePointerDown : undefined}
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg",
             "p-2 sm:p-3",
+            embedded && "cursor-text transition-[box-shadow,border-color] duration-75 focus-within:ring-2 focus-within:ring-current/45 focus-within:ring-offset-2 focus-within:ring-offset-black/70",
           )}
           style={{
             backgroundColor: terminalBg,
@@ -899,33 +1001,35 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
             className="hermes-chat-xterm-host min-h-0 min-w-0 flex-1"
           />
 
-          <Button
-            ghost
-            onClick={handleCopyLast}
-            title="Copy last assistant response as raw markdown"
-            aria-label="Copy last assistant response"
-            className={cn(
-              "absolute z-10",
-              "normal-case tracking-normal font-normal",
-              "rounded border border-current/30",
-              "bg-black/20 backdrop-blur-sm",
-              "opacity-70 hover:opacity-100 hover:border-current/60",
-              "transition-opacity duration-150",
-              "bottom-2 right-2 px-2 py-1 text-xs sm:bottom-3 sm:right-3 sm:px-2.5 sm:py-1.5",
-              "lg:bottom-4 lg:right-4",
-            )}
-            style={{ color: TERMINAL_THEME_STATIC.foreground }}
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <Copy className="h-3 w-3 shrink-0" />
-              <span className="hidden min-[400px]:inline tracking-wide">
-                {copyState === "copied" ? "copied" : "copy last response"}
+          {!embedded && (
+            <Button
+              ghost
+              onClick={handleCopyLast}
+              title="Copy last assistant response as raw markdown"
+              aria-label="Copy last assistant response"
+              className={cn(
+                "absolute z-10",
+                "normal-case tracking-normal font-normal",
+                "rounded border border-current/30",
+                "bg-black/20 backdrop-blur-sm",
+                "opacity-70 hover:opacity-100 hover:border-current/60",
+                "transition-opacity duration-150",
+                "bottom-2 right-2 px-2 py-1 text-xs sm:bottom-3 sm:right-3 sm:px-2.5 sm:py-1.5",
+                "lg:bottom-4 lg:right-4",
+              )}
+              style={{ color: TERMINAL_THEME_STATIC.foreground }}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Copy className="h-3 w-3 shrink-0" />
+                <span className="hidden min-[400px]:inline tracking-wide">
+                  {copyState === "copied" ? "copied" : "copy last response"}
+                </span>
               </span>
-            </span>
-          </Button>
+            </Button>
+          )}
         </div>
 
-        {!narrow && (
+        {!embedded && !narrow && (
           <div
             id="chat-side-panel"
             role="complementary"
@@ -938,7 +1042,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
           </div>
         )}
       </div>
-      <PluginSlot name="chat:bottom" />
+      {!embedded && <PluginSlot name="chat:bottom" />}
     </div>
   );
 }

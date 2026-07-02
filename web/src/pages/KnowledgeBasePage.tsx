@@ -13,6 +13,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
@@ -53,43 +54,64 @@ const TONE_BY_SLUG: Record<string, Tone> = {
   "hermes-marketing": "amber",
 };
 
-function KnowledgeBaseCard({ base, onOpen }: { base: KnowledgeBaseSummary; onOpen: () => void }) {
+function KnowledgeBaseCard({
+  base,
+  onOpen,
+  onRequestDelete,
+}: {
+  base: KnowledgeBaseSummary;
+  onOpen: () => void;
+  onRequestDelete: (target: Exclude<DeleteTarget, null>) => void;
+}) {
   const tone = TONES[TONE_BY_SLUG[base.slug] ?? "cyan"];
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={`Open knowledge base: ${base.title}`}
-      className="group relative overflow-hidden border border-border/70 bg-background-base/72 text-left shadow-2xl shadow-black/20 transition-all duration-200 hover:-translate-y-1 hover:border-border/90 hover:shadow-black/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70"
-    >
-      <div className={cn("relative overflow-hidden border-b bg-gradient-to-br p-5", tone.card)}>
-        <div className="pointer-events-none absolute -right-10 -top-10 size-36 rounded-full bg-current/10 blur-2xl transition-transform duration-500 group-hover:scale-150" />
-        <div className="relative flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="mb-2 font-mono-ui text-[10px] tracking-[0.2em] text-current/60 uppercase">{base.kicker}</p>
-            <h2 className={cn("font-expanded text-2xl font-black uppercase leading-none tracking-[0.08em]", tone.text)}>{base.title}</h2>
+    <article className="group relative overflow-hidden border border-border/70 bg-background-base/72 text-left shadow-2xl shadow-black/20 transition-all duration-200 hover:-translate-y-1 hover:border-border/90 hover:shadow-black/30">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open knowledge base: ${base.title}`}
+        className="block h-full w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70"
+      >
+        <div className={cn("relative overflow-hidden border-b bg-gradient-to-br p-5", tone.card)}>
+          <div className="pointer-events-none absolute -right-10 -top-10 size-36 rounded-full bg-current/10 blur-2xl transition-transform duration-500 group-hover:scale-150" />
+          <div className="relative flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="mb-2 font-mono-ui text-[10px] tracking-[0.2em] text-current/60 uppercase">{base.kicker}</p>
+              <h2 className={cn("font-expanded text-2xl font-black uppercase leading-none tracking-[0.08em]", tone.text)}>{base.title}</h2>
+            </div>
+            <span className={cn("grid size-11 shrink-0 place-items-center rounded-2xl border border-current/20 bg-black/28", tone.glow)}>
+              <BookOpen className="size-5" />
+            </span>
           </div>
-          <span className={cn("grid size-11 shrink-0 place-items-center rounded-2xl border border-current/20 bg-black/28", tone.glow)}>
-            <BookOpen className="size-5" />
-          </span>
         </div>
-      </div>
 
-      <div className="flex flex-col gap-4 p-5">
-        <p className="text-sm leading-6 text-text-secondary">{base.description}</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-border/60 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">
-            {base.entry_count} files
-          </span>
-          <span className="rounded-full border border-border/60 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">
-            {base.folder_count} folders
-          </span>
-          <span className="ml-auto text-xs font-black text-text-tertiary transition-colors group-hover:text-foreground">
-            Open <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
-          </span>
+        <div className="flex flex-col gap-4 p-5">
+          <p className="text-sm leading-6 text-text-secondary">{base.description}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-border/60 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">
+              {base.entry_count} files
+            </span>
+            <span className="rounded-full border border-border/60 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">
+              {base.folder_count} folders
+            </span>
+            <span className={cn("ml-auto text-xs font-black text-text-tertiary transition-colors group-hover:text-foreground", base.deletable ? "mr-10" : "")}>
+              Open <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
+            </span>
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+      {base.deletable ? (
+        <button
+          type="button"
+          onClick={() => onRequestDelete({ path: base.path, slug: base.slug, label: base.title, kind: "base" })}
+          aria-label={`Delete knowledge base card: ${base.title}`}
+          className="absolute bottom-4 right-4 z-10 grid size-9 place-items-center rounded-full border border-border/60 bg-black/35 text-text-tertiary opacity-80 transition-colors hover:border-destructive/55 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+          title={`Delete ${base.title}`}
+        >
+          <Trash2 className="size-4" />
+        </button>
+      ) : null}
+    </article>
   );
 }
 
@@ -128,6 +150,7 @@ function FileTree({
   onToggleFolder,
   onSelectFolder,
   onOpenEntry,
+  onRequestDelete,
 }: {
   node: KnowledgeBaseTreeNode;
   depth?: number;
@@ -136,23 +159,38 @@ function FileTree({
   onToggleFolder: (path: string) => void;
   onSelectFolder: (path: string) => void;
   onOpenEntry: (entry: KnowledgeBaseEntrySummary) => void;
+  onRequestDelete: (target: Exclude<DeleteTarget, null>) => void;
 }) {
   if (node.type === "file") {
     return (
-      <button
-        type="button"
-        onClick={() => onOpenEntry(node.entry)}
-        className="group grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-border/40 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-midground/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-midground/60"
+      <div
+        className="group grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-midground/8"
         style={{ paddingLeft: `${12 + depth * 16}px` }}
       >
         <FileText className="size-3.5 shrink-0 text-text-tertiary transition-colors group-hover:text-midground" />
-        <div className="min-w-0">
+        <button
+          type="button"
+          onClick={() => onOpenEntry(node.entry)}
+          className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
+        >
           <div className="truncate text-[13px] font-semibold text-foreground">{node.entry.title}</div>
-        </div>
-        <span className="rounded-full border border-border/50 bg-black/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-text-tertiary transition-colors group-hover:border-midground/40 group-hover:text-foreground">
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenEntry(node.entry)}
+          className="rounded-full border border-border/50 bg-black/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-text-tertiary transition-colors hover:border-midground/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
+        >
           Open
-        </span>
-      </button>
+        </button>
+        <button
+          type="button"
+          onClick={() => onRequestDelete({ path: node.entry.relative_path, label: node.entry.title, kind: "file" })}
+          aria-label={`Delete knowledge file: ${node.entry.title}`}
+          className="grid size-7 place-items-center rounded-full border border-border/50 bg-black/20 text-text-tertiary opacity-70 transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
     );
   }
 
@@ -164,37 +202,49 @@ function FileTree({
   return (
     <div className={isRoot ? "" : "border-b border-border/40 last:border-b-0"}>
       {!isRoot ? (
-        <button
-          type="button"
-          aria-expanded={isExpanded}
-          onClick={() => {
-            onSelectFolder(folderPath);
-            onToggleFolder(node.relative_path);
-          }}
+        <div
           className={cn(
-            "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-midground/8 focus-visible:outline-none focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-midground/60",
+            "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-midground/8",
             isSelected ? "bg-midground/10" : "",
           )}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
         >
-          <ChevronRight
-            className={cn("size-3 shrink-0 text-text-tertiary transition-transform duration-150", isExpanded ? "rotate-90" : "")}
-          />
-          {isExpanded ? (
-            <FolderOpen className={cn("size-3.5 shrink-0", isSelected ? "text-midground" : "text-text-tertiary")} />
-          ) : (
-            <FolderClosed className={cn("size-3.5 shrink-0", isSelected ? "text-midground" : "text-text-tertiary")} />
-          )}
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-[0.12em]",
-              isSelected ? "text-foreground" : "text-text-secondary",
-            )}
+          <button
+            type="button"
+            aria-expanded={isExpanded}
+            onClick={() => {
+              onSelectFolder(folderPath);
+              onToggleFolder(node.relative_path);
+            }}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
           >
-            {node.name}
-          </span>
+            <ChevronRight
+              className={cn("size-3 shrink-0 text-text-tertiary transition-transform duration-150", isExpanded ? "rotate-90" : "")}
+            />
+            {isExpanded ? (
+              <FolderOpen className={cn("size-3.5 shrink-0", isSelected ? "text-midground" : "text-text-tertiary")} />
+            ) : (
+              <FolderClosed className={cn("size-3.5 shrink-0", isSelected ? "text-midground" : "text-text-tertiary")} />
+            )}
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-[0.12em]",
+                isSelected ? "text-foreground" : "text-text-secondary",
+              )}
+            >
+              {node.name}
+            </span>
+          </button>
           {isSelected && <div className="size-1.5 shrink-0 rounded-full bg-midground/60" />}
-        </button>
+          <button
+            type="button"
+            onClick={() => onRequestDelete({ path: node.relative_path, label: node.name, kind: "folder" })}
+            aria-label={`Delete knowledge folder: ${node.name}`}
+            className="grid size-7 shrink-0 place-items-center rounded-full border border-border/50 bg-black/20 text-text-tertiary opacity-70 transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
       ) : null}
       {isExpanded ? (
         node.children.length ? (
@@ -208,6 +258,7 @@ function FileTree({
               onToggleFolder={onToggleFolder}
               onSelectFolder={onSelectFolder}
               onOpenEntry={onOpenEntry}
+              onRequestDelete={onRequestDelete}
             />
           ))
         ) : !isRoot ? (
@@ -224,6 +275,10 @@ function FileTree({
 }
 
 type RightTab = "research" | "add";
+type DeleteTarget =
+  | { path: string; slug: string; label: string; kind: "base" }
+  | { path: string; label: string; kind: "file" | "folder" }
+  | null;
 
 export default function KnowledgeBasePage() {
   const [loading, setLoading] = useState(true);
@@ -237,6 +292,7 @@ export default function KnowledgeBasePage() {
   const [body, setBody] = useState("");
   const [researchSubject, setResearchSubject] = useState("");
   const [researchInstructions, setResearchInstructions] = useState("");
+  const [researchUseExistingBase, setResearchUseExistingBase] = useState(false);
   const [launchingResearch, setLaunchingResearch] = useState(false);
   const [researchStatus, setResearchStatus] = useState("");
   const [rightTab, setRightTab] = useState<RightTab>("research");
@@ -248,6 +304,8 @@ export default function KnowledgeBasePage() {
   const [entryDetail, setEntryDetail] = useState<KnowledgeBaseEntryDetail | null>(null);
   const [entryLoading, setEntryLoading] = useState(false);
   const [entryError, setEntryError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+  const [deletingPath, setDeletingPath] = useState("");
 
   const active = useMemo(() => data.find((base) => base.slug === activeSlug) ?? null, [data, activeSlug]);
   const tone = TONES[TONE_BY_SLUG[active?.slug ?? ""] ?? "cyan"];
@@ -262,10 +320,18 @@ export default function KnowledgeBasePage() {
     setError("");
     const response = await api.getKnowledgeBases();
     setData(response.bases);
+    return response.bases;
   };
 
   useEffect(() => {
     void refresh()
+      .then((bases) => {
+        const params = new URLSearchParams(window.location.search);
+        const requestedBase = params.get("base");
+        if (requestedBase && bases.some((base) => base.slug === requestedBase)) {
+          setActiveSlug(requestedBase);
+        }
+      })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
   }, []);
@@ -275,6 +341,7 @@ export default function KnowledgeBasePage() {
     setExpandedFolders(new Set(collectFolderPaths(active.tree).filter((path) => path !== active.tree.relative_path)));
     setFolder("research-briefs");
     setResearchStatus("");
+    setResearchUseExistingBase(false);
   }, [active?.slug]);
 
   const toggleFolder = (path: string) => {
@@ -321,10 +388,16 @@ export default function KnowledgeBasePage() {
         subject: researchSubject,
         instructions: researchInstructions,
         folder_hint: folder,
+        use_existing_base: researchUseExistingBase,
       });
-      setResearchStatus(`${result.message} Profile: ${result.profile}.`);
+      const destination = result.created_base?.title ?? active.title;
+      setResearchStatus(`${result.message} Destination: ${destination}. Profile: ${result.profile}.`);
       setResearchSubject("");
       setResearchInstructions("");
+      const bases = await refresh();
+      if (result.created_base?.slug && bases.some((base) => base.slug === result.created_base?.slug)) {
+        setActiveSlug(result.created_base.slug);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -366,6 +439,35 @@ export default function KnowledgeBasePage() {
       setEntryError(err instanceof Error ? err.message : String(err));
     } finally {
       setEntryLoading(false);
+    }
+  };
+
+  const handleDeleteTarget = async () => {
+    if (!deleteTarget) return;
+    setDeletingPath(deleteTarget.path);
+    setError("");
+    try {
+      if (deleteTarget.kind === "base") {
+        await api.deleteKnowledgeBase(deleteTarget.slug);
+        if (activeSlug === deleteTarget.slug) setActiveSlug(null);
+        setDeleteTarget(null);
+        await refresh();
+        return;
+      }
+
+      if (!active) return;
+      const activeBase = active;
+      await api.deleteKnowledgeBaseEntry(activeBase.slug, deleteTarget.path);
+      if (selectedEntry?.relative_path === deleteTarget.path) closeEntryModal();
+      if (folder && (folder === folderPathFromRelativePath(deleteTarget.path) || folder.startsWith(`${folderPathFromRelativePath(deleteTarget.path)}/`))) {
+        setFolder("research-briefs");
+      }
+      setDeleteTarget(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingPath("");
     }
   };
 
@@ -432,6 +534,7 @@ export default function KnowledgeBasePage() {
                 onToggleFolder={toggleFolder}
                 onSelectFolder={selectFolder}
                 onOpenEntry={handleOpenEntry}
+                onRequestDelete={setDeleteTarget}
               />
             </div>
           </div>
@@ -474,10 +577,10 @@ export default function KnowledgeBasePage() {
                 <>
                   <div>
                     <h3 className="font-expanded text-base font-black uppercase tracking-[0.07em] text-foreground">
-                      Research {active.title}
+                      Start new research card
                     </h3>
                     <p className="mt-1 text-xs leading-5 text-text-secondary">
-                      A background agent will research the subject and write Markdown directly into this knowledge base.
+                      By default this creates a new top-level Knowledge Base card for the subject. Choose the existing-bucket option only when you want to file into {active.title}.
                     </p>
                   </div>
 
@@ -502,6 +605,20 @@ export default function KnowledgeBasePage() {
                         {folder || "agent decides"}
                       </code>
                     </div>
+                    <label className="flex cursor-pointer select-none items-start gap-3 border border-border/60 bg-background-base/60 px-3 py-3 text-xs leading-5 text-text-secondary transition-colors hover:border-midground/35 hover:bg-midground/5">
+                      <input
+                        type="checkbox"
+                        checked={researchUseExistingBase}
+                        onChange={(event) => setResearchUseExistingBase(event.target.checked)}
+                        className="mt-0.5 size-4 accent-midground"
+                      />
+                      <span>
+                        <span className="block font-black uppercase tracking-[0.12em] text-foreground">File into existing bucket</span>
+                        <span className="block text-text-tertiary">
+                          Off by default. Turn this on only when the result belongs inside {active.title} instead of becoming a new Knowledge Base card.
+                        </span>
+                      </span>
+                    </label>
                     <Button
                       onClick={handleStartResearch}
                       disabled={launchingResearch || !researchSubject.trim()}
@@ -618,22 +735,61 @@ export default function KnowledgeBasePage() {
             </div>
           ) : (
             data.map((base) => (
-              <KnowledgeBaseCard key={base.slug} base={base} onOpen={() => setActiveSlug(base.slug)} />
+              <KnowledgeBaseCard
+                key={base.slug}
+                base={base}
+                onOpen={() => setActiveSlug(base.slug)}
+                onRequestDelete={setDeleteTarget}
+              />
             ))
           )}
         </section>
       )}
 
+      {deleteTarget ? (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+          onClick={(event) => event.target === event.currentTarget && setDeleteTarget(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="knowledge-delete-title"
+        >
+          <div className="w-full max-w-md border border-destructive/30 bg-card p-5 shadow-2xl shadow-black/45">
+            <p className="font-mono-ui text-[10px] uppercase tracking-[0.2em] text-destructive/80">Delete {deleteTarget.kind}</p>
+            <h2 id="knowledge-delete-title" className="mt-2 font-expanded text-xl font-black uppercase tracking-[0.07em] text-foreground">
+              {deleteTarget.label}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-text-secondary">
+              {deleteTarget.kind === "base"
+                ? "This removes the entire custom Knowledge Base card and deletes its folder, including every Markdown file inside it. Built-in cards cannot be deleted."
+                : `This removes the ${deleteTarget.kind === "folder" ? "folder and everything inside it" : "Markdown file"} from this Knowledge Base.`}
+            </p>
+            <div className="mt-3 break-all border border-border/60 bg-background-base/60 px-3 py-2 font-mono text-[11px] text-text-tertiary">
+              {deleteTarget.path}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button onClick={() => setDeleteTarget(null)} disabled={Boolean(deletingPath)} className="border border-border/60 bg-background-base/70 text-text-secondary hover:text-foreground">
+                Cancel
+              </Button>
+              <Button onClick={handleDeleteTarget} disabled={Boolean(deletingPath)} className="gap-2 border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25">
+                {deletingPath ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                {deletingPath ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {selectedEntry ? (
         <div
           ref={entryModalRef}
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm lg:pl-72"
           onClick={(event) => event.target === event.currentTarget && closeEntryModal()}
           role="dialog"
           aria-modal="true"
           aria-labelledby="knowledge-entry-title"
         >
-          <div className="relative flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden border border-border/70 bg-card shadow-2xl shadow-black/45">
+          <div className="relative flex h-[92vh] min-h-[32rem] w-full min-w-0 max-w-[96rem] resize flex-col overflow-hidden border border-border/70 bg-card shadow-2xl shadow-black/45 sm:min-w-[44rem]">
             <button
               type="button"
               onClick={closeEntryModal}
@@ -664,7 +820,7 @@ export default function KnowledgeBasePage() {
               </div>
             </header>
 
-            <div className="flex-1 overflow-auto p-5">
+            <div className="min-h-0 flex-1 overflow-auto p-5">
               {entryLoading ? (
                 <div className="flex items-center gap-2 border border-border/60 bg-background-base/60 p-4 text-sm text-text-secondary">
                   <Loader2 className="size-4 animate-spin" /> Loading note…
@@ -672,12 +828,12 @@ export default function KnowledgeBasePage() {
               ) : entryError ? (
                 <div className="border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{entryError}</div>
               ) : (
-                <div className="grid gap-4">
+                <div className="grid min-h-full gap-4">
                   <div className="rounded border border-border/60 bg-background-base/60 px-3 py-2 font-mono text-[11px] text-text-tertiary">
                     {(entryDetail ?? selectedEntry).relative_path}
                   </div>
                   {entryDetail?.content ? (
-                    <pre className="max-h-[48vh] overflow-auto whitespace-pre-wrap border border-border/60 bg-background-base/70 p-4 font-mono text-xs leading-6 text-text-secondary">
+                    <pre className="min-h-[28rem] overflow-auto whitespace-pre-wrap border border-border/60 bg-background-base/70 p-4 font-mono text-xs leading-6 text-text-secondary">
                       {entryDetail.content}
                     </pre>
                   ) : selectedEntry.excerpt ? (

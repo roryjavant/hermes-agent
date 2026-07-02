@@ -236,6 +236,8 @@ function normalizeAnsiForeground(color: string): string {
 
 // ── Defaults ─────────────────────────────────────────────────────────
 
+const ENV_BANNER_HERO = (process.env.HERMES_TUI_BANNER_HERO ?? '').replace(/\r/g, '')
+
 const BRAND: ThemeBrand = {
   name: 'Hermes Agent',
   icon: '⚕',
@@ -301,7 +303,7 @@ export const DARK_THEME: Theme = {
   brand: BRAND,
 
   bannerLogo: '',
-  bannerHero: ''
+  bannerHero: ENV_BANNER_HERO
 }
 
 // Light-terminal palette: darker golds/ambers that stay legible on white
@@ -346,7 +348,7 @@ export const LIGHT_THEME: Theme = {
   brand: BRAND,
 
   bannerLogo: '',
-  bannerHero: ''
+  bannerHero: ENV_BANNER_HERO
 }
 
 const TRUE_RE = /^(?:1|true|yes|on)$/
@@ -584,6 +586,6 @@ export function fromSkin(
     },
 
     bannerLogo,
-    bannerHero
+    bannerHero: bannerHero || d.bannerHero
   }, process.env, DEFAULT_LIGHT_MODE)
 }

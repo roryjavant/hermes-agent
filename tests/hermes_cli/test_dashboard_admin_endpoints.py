@@ -1278,18 +1278,21 @@ class TestMissionControlActivityEndpoint:
         assert [row["status"] for row in rows] == ["ready", "todo", "todo", "todo", "todo"]
         assert {row["workspace_path"] for row in rows} == {"/Users/roryavant/Dev/agent-arena"}
 
-    def test_strategy_profile_message_queues_research_team_and_dispatches(self, monkeypatch):
+    def test_strategy_profile_message_creates_global_kb_then_queues_research_team(self, monkeypatch, tmp_path):
+        from hermes_cli import kanban_db as kb
         from hermes_cli import web_server
 
         class FakeProc:
             pid = 4242
 
         spawned = []
+        kb_root = tmp_path / "global-kb"
 
         def fake_spawn(subcommand, name, env_overrides=None):
             spawned.append((subcommand, name, env_overrides))
             return FakeProc()
 
+        monkeypatch.setenv(web_server._KNOWLEDGE_BASE_ROOT_ENV, str(kb_root))
         monkeypatch.setattr(web_server, "_spawn_hermes_action", fake_spawn)
         monkeypatch.setattr(web_server, "_available_profile_names_fast", lambda: {"hresearchstrategist"})
 
@@ -1302,8 +1305,21 @@ class TestMissionControlActivityEndpoint:
         payload = response.json()
         assert payload["board"] == "hermes-research"
         assert payload["team_id"] == "hermes-research"
+        assert payload["created_base"]["slug"] == "map-the-team-signal-path"
+        assert (kb_root / "map-the-team-signal-path" / ".knowledge-base.json").exists()
         assert len(payload["task_ids"]) == 6
         assert payload["action_name"] == "mission-control-hermes-research-dispatch"
+        conn = kb.connect(board="hermes-research")
+        try:
+            curator_body = conn.execute(
+                "SELECT body FROM tasks WHERE assignee = ?",
+                ("hresearchcurator",),
+            ).fetchone()["body"]
+        finally:
+            conn.close()
+        assert "Destination folder root:" in curator_body
+        assert str(kb_root / "map-the-team-signal-path") in curator_body
+        assert "Scratch files in the team repo do not satisfy this job" in curator_body
         assert spawned == [
             (
                 ["kanban", "--board", "hermes-research", "dispatch", "--max", "1", "--json"],

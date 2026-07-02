@@ -462,6 +462,20 @@ class TestWorkerSpawnEnv:
         assert env["HERMES_KANBAN_BOARD"] == "default"
         assert env["HERMES_KANBAN_DB"] == str(fresh_home / "kanban.db")
 
+    def test_kanban_worker_skill_probe_ignores_archived_skill(self, tmp_path):
+        skills_root = tmp_path / "skills"
+        archived = skills_root / ".archive" / "devops" / "kanban-worker"
+        archived.mkdir(parents=True)
+        (archived / "SKILL.md").write_text("---\nname: kanban-worker\n---\n", encoding="utf-8")
+
+        assert kb._kanban_worker_skill_available(str(tmp_path)) is False
+
+        active = skills_root / "devops" / "kanban-worker"
+        active.mkdir(parents=True)
+        (active / "SKILL.md").write_text("---\nname: kanban-worker\n---\n", encoding="utf-8")
+
+        assert kb._kanban_worker_skill_available(str(tmp_path)) is True
+
 
 # ---------------------------------------------------------------------------
 # CLI surface

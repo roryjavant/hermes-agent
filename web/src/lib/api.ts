@@ -416,6 +416,14 @@ export const api = {
         .map((part) => encodeURIComponent(part))
         .join("/")}`,
     ),
+  deleteKnowledgeBaseEntry: (slug: string, entryPath: string) =>
+    fetchJSON<{ ok: boolean; base: string; path: string; kind: "file" | "folder" }>(
+      `/api/knowledge-bases/${encodeURIComponent(slug)}/entries/${entryPath
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/")}`,
+      { method: "DELETE" },
+    ),
   createKnowledgeBaseEntry: (slug: string, payload: KnowledgeBaseEntryCreate) =>
     fetchJSON<KnowledgeBaseEntryCreateResponse>(`/api/knowledge-bases/${encodeURIComponent(slug)}/entries`, {
       method: "POST",
@@ -1442,6 +1450,7 @@ export interface KnowledgeBaseResearchJobCreate {
   subject: string;
   instructions?: string;
   folder_hint?: string;
+  use_existing_base?: boolean;
 }
 
 export interface KnowledgeBaseResearchJobResponse {
@@ -1451,6 +1460,8 @@ export interface KnowledgeBaseResearchJobResponse {
   profile: string;
   action_name: string;
   pid: number;
+  destination_mode?: "new" | "existing";
+  created_base?: KnowledgeBaseSummary | null;
   message: string;
 }
 
@@ -1464,6 +1475,7 @@ export interface MissionControlProfileMessageResponse {
   action_name: string;
   pid: number;
   message: string;
+  created_base?: KnowledgeBaseSummary | null;
 }
 
 export interface DebugShareResponse {
@@ -1969,6 +1981,20 @@ export interface MissionControlTeamWorkflowStep {
   profiles: string[];
 }
 
+export interface MissionControlFinalOutputState {
+  kind: "knowledge_base" | string;
+  label: string;
+  latest_base?: {
+    slug: string;
+    title: string;
+    kicker?: string;
+    description?: string;
+    path: string;
+    entry_count: number;
+    updated_at: string;
+  } | null;
+}
+
 export interface MissionControlProfileTeam {
   team_id: string;
   label: string;
@@ -1976,6 +2002,7 @@ export interface MissionControlProfileTeam {
   profiles: string[];
   workflow?: MissionControlTeamWorkflowStep[];
   workflow_summary?: string;
+  final_output?: MissionControlFinalOutputState;
   agents: MissionControlProfileTeamAgent[];
 }
 

@@ -25,17 +25,19 @@ const NO_PROVIDER_RE = /\bNo (?:LLM|inference) provider configured\b/i
 
 const statusFromBusy = () => (getUiState().busy ? 'running…' : 'ready')
 
-const applySkin = (s: GatewaySkin) =>
-  patchUiState({
+const applySkin = (s: GatewaySkin) => {
+  const envHero = (process.env.HERMES_TUI_BANNER_HERO ?? '').replace(/\r/g, '')
+  return patchUiState({
     theme: fromSkin(
       s.colors ?? {},
       s.branding ?? {},
       s.banner_logo ?? '',
-      s.banner_hero ?? '',
+      envHero || s.banner_hero || '',
       s.tool_prefix ?? '',
       s.help_header ?? ''
     )
   })
+}
 
 const dropBgTask = (taskId: string) =>
   patchUiState(state => {

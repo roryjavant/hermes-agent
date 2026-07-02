@@ -161,7 +161,8 @@ export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
   const term = useStdout().stdout?.columns ?? 100
   const cols = Math.max(20, Math.min(term, maxWidth ?? term))
   const heroLines = caduceus(t.color, t.bannerHero || undefined)
-  const leftW = Math.min((artWidth(heroLines) || CADUCEUS_WIDTH) + 4, Math.floor(cols * 0.4))
+  const heroW = t.bannerHero ? Math.max(artWidth(heroLines), CADUCEUS_WIDTH) : artWidth(heroLines) || CADUCEUS_WIDTH
+  const leftW = Math.min(heroW + 4, Math.floor(cols * 0.4))
   const wide = cols >= 90 && leftW + 40 < cols
   const w = Math.max(20, wide ? cols - leftW - 14 : cols - 12)
   const lineBudget = Math.max(12, w - 2)
@@ -321,6 +322,11 @@ export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
           // Narrow layout hides the hero column; surface model/cwd/session
           // here so they aren't lost.
           <Box flexDirection="column" marginBottom={1}>
+            {t.bannerHero && (
+              <Box flexDirection="column" marginBottom={1} width={Math.min(artWidth(heroLines), w)}>
+                <ArtLines lines={heroLines} />
+              </Box>
+            )}
             <Text color={t.color.accent} wrap="truncate-end">
               {info.model.split('/').pop()}
               <Text color={t.color.muted}> · Nous Research</Text>

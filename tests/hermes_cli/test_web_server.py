@@ -448,6 +448,34 @@ class TestWebServerEndpoints:
         assert "## Summary" in data["entry"]["content"]
         assert "Important durable details." in data["entry"]["content"]
 
+    def test_knowledge_base_delete_entry_removes_markdown_file(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+        created = self.client.post(
+            "/api/knowledge-bases/hermes-research/entries",
+            json={"title": "Delete File", "body": "Body", "folder": "research-briefs/delete-me"},
+        ).json()["entry"]
+        path = Path(created["path"])
+
+        resp = self.client.delete(f"/api/knowledge-bases/hermes-research/entries/{created['relative_path']}")
+
+        assert resp.status_code == 200
+        assert resp.json()["kind"] == "file"
+        assert not path.exists()
+
+    def test_knowledge_base_delete_entry_removes_folder_tree(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+        created = self.client.post(
+            "/api/knowledge-bases/hermes-research/entries",
+            json={"title": "Nested Delete", "body": "Body", "folder": "research-briefs/delete-folder/nested"},
+        ).json()["entry"]
+        folder = Path(created["path"]).parents[1]
+
+        resp = self.client.delete("/api/knowledge-bases/hermes-research/entries/hermes-research/research-briefs/delete-folder")
+
+        assert resp.status_code == 200
+        assert resp.json()["kind"] == "folder"
+        assert not folder.exists()
+
     def test_knowledge_base_unknown_slug_404s(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
 
@@ -488,20 +516,63 @@ class TestWebServerEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
+        assert data["base"] == "trial-theme-patterns"
+        assert data["destination_mode"] == "new"
+        assert data["created_base"]["slug"] == "trial-theme-patterns"
+        assert data["created_base"]["title"] == "trial theme patterns"
+        assert (tmp_path / "kb" / "trial-theme-patterns" / ".knowledge-base.json").is_file()
         assert data["profile"] == "hresearchstrategist"
         assert data["action_name"] == "knowledge-base-research-job"
         assert captured["name"] == "knowledge-base-research-job"
         assert captured["subcommand"][:3] == ["-p", "hresearchstrategist", "chat"]
         prompt = captured["subcommand"][-1]
         assert "Research subject: trial theme patterns" in prompt
-        assert "Destination knowledge base: Juror Research" in prompt
+        assert "Destination mode: new" in prompt
+        assert "Destination knowledge base: trial theme patterns (trial-theme-patterns)" in prompt
         assert "Global knowledge base root:" in prompt
         assert "Folder guidance: trial-themes" in prompt
-        assert "If Rory explicitly asks to create a new knowledge base" in prompt
+        assert "new top-level knowledge base card has already been created" in prompt
         assert "You are hresearchstrategist" in prompt
         assert "Start the work at the strategy role, then move it through the research team" in prompt
         assert "hresearchcurator files the durable Markdown output in the knowledge base" in prompt
         assert "Do not write the Knowledge Base output into the current repo" in prompt
+
+    def test_knowledge_base_research_job_can_target_existing_bucket(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        class DummyProc:
+            pid = 6790
+
+            def poll(self):
+                return None
+
+        captured = {}
+
+        def fake_spawn(subcommand, name, env_overrides=None):
+            captured["subcommand"] = subcommand
+            captured["name"] = name
+            captured["env_overrides"] = env_overrides
+            return DummyProc()
+
+        monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
+        monkeypatch.setattr(web_server, "_spawn_hermes_action", fake_spawn)
+        web_server._ACTION_PROCS.pop("knowledge-base-research-job", None)
+
+        resp = self.client.post(
+            "/api/knowledge-bases/juror-research/research-jobs",
+            json={"subject": "trial theme patterns", "use_existing_base": True},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["base"] == "juror-research"
+        assert data["destination_mode"] == "existing"
+        assert data["created_base"] is None
+        assert not (tmp_path / "kb" / "trial-theme-patterns").exists()
+        prompt = captured["subcommand"][-1]
+        assert "Destination mode: existing" in prompt
+        assert "Destination knowledge base: Juror Research (juror-research)" in prompt
+        assert "Rory explicitly selected this existing knowledge base" in prompt
 
     def test_mission_control_profile_message_spawns_profile_action(self, monkeypatch):
         from hermes_cli import web_server
@@ -571,9 +642,10 @@ class TestWebServerEndpoints:
         )
 
         assert "Hermes Research knowledge-base artifact contract" in curator_body
-        assert f"Global knowledge base root: {tmp_path / 'kb'}" in curator_body
-        assert f"Default Hermes Research knowledge base: {tmp_path / 'kb' / 'hermes-research'}" in curator_body
-        assert "If Rory asks to create a new knowledge base" in curator_body
+        assert f"Fallback global knowledge base root: {tmp_path / 'kb'}" in curator_body
+        assert f"Fallback Hermes Research knowledge base: {tmp_path / 'kb' / 'hermes-research'}" in curator_body
+        assert "Honor any explicit Destination knowledge base / Destination folder root" in curator_body
+        assert "Only default to Hermes Research when the brief does not specify" in curator_body
         assert "Temporary scratch files in the project workspace do not satisfy" in curator_body
         assert "Curator mandatory finish: write the final reusable Markdown artifacts" in curator_body
         assert "artifact contract above explicitly names a durable output destination" in curator_body
@@ -5294,6 +5366,19 @@ class TestPtyWebSocket:
 
         assert env["HERMES_TUI_INLINE"] == "1"
         assert env["HERMES_TUI_DISABLE_MOUSE"] == "1"
+
+    def test_resolve_chat_argv_applies_embedded_banner_hero(self, monkeypatch):
+        import hermes_cli.main as main_mod
+
+        monkeypatch.setattr(
+            main_mod,
+            "_make_tui_argv",
+            lambda project_root, tui_dev=False: (["node", "dist/entry.js"], "/tmp/ui-tui"),
+        )
+
+        _argv, _cwd, env = self.ws_module._resolve_chat_argv(hero="ONLY\r\nONE")
+
+        assert env["HERMES_TUI_BANNER_HERO"] == "ONLY\nONE"
 
     def test_resolve_chat_argv_applies_terminal_backend_config(
         self, monkeypatch, _isolate_hermes_home
