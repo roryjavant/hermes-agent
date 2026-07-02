@@ -747,14 +747,14 @@ function LightAgentModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-background-base/80 p-4 backdrop-blur-md"
+      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-background-base/80 p-3 backdrop-blur-md sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="light-agent-modal-title"
       onClick={onClose}
     >
       <div
-        className="relative max-h-[86vh] w-full max-w-4xl overflow-hidden border border-midground/30 bg-card shadow-[0_0_60px_rgba(0,0,0,0.45)]"
+        className="relative my-4 max-h-[calc(100dvh-2rem)] w-full max-w-3xl overflow-hidden border border-midground/30 bg-card shadow-[0_0_60px_rgba(0,0,0,0.45)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="absolute inset-x-0 top-0 h-px bg-[#ff3d00]/30" />
@@ -790,7 +790,7 @@ function LightAgentModal({
           </div>
         </div>
 
-        <div className="max-h-[calc(86vh-5rem)] overflow-y-auto p-4">
+        <div className="max-h-[calc(100dvh-7.5rem)] overflow-y-auto p-3 sm:p-4">
           <div className="grid gap-3 md:grid-cols-4">
             <div className="border border-border bg-background-base/35 p-3">
               <p className="text-[0.68rem] uppercase tracking-[0.14em] text-muted-foreground">Team</p>
@@ -1379,6 +1379,13 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
   return [...runtimeItems, ...terminalItems, ...processItems, ...subagentItems, ...sessionItems];
 }
 
+const MISSION_ORB_SECTION_LINKS: Array<{ href: string; label: string; icon: LucideIcon; className: string }> = [
+  { href: "#mission-live-activity", label: "Lights", icon: Radio, className: "left-1/2 top-0 -translate-x-1/2" },
+  { href: "#mission-queue", label: "Queue", icon: Gauge, className: "right-0 top-1/2 -translate-y-1/2" },
+  { href: "#mission-team-signals", label: "Signals", icon: Activity, className: "bottom-0 left-1/2 -translate-x-1/2" },
+  { href: "#mission-terminals", label: "Terms", icon: Terminal, className: "left-0 top-1/2 -translate-y-1/2" },
+];
+
 function MissionOrb({
   metrics,
   score,
@@ -1413,11 +1420,38 @@ function MissionOrb({
         <line x1="120" y1="20" x2="120" y2="42" stroke="#22d3ee" strokeOpacity="0.72" strokeWidth="1" />
         <line x1="120" y1="198" x2="120" y2="220" stroke="#ff3d00" strokeOpacity="0.72" strokeWidth="1" />
       </svg>
+      {MISSION_ORB_SECTION_LINKS.map((link) => {
+        const Icon = link.icon;
+        return (
+          <a
+            key={link.href}
+            href={link.href}
+            className={cn(
+              "mission-orb-section-link absolute z-20 flex h-9 items-center gap-1.5 border border-[#ff3d00]/45 bg-[#050505]/95 px-2.5 font-mono-ui text-[0.56rem] uppercase tracking-[0.13em] text-[#ff3d00]/82 shadow-[0_0_18px_rgba(255,61,0,0.12)] transition-colors hover:border-[#22d3ee]/60 hover:text-[#22d3ee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#22d3ee]/70",
+              link.className,
+            )}
+            aria-label={`Jump to ${link.label} section`}
+          >
+            <Icon className="h-3 w-3" />
+            <span>{link.label}</span>
+          </a>
+        );
+      })}
       <div className="relative z-10 flex h-32 w-32 flex-col items-center justify-center rounded-full border border-[#ff3d00]/40 bg-[#030303] text-center shadow-[0_0_26px_rgba(255, 61, 0,0.26)]">
         <span className="font-mono-ui text-[0.58rem] uppercase tracking-[0.22em] text-white/30">Mission score</span>
         <span className="mt-1 font-mono-ui text-4xl leading-none text-white">{score}</span>
         <span className="mt-1 max-w-24 truncate text-[0.62rem] uppercase tracking-[0.18em] text-[#22d3ee]/75">{active.label}</span>
       </div>
+    </div>
+  );
+}
+
+function MissionSectionBreak({ label, eyebrow }: { label: string; eyebrow: string }) {
+  return (
+    <div className="mission-section-break" aria-hidden="true">
+      <span className="mission-section-break__eyebrow">{eyebrow}</span>
+      <span className="mission-section-break__rule" />
+      <span className="mission-section-break__label">{label}</span>
     </div>
   );
 }
@@ -1488,7 +1522,7 @@ function Timeline({
   const categoryBadgeClass = "shrink-0 border border-white/18 bg-transparent px-2 py-1 font-mondwest text-display text-[0.62rem] uppercase tracking-[0.14em] text-white/52";
 
   return (
-    <Card className="overflow-hidden">
+    <Card id="mission-team-signals" className="scroll-mt-24 overflow-hidden">
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -1887,7 +1921,7 @@ function MissionQueue({
 
   return (
     <>
-      <Card className="overflow-hidden">
+      <Card id="mission-queue" className="scroll-mt-24 overflow-hidden">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -2144,7 +2178,7 @@ function ActiveOperationsBoard({
   }, [selectedLightAgent]);
 
   return (
-    <Card className="mission-active-board overflow-hidden">
+    <Card id="mission-live-activity" className="mission-active-board scroll-mt-24 overflow-visible">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -2202,8 +2236,8 @@ function ActiveOperationsBoard({
           />
         ) : (
           <div className="space-y-3">
-            <div className="mission-signal-board rounded border border-border bg-background-base/25 p-2.5">
-              <div className="grid gap-3 xl:grid-cols-3">
+            <div className="mission-signal-board rounded border border-border bg-background-base/25 p-3">
+              <div className="grid gap-4 xl:grid-cols-3">
                 {segments.map((segment) => {
                   const segmentItems = segment.id === "teams"
                     ? teamRows.flatMap((row) => row.items)
@@ -2221,14 +2255,13 @@ function ActiveOperationsBoard({
                         : groupedActivityRows(segment.id, segmentItems);
                   const segmentCount = segment.id === "teams" || segment.id === "terminals" ? groupedRows.length : segmentItems.length;
                   return (
-                    <div key={segment.id} className="mission-signal-segment min-h-16 border border-border/80 bg-background-base/20 p-2.5 xl:col-span-3">
-                      <div className="mb-2 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-mondwest text-display text-xs uppercase tracking-[0.16em] text-foreground">
-                            {segment.label}
-                          </p>
-                        </div>
-                        <Badge tone="secondary">{segmentCount}</Badge>
+                    <div key={segment.id} className="mission-signal-segment min-h-16 border border-border/80 bg-background-base/20 p-3 xl:col-span-3">
+                      <div className="mb-3 flex items-center gap-3">
+                        <p className="mission-signal-segment__title shrink-0 font-mondwest text-display text-xs uppercase">
+                          {segment.label}
+                        </p>
+                        <span className="mission-signal-segment__rule" aria-hidden="true" />
+                        <span className="mission-signal-segment__count px-2 py-0.5 font-mono-ui text-[0.58rem] uppercase tracking-[0.12em]">{segmentCount}</span>
                       </div>
                       {segmentItems.length === 0 ? (
                         <p className="text-xs text-muted-foreground">No live {segment.label.toLowerCase()}.</p>
@@ -2763,11 +2796,14 @@ function MissionControlTerminalDock() {
   ];
 
   return (
-    <section className="mission-terminal-dock border border-border/70 bg-background-base/45 p-3 shadow-2xl shadow-black/20">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-mondwest text-display text-sm uppercase tracking-[0.16em] text-foreground">Embedded terminals</p>
-          <p className="mt-1 text-xs text-muted-foreground">Four live Hermes panes for quick steering without leaving Mission Control.</p>
+    <section id="mission-terminals" className="mission-terminal-dock scroll-mt-24 border border-border/70 bg-background-base/45 p-3 shadow-2xl shadow-black/20">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Terminal className="h-4 w-4 text-[#ff3d00]" />
+          <div>
+            <CardTitle className="text-base">Embedded terminals</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">Four live Hermes panes for quick steering without leaving Mission Control.</p>
+          </div>
         </div>
         <Badge tone="secondary">4 terminals</Badge>
       </div>
@@ -3183,7 +3219,7 @@ export default function MissionControlPage() {
   }
 
   return (
-    <div className="mission-control-surface relative isolate flex flex-col gap-3">
+    <div className="mission-control-surface relative isolate flex flex-col gap-5">
       <PluginSlot name="mission-control:top" />
 
       {/* ── Hero ──────────────────────────────────── */}
@@ -3222,6 +3258,11 @@ export default function MissionControlPage() {
               >
                 Mission Control
               </h2>
+              <div className="mission-mantra mt-4 inline-flex items-center gap-3" aria-label="Mission Control mantra">
+                <span className="mission-mantra__rule" aria-hidden="true" />
+                <span>It’s only one prompt away</span>
+                <span className="mission-mantra__rule" aria-hidden="true" />
+              </div>
               {/* Inline HUD metrics */}
               <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2">
                 {[
@@ -3266,6 +3307,8 @@ export default function MissionControlPage() {
         ))}
       </div>
 
+      <MissionSectionBreak eyebrow="Signal board" label="Active operations" />
+
       <ActiveOperationsBoard
         items={operations}
         profiles={data.profiles}
@@ -3278,10 +3321,14 @@ export default function MissionControlPage() {
         tasksByTeam={teamTasksById}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+      <MissionSectionBreak eyebrow="Workload" label="Mission queue + team signals" />
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
         <MissionQueue data={data} onRefresh={load} teamFilter={effectiveTeamFilter} />
         <Timeline items={timeline} />
       </div>
+
+      <MissionSectionBreak eyebrow="Embedded panes" label="Terminal dock" />
 
       <MissionControlTerminalDock />
       <CommandDock />

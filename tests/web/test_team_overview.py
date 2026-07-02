@@ -19,6 +19,66 @@ def run_node_team_script(script: str):
     return json.loads(proc.stdout)
 
 
+def test_mission_control_header_has_sleek_mantra():
+    page_source = MISSION_CONTROL_SOURCE.read_text()
+    css_source = (REPO_ROOT / "web" / "src" / "index.css").read_text()
+
+    hero_source = page_source[page_source.index("Mission Control") : page_source.index("{/* Inline HUD metrics */}")]
+    assert "mission-mantra" in hero_source
+    assert "It’s only one prompt away" in hero_source
+    assert 'aria-label="Mission Control mantra"' in hero_source
+    assert ".mission-mantra" in css_source
+    assert "rgba(255, 61, 0, 0.035)" in css_source
+    assert "rgba(34, 211, 238, 0.44)" in css_source
+
+
+def test_mission_control_light_agent_modal_fits_viewport():
+    source = MISSION_CONTROL_SOURCE.read_text()
+    modal_source = source[source.index("function LightAgentModal") : source.index("function MetricCard")]
+
+    assert "items-start justify-center overflow-y-auto" in modal_source
+    assert "max-h-[calc(100dvh-2rem)]" in modal_source
+    assert "max-w-3xl" in modal_source
+    assert "max-h-[calc(100dvh-7.5rem)] overflow-y-auto" in modal_source
+    assert "max-h-[86vh] w-full max-w-4xl" not in modal_source
+
+
+def test_mission_control_major_sections_have_title_rule_separators():
+    page_source = MISSION_CONTROL_SOURCE.read_text()
+    css_source = (REPO_ROOT / "web" / "src" / "index.css").read_text()
+
+    assert "function MissionSectionBreak" in page_source
+    assert 'eyebrow="Workload" label="Mission queue + team signals"' in page_source
+    assert 'eyebrow="Embedded panes" label="Terminal dock"' in page_source
+    assert 'className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]"' in page_source
+    assert ".mission-section-break" in css_source
+    assert ".mission-section-break__rule" in css_source
+
+
+def test_mission_control_activity_light_popovers_are_not_clipped_by_sections():
+    page_source = MISSION_CONTROL_SOURCE.read_text()
+    css_source = (REPO_ROOT / "web" / "src" / "index.css").read_text()
+
+    assert 'className="mission-active-board scroll-mt-24 overflow-visible"' in page_source
+    assert ".mission-signal-board" in css_source
+    assert "overflow: visible;" in css_source
+    assert ".mission-signal-segment {\n  position: relative;\n  overflow: visible;" in css_source
+
+
+def test_mission_control_activity_sections_use_title_separators_not_gradient_cards():
+    page_source = MISSION_CONTROL_SOURCE.read_text()
+    css_source = (REPO_ROOT / "web" / "src" / "index.css").read_text()
+
+    assert "mission-signal-segment__title" in page_source
+    assert "mission-signal-segment__rule" in page_source
+    assert "mission-signal-segment__count" in page_source
+    assert "grid gap-4 xl:grid-cols-3" in page_source
+    assert "linear-gradient(135deg" not in css_source
+    assert "inset 3px 0 0" not in css_source
+    assert ".mission-signal-segment__title" in css_source
+    assert ".mission-signal-segment__rule" in css_source
+
+
 def test_mission_control_team_signals_uses_restrained_orange_status_chrome():
     source = MISSION_CONTROL_SOURCE.read_text()
     timeline_source = source[source.index("function Timeline") : source.index("const EDITABLE_KANBAN_STATUSES")]
@@ -587,7 +647,7 @@ def test_mission_control_metric_cards_do_not_render_tone_badges():
     assert 'className="flex items-start justify-between gap-2"' not in metric_card
 
 
-def test_mission_control_orb_has_no_dead_metric_buttons():
+def test_mission_control_orb_has_section_jump_links_not_dead_metric_buttons():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
     mission_orb = source[source.index("function MissionOrb") : source.index("const METRIC_ACCENTS")]
 
@@ -595,6 +655,11 @@ def test_mission_control_orb_has_no_dead_metric_buttons():
     assert "metrics.map((metric, index)" not in mission_orb
     assert "aria-label={`Focus ${metric.label}`}" not in mission_orb
     assert "<button" not in mission_orb
+    assert "MISSION_ORB_SECTION_LINKS.map" in mission_orb
+    assert 'href="#mission-live-activity"' not in mission_orb
+    assert 'href={link.href}' in mission_orb
+    for anchor in ["mission-live-activity", "mission-queue", "mission-team-signals", "mission-terminals"]:
+        assert anchor in source
 
 
 def test_mission_control_uses_all_teams_without_nav_strip_controls():
@@ -635,10 +700,14 @@ def test_mission_control_embeds_four_terminal_panes_at_bottom():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
     chat_source = (REPO_ROOT / "web" / "src" / "pages" / "ChatPage.tsx").read_text()
 
+    terminal_dock_source = source[source.index("function MissionControlTerminalDock") : source.index("function CommandDock")]
+
     assert 'import ChatPage from "@/pages/ChatPage";' in source
     assert "function MissionControlTerminalDock" in source
-    assert "Embedded terminals" in source
-    assert '<Badge tone="secondary">4 terminals</Badge>' in source
+    assert '<Terminal className="h-4 w-4 text-[#ff3d00]" />' in terminal_dock_source
+    assert '<CardTitle className="text-base">Embedded terminals</CardTitle>' in terminal_dock_source
+    assert "font-mondwest text-display text-sm uppercase tracking-[0.16em]" not in terminal_dock_source
+    assert '<Badge tone="secondary">4 terminals</Badge>' in terminal_dock_source
     assert "<ChatPage embedded isActive profileOverride={terminal.profile} embeddedHeroText={terminal.hero} />" in source
     assert 'hero: "ONLY"' in source
     assert 'hero: "ONE"' in source
