@@ -94,7 +94,6 @@ type MissionMetric = {
   tone: BadgeTone;
   icon: LucideIcon;
   href: string;
-  accent: string;
 };
 
 type TimelineItem = {
@@ -331,12 +330,6 @@ function allTasks(data: LoadState, teamFilter: TeamFilter = ALL_TEAMS_FILTER): M
   );
 }
 
-function scoreColor(score: number): string {
-  if (score >= 80) return "var(--color-success, #60d394)";
-  if (score >= 55) return "var(--color-warning, #f2c94c)";
-  return "var(--color-destructive, #ff6b6b)";
-}
-
 function computeMissionScore(data: LoadState): number {
   const tasks = allTasks(data);
   const activeCronErrors = data.cronJobs.filter((job) => job.enabled && job.last_error).length;
@@ -376,7 +369,6 @@ function buildMetrics(data: LoadState): MissionMetric[] {
       tone: gatewayTone(data.status),
       icon: Radio,
       href: "/system",
-      accent: "from-cyan-400/18 via-sky-300/6 to-transparent",
     },
     {
       id: "sessions",
@@ -386,7 +378,6 @@ function buildMetrics(data: LoadState): MissionMetric[] {
       tone: terminalLights > 0 ? "success" : "secondary",
       icon: MessageSquare,
       href: "/sessions",
-      accent: "from-indigo-500/18 via-indigo-300/6 to-transparent",
     },
     {
       id: "team",
@@ -398,7 +389,6 @@ function buildMetrics(data: LoadState): MissionMetric[] {
       tone: blockedTasks > 0 ? "destructive" : liveWorkers > 0 ? "success" : "secondary",
       icon: Users,
       href: "/team",
-      accent: "from-violet-500/18 via-purple-300/6 to-transparent",
     },
     {
       id: "automation",
@@ -408,7 +398,6 @@ function buildMetrics(data: LoadState): MissionMetric[] {
       tone: nextCron ? jobTone(nextCron) : "secondary",
       icon: CalendarClock,
       href: "/cron",
-      accent: "from-amber-400/18 via-orange-300/6 to-transparent",
     },
   ];
 }
@@ -768,7 +757,7 @@ function LightAgentModal({
         className="relative max-h-[86vh] w-full max-w-4xl overflow-hidden border border-midground/30 bg-card shadow-[0_0_60px_rgba(0,0,0,0.45)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-midground/70 to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-px bg-[#ff3d00]/30" />
         <div className="flex items-start justify-between gap-4 border-b border-border bg-background-base/35 p-4">
           <div className="min-w-0">
             <p className="font-mondwest text-display text-xs uppercase tracking-[0.18em] text-muted-foreground">
@@ -1394,86 +1383,50 @@ function MissionOrb({
   metrics,
   score,
   selectedMetric,
-  onSelectMetric,
 }: {
   metrics: MissionMetric[];
   score: number;
   selectedMetric: string;
-  onSelectMetric: (id: string) => void;
 }) {
-  const radius = 78;
+  const radius = 76;
   const circumference = 2 * Math.PI * radius;
   const active = metrics.find((metric) => metric.id === selectedMetric) ?? metrics[0];
 
   return (
-    <div className="mission-orb relative mx-auto flex aspect-square w-full max-w-[18.5rem] items-center justify-center">
-      <div className="mission-orb__halo absolute inset-0 rounded-full" />
-      <div className="mission-orb__sweep absolute inset-5 rounded-full" />
-      <div className="absolute inset-3 rounded-full border border-current/10 bg-[radial-gradient(circle,color-mix(in_srgb,var(--color-success)_20%,transparent),transparent_58%)]" />
-      <div className="absolute inset-8 rounded-full border border-current/15" />
-      <div className="absolute inset-16 rounded-full border border-current/20" />
+    <div className="mission-orb relative ml-auto flex aspect-square w-full max-w-[18rem] items-center justify-center">
       <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 240 240" aria-hidden="true">
+        <circle cx="120" cy="120" r="96" fill="none" stroke="#ff3d00" strokeOpacity="0.22" strokeWidth="1" />
+        <circle cx="120" cy="120" r="84" fill="none" stroke="#22d3ee" strokeOpacity="0.32" strokeWidth="1" strokeDasharray="22 18" />
+        <circle cx="120" cy="120" r={radius} fill="none" stroke="#ff3d00" strokeOpacity="0.22" strokeWidth="8" />
         <circle
           cx="120"
           cy="120"
           r={radius}
           fill="none"
-          stroke="currentColor"
-          strokeOpacity="0.12"
-          strokeWidth="10"
-        />
-        <circle
-          cx="120"
-          cy="120"
-          r={radius}
-          fill="none"
-          stroke={scoreColor(score)}
+          stroke="#ff3d00"
           strokeLinecap="round"
-          strokeWidth="10"
+          strokeWidth="8"
           strokeDasharray={circumference}
           strokeDashoffset={circumference - (score / 100) * circumference}
-          className="transition-[stroke-dashoffset] duration-700"
+          className="mission-score-ring transition-[stroke-dashoffset] duration-700"
         />
+        <line x1="120" y1="20" x2="120" y2="42" stroke="#22d3ee" strokeOpacity="0.72" strokeWidth="1" />
+        <line x1="120" y1="198" x2="120" y2="220" stroke="#ff3d00" strokeOpacity="0.72" strokeWidth="1" />
       </svg>
-      <div className="relative z-10 flex h-32 w-32 flex-col items-center justify-center rounded-full border border-success/30 bg-background-base/85 text-center shadow-[0_0_55px_color-mix(in_srgb,var(--color-success)_24%,transparent)] backdrop-blur-md">
-        <span className="font-mondwest text-display text-[0.65rem] uppercase tracking-[0.18em] text-muted-foreground">
-          Mission score
-        </span>
-        <span className="mt-1 font-mono-ui text-4xl text-foreground">{score}</span>
-        <span className="mt-0.5 max-w-24 truncate text-xs text-muted-foreground">{active.label}</span>
+      <div className="relative z-10 flex h-32 w-32 flex-col items-center justify-center rounded-full border border-[#ff3d00]/40 bg-[#030303] text-center shadow-[0_0_26px_rgba(255, 61, 0,0.26)]">
+        <span className="font-mono-ui text-[0.58rem] uppercase tracking-[0.22em] text-white/30">Mission score</span>
+        <span className="mt-1 font-mono-ui text-4xl leading-none text-white">{score}</span>
+        <span className="mt-1 max-w-24 truncate text-[0.62rem] uppercase tracking-[0.18em] text-[#22d3ee]/75">{active.label}</span>
       </div>
-      {metrics.map((metric, index) => {
-        const angle = -90 + index * (360 / metrics.length);
-        const x = 50 + Math.cos((angle * Math.PI) / 180) * 42;
-        const y = 50 + Math.sin((angle * Math.PI) / 180) * 42;
-        const Icon = metric.icon;
-        return (
-          <button
-            key={metric.id}
-            type="button"
-            onClick={() => onSelectMetric(metric.id)}
-            className={cn(
-              "absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur-md transition-all duration-200",
-              selectedMetric === metric.id
-                ? "scale-110 border-success/70 bg-success/15 text-success shadow-[0_0_28px_color-mix(in_srgb,var(--color-success)_42%,transparent)]"
-                : "border-current/20 bg-background-base/75 text-muted-foreground hover:scale-105 hover:border-success/40 hover:text-foreground",
-            )}
-            style={{ left: `${x}%`, top: `${y}%` }}
-            aria-label={`Focus ${metric.label}`}
-          >
-            <Icon className="h-4 w-4" />
-          </button>
-        );
-      })}
     </div>
   );
 }
 
-const METRIC_ACCENTS: Record<string, { left: string; glow: string; orb: string; color: string }> = {
-  gateway:    { left: "from-cyan-400 to-cyan-600",    glow: "hover:shadow-[0_0_80px_rgba(34,211,238,0.22),inset_0_0_40px_rgba(34,211,238,0.04)]",    orb: "bg-cyan-400",    color: "rgba(34,211,238," },
-  sessions:   { left: "from-indigo-400 to-indigo-600", glow: "hover:shadow-[0_0_80px_rgba(99,102,241,0.22),inset_0_0_40px_rgba(99,102,241,0.04)]",    orb: "bg-indigo-400",  color: "rgba(99,102,241," },
-  team:       { left: "from-violet-400 to-violet-600", glow: "hover:shadow-[0_0_80px_rgba(167,139,250,0.22),inset_0_0_40px_rgba(167,139,250,0.04)]",  orb: "bg-violet-400",  color: "rgba(167,139,250," },
-  automation: { left: "from-amber-400 to-amber-600",  glow: "hover:shadow-[0_0_80px_rgba(251,191,36,0.22),inset_0_0_40px_rgba(251,191,36,0.04)]",    orb: "bg-amber-400",   color: "rgba(251,191,36," },
+const METRIC_ACCENTS: Record<string, { rail: string }> = {
+  gateway:    { rail: "bg-[#ff3d00]" },
+  sessions:   { rail: "bg-[#ff3d00]" },
+  team:       { rail: "bg-[#ff3d00]" },
+  automation: { rail: "bg-[#ff3d00]" },
 };
 
 function MetricCard({
@@ -1492,22 +1445,14 @@ function MetricCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "mission-metric-card group relative overflow-hidden border text-left transition-all duration-300",
-        "bg-white/[0.025] backdrop-blur-2xl p-6",
-        accent.glow,
+        "mission-metric-card group relative overflow-hidden border text-left",
+        "bg-[#030303] p-6",
         selected
-          ? "border-white/20"
-          : "border-white/[0.06] hover:border-white/12 hover:-translate-y-0.5",
+          ? "border-[#ff3d00]/32"
+          : "border-white/[0.08] hover:border-[#ff3d00]/26",
       )}
     >
-      {/* ambient fill */}
-      <div className={`absolute inset-0 bg-gradient-to-br ${metric.accent} opacity-100`} />
-      {/* vivid left border */}
-      <div className={`absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b ${accent.left}`} />
-      {/* corner orb */}
-      <div className={`absolute -right-10 -top-10 h-48 w-48 rounded-full ${accent.orb} opacity-[0.07] blur-3xl transition-opacity duration-500 group-hover:opacity-[0.13]`} />
-      {/* glass sheen */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.04] to-transparent" />
+      <div className={`absolute inset-y-0 left-0 w-[3px] ${accent.rail}`} />
 
       <div className="relative flex h-full flex-col justify-between gap-8">
         <div className="flex items-start gap-2">
@@ -1534,12 +1479,20 @@ function Timeline({
 }: {
   items: TimelineItem[];
 }) {
+  const metaBadgeClass = (tone: BadgeTone) => cn(
+    "shrink-0 border px-2 py-1 font-mondwest text-display text-[0.62rem] uppercase tracking-[0.14em]",
+    tone === "destructive"
+      ? "border-[#ff1200]/32 bg-[#ff1200]/[0.045] text-[#ff1200]/80"
+      : "border-[#ff3d00]/26 bg-[#ff3d00]/[0.025] text-[#ff3d00]/72",
+  );
+  const categoryBadgeClass = "shrink-0 border border-white/18 bg-transparent px-2 py-1 font-mondwest text-display text-[0.62rem] uppercase tracking-[0.14em] text-white/52";
+
   return (
     <Card className="overflow-hidden">
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-muted-foreground" />
+            <Activity className="h-5 w-5 text-[#ff3d00]/70" />
             <div>
               <CardTitle className="text-base">Team signals</CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1547,18 +1500,18 @@ function Timeline({
               </p>
             </div>
           </div>
-          <Badge tone="outline">{items.length} signals</Badge>
+          <span className={categoryBadgeClass}>{items.length} signals</span>
         </div>
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
-          <div className="flex items-center gap-3 border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-            <CheckCircle2 className="h-5 w-5 shrink-0 text-success" />
+          <div className="flex items-center gap-3 border border-[#ff3d00]/18 bg-[#ff3d00]/[0.025] p-4 text-sm text-muted-foreground">
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-[#ff3d00]/75" />
             Quiet team. No active tasks, recent matching sessions, or automation signals are surfacing for this filter.
           </div>
         ) : (
           <div className="relative">
-            <div className="absolute bottom-3 left-[1.05rem] top-3 w-px bg-gradient-to-b from-midground/60 via-current/15 to-transparent" />
+            <div className="absolute bottom-3 left-[1.05rem] top-3 w-px bg-[#ff3d00]/20" />
             <div className="space-y-3">
               {items.map((item) => {
                 const Icon = item.icon;
@@ -1566,18 +1519,18 @@ function Timeline({
                   <Link
                     key={item.id}
                     to={item.href}
-                    className="group relative flex gap-3 border border-transparent p-2 transition-colors hover:border-current/15 hover:bg-muted/20"
+                    className="group relative flex gap-3 border border-transparent p-2 transition-colors hover:border-[#ff3d00]/18 hover:bg-[#ff3d00]/[0.025]"
                   >
-                    <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-current/20 bg-background-base">
-                      <Icon className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />
+                    <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/18 bg-background-base text-white/50 group-hover:border-[#ff3d00]/30 group-hover:text-[#ff3d00]/75">
+                      <Icon className="h-4 w-4" />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-3">
                         <span className="flex min-w-0 items-center gap-2">
-                          <Badge tone="outline">{item.category}</Badge>
+                          <span className={categoryBadgeClass}>{item.category}</span>
                           <span className="truncate text-sm font-medium text-foreground">{item.title}</span>
                         </span>
-                        <Badge tone={item.tone}>{item.meta}</Badge>
+                        <span className={metaBadgeClass(item.tone)}>{item.meta}</span>
                       </span>
                       <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.detail}</span>
                     </span>
@@ -1986,7 +1939,7 @@ function MissionQueue({
                 className="group relative overflow-hidden border border-border bg-background-base/30 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-current/25 hover:bg-card/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`Open ${task.id} details`}
               >
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-current/20 to-transparent" />
+                <div className="absolute inset-x-0 top-0 h-px bg-current/20" />
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">{task.title || task.id}</p>
@@ -2033,7 +1986,7 @@ function SoundToggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-1.5 rounded border border-border/60 bg-background-base/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">
+    <label className="flex items-center gap-1.5 border border-[#ff3d00]/18 bg-transparent px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-[#ff3d00]/30 hover:text-foreground">
       <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
       <span className="font-mondwest text-display uppercase tracking-[0.12em]">{label}</span>
     </label>
@@ -2105,11 +2058,11 @@ function ActiveOperationsBoard({
     working: signalItems.filter((item) => item.tone === "working").length,
     review: signalItems.filter((item) => item.tone === "review").length,
   };
-  const segments: Array<{ id: ActivitySegment; label: string; helper: string }> = [
-    { id: "terminals", label: "Terminals", helper: "Local Hermes/PTY shells and dashboard surfaces" },
-    { id: "teams", label: "Teams", helper: "Profile-backed role agents per project team" },
-    { id: "agents", label: "Agents", helper: "Live profile-backed Hermes agents" },
-    { id: "subagents", label: "Subagents", helper: "Ephemeral delegate children spawned by an agent" },
+  const segments: Array<{ id: ActivitySegment; label: string }> = [
+    { id: "terminals", label: "Terminals" },
+    { id: "teams", label: "Teams" },
+    { id: "agents", label: "Agents" },
+    { id: "subagents", label: "Subagents" },
   ];
 
   const openLightAgent = (item: OperationsItem) => {
@@ -2195,18 +2148,13 @@ function ActiveOperationsBoard({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Radio className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <CardTitle className="text-base">Live activity lights</CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Quick status at a glance. Open a light when you need details.
-              </p>
-            </div>
+            <Radio className="h-4 w-4 text-[#ff3d00]" />
+            <CardTitle className="text-base">Live activity lights</CardTitle>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge tone="success">{counts.ready} green</Badge>
-            <Badge tone="warning">{counts.working} working</Badge>
-            <Badge tone="destructive">{counts.review} review</Badge>
+            <span className="border border-[#22d3ee]/30 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[#22d3ee]/80">{counts.ready} ready</span>
+            <span className="border border-[#ff3d00]/35 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[#ff3d00]/90">{counts.working} working</span>
+            <span className="border border-[#ff1200]/55 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[#ff1200] shadow-[0_0_12px_rgba(255,18,0,0.22)]">{counts.review} review</span>
             <SoundToggle
               label="Approval ding"
               checked={soundSettings.approval}
@@ -2255,12 +2203,6 @@ function ActiveOperationsBoard({
         ) : (
           <div className="space-y-3">
             <div className="mission-signal-board rounded border border-border bg-background-base/25 p-2.5">
-              <div className="mb-2 flex items-center justify-between gap-3 px-1">
-                <p className="font-mondwest text-display text-sm uppercase tracking-[0.14em] text-foreground">
-                  Signal board
-                </p>
-                <p className="text-xs text-muted-foreground">click a light to drill in</p>
-              </div>
               <div className="grid gap-3 xl:grid-cols-3">
                 {segments.map((segment) => {
                   const segmentItems = segment.id === "teams"
@@ -2285,7 +2227,6 @@ function ActiveOperationsBoard({
                           <p className="font-mondwest text-display text-xs uppercase tracking-[0.16em] text-foreground">
                             {segment.label}
                           </p>
-                          <p className="mt-1 truncate text-[0.68rem] text-muted-foreground">{segment.helper}</p>
                         </div>
                         <Badge tone="secondary">{segmentCount}</Badge>
                       </div>
@@ -2302,16 +2243,16 @@ function ActiveOperationsBoard({
                                 : null;
 
                             const toneColors = {
-                              ready:   { border: "border-cyan-400/45",    bg: "bg-cyan-500/6",     text: "text-cyan-300/80", shadow: "shadow-[0_0_22px_rgba(34,211,238,0.24),inset_0_0_20px_rgba(34,211,238,0.07)]",  wire: "text-cyan-400/70", ping: "bg-cyan-400" },
-                              working: { border: "border-amber-400/60",   bg: "bg-amber-500/10",   text: "text-amber-200",   shadow: "shadow-[0_0_30px_rgba(251,191,36,0.5),inset_0_0_24px_rgba(251,191,36,0.12)]",   wire: "text-amber-400",  ping: "bg-amber-400" },
-                              starting: { border: "border-sky-300/70",    bg: "bg-sky-400/12",     text: "text-sky-200",     shadow: "shadow-[0_0_34px_rgba(56,189,248,0.62),inset_0_0_28px_rgba(56,189,248,0.14)]",  wire: "text-sky-300",    ping: "bg-sky-300" },
-                              review:  { border: "border-rose-400/55",    bg: "bg-rose-500/8",     text: "text-rose-300",    shadow: "shadow-[0_0_28px_rgba(244,63,94,0.45),inset_0_0_24px_rgba(244,63,94,0.10)]",    wire: "text-rose-400",   ping: "bg-rose-400" },
+                              ready:    { border: "border-[#22d3ee]/38", bg: "bg-[#22d3ee]/[0.025]", text: "text-[#22d3ee]/75", shadow: "shadow-none", wire: "text-[#22d3ee]/48", ping: "bg-[#22d3ee]" },
+                              working:  { border: "border-[#ff3d00]/58", bg: "bg-[#ff3d00]/[0.045]", text: "text-[#ff3d00]/90", shadow: "shadow-none", wire: "text-[#ff3d00]/70", ping: "bg-[#ff3d00]" },
+                              starting: { border: "border-[#ff3d00]/58", bg: "bg-[#ff3d00]/[0.045]", text: "text-[#ff3d00]/90", shadow: "shadow-none", wire: "text-[#ff3d00]/70", ping: "bg-[#ff3d00]" },
+                              review:   { border: "border-[#ff1200]/80", bg: "bg-[#ff1200]/[0.075]", text: "text-[#ff1200]", shadow: "shadow-[0_0_14px_rgba(255,18,0,0.24)]", wire: "text-[#ff1200]/85", ping: "bg-[#ff1200]" },
                             } as const;
 
                             const buildLightElement = (item: OperationsItem, opts: { size: "sm" | "lg" | "xl"; rowLabel: string }) => {
                               const Icon = item.icon;
-                              const immediateBluePulse = item.tone === "working" && /\bstarting\b/i.test(item.detail);
-                              const visualTone = immediateBluePulse ? "starting" : item.tone;
+                              const immediateStartPulse = item.tone === "working" && /\bstarting\b/i.test(item.detail);
+                              const visualTone = immediateStartPulse ? "starting" : item.tone;
                               const tc = toneColors[visualTone] ?? toneColors.ready;
                               const sizeClass = opts.size === "xl" ? "h-[6rem] w-[6rem]" : opts.size === "lg" ? "h-[5rem] w-[5rem]" : "h-12 w-12";
                               const riskTitle = item.performanceRisk ? ` · ${item.performanceRisk.detail}` : "";
@@ -2351,8 +2292,8 @@ function ActiveOperationsBoard({
                                         "absolute -right-1 -top-1 z-20 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 font-mono-ui text-[0.5rem] leading-none",
                                         "bg-[rgb(3,5,18)]",
                                         item.performanceRisk.level === "critical"
-                                          ? "border-rose-400/70 text-rose-400"
-                                          : "border-amber-400/70 text-amber-400",
+                                          ? "border-[#ff1200]/85 text-[#ff1200] shadow-[0_0_10px_rgba(255,18,0,0.22)]"
+                                          : "border-[#ff3d00]/60 text-[#ff3d00]/85",
                                       )}
                                       aria-label={item.performanceRisk.detail}
                                     >
@@ -2379,12 +2320,6 @@ function ActiveOperationsBoard({
                               const rowKey = row.label;
                               const isExpanded = expandedTeamRows.has(rowKey);
                               const allTeamItems = orchestratorItem ? [orchestratorItem, ...row.items] : row.items;
-                              const rowTone: ReadinessTone = allTeamItems.some((item) => item.tone === "review")
-                                ? "review"
-                                : allTeamItems.some((item) => item.tone === "working")
-                                  ? "working"
-                                  : "ready";
-                              const rowTc = toneColors[rowTone] ?? toneColors.ready;
                               const workflowStages = workflowStagesForTeam(row.items, "workflow" in row ? row.workflow : undefined);
                               const showsFinalResearchOutput = rowTitle.toLowerCase() === "hermes research";
                               const rowTeamId = "teamId" in row ? row.teamId : row.label;
@@ -2405,7 +2340,7 @@ function ActiveOperationsBoard({
                               const buildFinalResearchOutputElement = () => (
                                 <span className="flex items-center">
                                   <span
-                                    className={cn("relative flex w-20 shrink-0 self-stretch items-center justify-center", finalOutputIsNew ? "text-emerald-200/80" : "text-amber-200/70")}
+                                    className={cn("relative flex w-20 shrink-0 self-stretch items-center justify-center", finalOutputIsNew ? "text-[#ff3d00]/80" : "text-[#ff3d00]/60")}
                                     aria-hidden="true"
                                   >
                                     <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/30" />
@@ -2417,14 +2352,14 @@ function ActiveOperationsBoard({
                                     className={cn(
                                       "relative flex h-[4.75rem] min-w-[8.5rem] flex-col items-center justify-center rounded-lg px-4 text-center transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-1",
                                       finalOutputIsNew
-                                        ? "border border-emerald-200/65 bg-emerald-300/[0.10] text-emerald-100 shadow-[0_0_30px_rgba(52,211,153,0.28),inset_0_0_22px_rgba(52,211,153,0.06)] focus-visible:ring-emerald-300/70"
-                                        : "border border-amber-200/50 bg-amber-300/[0.07] text-amber-100 shadow-[0_0_26px_rgba(251,191,36,0.18),inset_0_0_22px_rgba(251,191,36,0.05)] focus-visible:ring-amber-300/70",
+                                        ? "border border-[#ff3d00]/55 bg-[#ff3d00]/[0.05] text-[#ff3d00] shadow-none focus-visible:ring-[#ff3d00]/70"
+                                        : "border border-[#ff3d00]/35 bg-[#ff3d00]/[0.03] text-[#ff3d00]/75 shadow-none focus-visible:ring-[#ff3d00]/60",
                                     )}
                                     title={latestKb ? `Knowledge Base added: ${latestKb.title}` : "Final research output · polished brief or saved knowledge-base artifact"}
                                     aria-label={latestKb ? `Final research output: Knowledge Base added ${latestKb.title}` : "Final research output: polished brief or saved knowledge-base artifact"}
                                   >
                                     <span className="absolute inset-1 rounded-md border border-current/10" />
-                                    <span className="absolute inset-x-3 top-2 h-px bg-gradient-to-r from-transparent via-current/35 to-transparent" />
+                                    <span className="absolute inset-x-3 top-2 h-px bg-current/25" />
                                     <FileText className="relative z-10 h-4 w-4 text-current/85" />
                                     <span className="relative z-10 mt-1 font-mono-ui text-[0.58rem] font-bold uppercase leading-none tracking-[0.12em] text-current/95">
                                       Final output
@@ -2443,20 +2378,11 @@ function ActiveOperationsBoard({
                                       type="button"
                                       aria-expanded={isExpanded}
                                       onClick={() => toggleTeamRow(rowKey)}
-                                      className="group flex min-w-0 items-start gap-2 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/70"
+                                      className="group flex min-w-0 items-start gap-2 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/70"
                                     >
-                                      <ChevronRight className={cn("mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300/75 transition-transform", isExpanded && "rotate-90")} />
-                                      <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                      <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#ff3d00]/70" />
                                       <span className="min-w-0">
-                                        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                                          <span className="truncate font-mono-ui text-xs font-semibold text-foreground">{rowTitle}</span>
-                                          <span className={cn("rounded border px-1.5 py-0.5 font-mono-ui text-[0.58rem] uppercase tracking-[0.14em]", rowTc.border, rowTc.bg, rowTc.text)}>
-                                            {readinessLabel(rowTone)}
-                                          </span>
-                                          <span className="font-mono-ui text-[0.62rem] uppercase tracking-[0.14em] text-muted-foreground">
-                                            {allTeamItems.length} agents
-                                          </span>
-                                        </span>
+                                        <span className="block truncate font-mono-ui text-xs font-semibold text-foreground">{rowTitle}</span>
                                         {rowMeta && <span className="mt-0.5 block truncate text-[0.68rem] text-muted-foreground">{rowMeta}</span>}
                                       </span>
                                       <span className="sr-only">{isExpanded ? "Collapse" : "Expand"} {rowTitle}</span>
@@ -2471,7 +2397,7 @@ function ActiveOperationsBoard({
                                             type="button"
                                             onClick={() => openLightAgent(item)}
                                             className={cn(
-                                              "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 bg-black/20 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/70",
+                                              "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 bg-black/20 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/70",
                                               itemTc.border,
                                               itemTc.bg,
                                               itemTc.text,
@@ -2497,8 +2423,8 @@ function ActiveOperationsBoard({
                                                 className={cn(
                                                   "absolute -right-1 -top-1 z-20 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border px-0.5 font-mono-ui text-[0.45rem] leading-none bg-[rgb(3,5,18)]",
                                                   item.performanceRisk.level === "critical"
-                                                    ? "border-rose-400/70 text-rose-400"
-                                                    : "border-amber-400/70 text-amber-400",
+                                                    ? "border-[#ff1200]/85 text-[#ff1200] shadow-[0_0_10px_rgba(255,18,0,0.22)]"
+                                                    : "border-[#ff3d00]/60 text-[#ff3d00]/85",
                                                 )}
                                               >
                                                 {item.performanceRisk.label}
@@ -2515,17 +2441,17 @@ function ActiveOperationsBoard({
                                       {visibleTeamTasks.map((task) => (
                                         <div
                                           key={`${task.boardSlug}:${task.id}`}
-                                          className="group relative border border-border/50 bg-background-base/35 text-left transition-colors hover:border-amber-300/45 hover:bg-amber-300/[0.06]"
+                                          className="group relative border border-border/50 bg-background-base/35 text-left transition-colors hover:border-[#ff3d00]/45 hover:bg-[#ff3d00]/[0.04]"
                                         >
                                           <Link
                                             to={`/kanban?task=${encodeURIComponent(task.id)}`}
-                                            className="block px-2.5 py-2 pr-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-300/60"
+                                            className="block px-2.5 py-2 pr-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/60"
                                           >
                                             <span className="flex items-center justify-between gap-2">
-                                              <span className="font-mono-ui text-[0.55rem] uppercase tracking-[0.16em] text-amber-200/80">Kanban</span>
+                                              <span className="font-mono-ui text-[0.55rem] uppercase tracking-[0.16em] text-[#ff3d00]/75">Kanban</span>
                                               <Badge tone={taskTone(task)}>{task.status}</Badge>
                                             </span>
-                                            <span className="mt-1 block line-clamp-1 text-xs font-medium text-foreground group-hover:text-amber-50">
+                                            <span className="mt-1 block line-clamp-1 text-xs font-medium text-foreground group-hover:text-white">
                                               {task.title || task.id}
                                             </span>
                                             <span className="mt-1 block truncate font-mono-ui text-[0.58rem] uppercase tracking-[0.1em] text-muted-foreground">
@@ -2849,9 +2775,9 @@ function MissionControlTerminalDock() {
         {terminals.map((terminal) => (
           <div key={terminal.id} className="overflow-hidden border border-border/70 bg-black/40 shadow-[0_0_30px_rgba(0,0,0,0.35)]">
             <div className="flex items-center gap-2 border-b border-border/60 bg-background-base/70 px-3 py-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-400/90" />
-              <span className="h-2.5 w-2.5 rounded-full bg-amber-300/90" />
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#ff3d00]/90" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#ff3d00]/65" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#ff3d00]/40" />
               <span className="ml-2 truncate font-mono-ui text-[0.64rem] uppercase tracking-[0.12em] text-muted-foreground">
                 {terminal.label} · {terminal.profile}
               </span>
@@ -2868,9 +2794,9 @@ function MissionControlTerminalDock() {
 
 function CommandDock() {
   const commands = [
-    { label: "Launch chat", detail: "Start hands-on agent work", href: "/chat", icon: Rocket, glow: "hover:shadow-[0_0_60px_rgba(34,211,238,0.12)]", topLine: "from-cyan-400 to-sky-400", orb: "bg-cyan-400" },
-    { label: "System doctor", detail: "Health, credentials, hooks", href: "/system", icon: ShieldCheck, glow: "hover:shadow-[0_0_60px_rgba(99,102,241,0.12)]", topLine: "from-indigo-400 to-blue-400", orb: "bg-indigo-400" },
-    { label: "Channels", detail: "Gateway and platforms", href: "/channels", icon: Radio, glow: "hover:shadow-[0_0_60px_rgba(167,139,250,0.12)]", topLine: "from-violet-400 to-purple-400", orb: "bg-violet-400" },
+    { label: "Launch chat", detail: "Start hands-on agent work", href: "/chat", icon: Rocket },
+    { label: "System doctor", detail: "Health, credentials, hooks", href: "/system", icon: ShieldCheck },
+    { label: "Channels", detail: "Gateway and platforms", href: "/channels", icon: Radio },
   ];
 
   return (
@@ -2881,14 +2807,9 @@ function CommandDock() {
           <Link
             key={command.href}
             to={command.href}
-            className={cn(
-              "group relative overflow-hidden border border-white/[0.07] bg-white/[0.03] p-6 backdrop-blur-2xl transition-all hover:-translate-y-0.5 hover:border-white/14",
-              command.glow,
-            )}
+            className="group relative overflow-hidden border border-white/[0.07] bg-white/[0.03] p-6 transition-all hover:border-[#ff3d00]/24"
           >
-            <div className={`absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r ${command.topLine} opacity-0 transition-opacity group-hover:opacity-80`} />
-            <div className={`absolute -right-8 -top-8 h-36 w-36 rounded-full ${command.orb} opacity-0 blur-3xl transition-opacity group-hover:opacity-[0.08]`} />
-            <div className="absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent" />
+            <div className="absolute inset-0 bg-black/10" />
             <div className="relative flex items-start justify-between gap-3">
               <div>
                 <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5">
@@ -2930,11 +2851,9 @@ function EmptySignal({
   body: string;
 }) {
   const toneClass =
-    tone === "success"
-      ? "border-success/25 bg-success/5 text-success"
-      : tone === "warning"
-        ? "border-warning/25 bg-warning/5 text-warning"
-        : "border-border bg-muted/15 text-muted-foreground";
+    tone === "success" || tone === "warning"
+      ? "border-[#ff3d00]/22 bg-[#ff3d00]/[0.025] text-[#ff3d00]/78"
+      : "border-border bg-muted/15 text-muted-foreground";
   return (
     <div className={cn("relative flex items-center gap-4 border p-5 text-sm", toneClass)}>
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-current/25 bg-background-base/50">
@@ -3254,8 +3173,7 @@ export default function MissionControlPage() {
 
   if (loading) {
     return (
-      <div className="relative flex min-h-[60vh] items-center justify-center overflow-hidden border border-border bg-card/50">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,color-mix(in_srgb,var(--color-primary)_18%,transparent),transparent_55%)]" />
+      <div className="relative flex min-h-[60vh] items-center justify-center overflow-hidden border border-[#ff3d00]/20 bg-[#030303]">
         <div className="relative flex flex-col items-center gap-3 text-muted-foreground">
           <Spinner className="text-3xl text-primary" />
           <p className="font-mondwest text-display text-xs uppercase tracking-[0.18em]">Booting mission control</p>
@@ -3280,14 +3198,11 @@ export default function MissionControlPage() {
           });
         }}
       >
-        {/* Vivid ambient blobs */}
-        <div className="pointer-events-none absolute -left-40 -top-40 h-[40rem] w-[40rem] rounded-full bg-cyan-400/15 blur-[120px]" />
-        <div className="pointer-events-none absolute -right-40 top-0 h-[36rem] w-[36rem] rounded-full bg-violet-600/18 blur-[100px]" />
-        <div className="pointer-events-none absolute bottom-0 left-1/2 h-48 w-96 -translate-x-1/2 rounded-full bg-indigo-500/10 blur-[72px]" />
+        {/* Warm black/orange terminal field with no decorative gradients. */}
         <div className="mission-hero__grid absolute inset-0" />
         <div className="mission-hero__glow absolute inset-0 transition-opacity" />
         <div className="mission-hero__scan absolute inset-x-0 top-0 h-40" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[rgb(3,5,18)] to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[#050505]" />
 
         <div className="relative flex flex-col px-6 pt-8 pb-6 sm:px-10 sm:pt-10 sm:pb-8">
           {/* HUD status line */}
@@ -3326,14 +3241,13 @@ export default function MissionControlPage() {
               metrics={metrics}
               score={score}
               selectedMetric={selectedMetric}
-              onSelectMetric={setSelectedMetric}
             />
           </div>
         </div>
       </section>
 
       {error && (
-        <div className="flex items-center gap-3 border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-400/80 backdrop-blur-sm">
+        <div className="flex items-center gap-3 border border-[#ff1200]/35 bg-[#ff1200]/[0.05] px-4 py-3 text-sm text-[#ff1200]/90 shadow-[0_0_16px_rgba(255,18,0,0.16)]">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           {error}
         </div>

@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+MISSION_CONTROL_SOURCE = REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx"
 
 
 def run_node_team_script(script: str):
@@ -16,6 +17,28 @@ def run_node_team_script(script: str):
         check=True,
     )
     return json.loads(proc.stdout)
+
+
+def test_mission_control_team_signals_uses_restrained_orange_status_chrome():
+    source = MISSION_CONTROL_SOURCE.read_text()
+    timeline_source = source[source.index("function Timeline") : source.index("const EDITABLE_KANBAN_STATUSES")]
+
+    assert '<Badge tone={item.tone}>{item.meta}</Badge>' not in timeline_source
+    assert '<Badge tone="outline">{item.category}</Badge>' not in timeline_source
+    assert 'text-[#ff3d00]/72' in timeline_source
+    assert 'border-[#ff1200]/32' in timeline_source
+    assert 'text-success' not in timeline_source
+    assert 'text-warning' not in timeline_source
+
+
+def test_mission_control_team_rows_keep_compact_header_chrome():
+    source = MISSION_CONTROL_SOURCE.read_text()
+    team_row_source = source.split('if (isTeamFlow) {', 1)[1].split('visibleTeamTasks.length > 0', 1)[0]
+
+    assert 'readinessLabel(rowTone)' not in team_row_source
+    assert '{allTeamItems.length} agents' not in team_row_source
+    assert '<ChevronRight className={cn("mt-0.5 h-3.5 w-3.5 shrink-0' not in team_row_source
+    assert '<Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#ff3d00]/70" />' in team_row_source
 
 
 def test_team_overview_joins_profiles_tasks_workers_and_skills():
@@ -503,7 +526,7 @@ def test_mission_control_team_role_glyphs_cover_domain_specialists():
     assert 'normalized.includes("analyst")' in source
     assert 'normalized.includes("fact")' in source
     assert 'normalized.includes("analytics")' in source
-    assert "Profile-backed role agents per project team" in source
+    assert "Profile-backed role agents per project team" not in source
     assert "Five profile-backed role agents per coding team" not in source
 
 
@@ -562,6 +585,16 @@ def test_mission_control_metric_cards_do_not_render_tone_badges():
     assert 'metric.tone === "success" ? "live" : metric.tone' not in metric_card
     assert 'className="flex items-start gap-2"' in metric_card
     assert 'className="flex items-start justify-between gap-2"' not in metric_card
+
+
+def test_mission_control_orb_has_no_dead_metric_buttons():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+    mission_orb = source[source.index("function MissionOrb") : source.index("const METRIC_ACCENTS")]
+
+    assert "onSelectMetric" not in mission_orb
+    assert "metrics.map((metric, index)" not in mission_orb
+    assert "aria-label={`Focus ${metric.label}`}" not in mission_orb
+    assert "<button" not in mission_orb
 
 
 def test_mission_control_uses_all_teams_without_nav_strip_controls():
@@ -655,18 +688,24 @@ def test_mission_control_collapsed_team_orbs_are_clickable_role_lights_not_fake_
     assert "aria-hidden=\"true\">\n                                      {allTeamItems.map" not in source
 
 
-def test_mission_control_actual_working_lights_are_yellow_but_starting_lead_pulses_blue():
+def test_mission_control_working_and_starting_lights_use_orange_red_palette():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
 
-    assert 'working: { border: "border-amber-400/60"' in source
-    assert 'ping: "bg-amber-400"' in source
-    assert 'starting: { border: "border-sky-300/70"' in source
-    assert 'ping: "bg-sky-300"' in source
-    assert 'const immediateBluePulse = item.tone === "working" && /\\bstarting\\b/i.test(item.detail);' in source
-    assert 'const visualTone = immediateBluePulse ? "starting" : item.tone;' in source
+    assert 'ready:    { border: "border-[#22d3ee]/38"' in source
+    assert 'ping: "bg-[#22d3ee]"' in source
+    assert 'working:  { border: "border-[#ff3d00]/58"' in source
+    assert 'starting: { border: "border-[#ff3d00]/58"' in source
+    assert 'review:   { border: "border-[#ff1200]/80"' in source
+    assert 'ping: "bg-[#ff1200]"' in source
+    assert 'const immediateStartPulse = item.tone === "working" && /\\bstarting\\b/i.test(item.detail);' in source
+    assert 'const visualTone = immediateStartPulse ? "starting" : item.tone;' in source
+    assert "border-amber-400/60" not in source
+    assert "border-sky-300/70" not in source
+    assert "bg-orange-500" not in source
+    assert "bg-red-500" not in source
 
 
-def test_mission_control_ready_kanban_role_pulses_blue_until_worker_starts():
+def test_mission_control_ready_kanban_role_pulses_until_worker_starts():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
 
     assert 'function shouldPulseLight(item: OperationsItem): boolean' in source
