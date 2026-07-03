@@ -278,6 +278,205 @@ export const nousBlueTheme: DashboardTheme = {
   swatchColors: ["#FFFFFF", "#0053FD", "#E8F2FD"],
 };
 
+export const missionControlTheme: DashboardTheme = {
+  name: "mission-control",
+  label: "Mission Control",
+  description: "Black/orange cockpit command center inspired by Mission Control",
+  palette: {
+    background: { hex: "#020202", alpha: 1 },
+    midground: { hex: "#fff7ed", alpha: 1 },
+    foreground: { hex: "#ffffff", alpha: 0 },
+    warmGlow: "rgba(255, 61, 0, 0.10)",
+    noiseOpacity: 0.55,
+  },
+  typography: {
+    ...DEFAULT_TYPOGRAPHY,
+    fontSans: `"Inter", ${SYSTEM_SANS}`,
+    fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
+    fontDisplay: `"Inter", ${SYSTEM_SANS}`,
+    fontUrl:
+      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap",
+    letterSpacing: "0.006em",
+  },
+  layout: {
+    ...DEFAULT_LAYOUT,
+    radius: "0.625rem",
+    density: "compact",
+  },
+  terminalBackground: "#000000",
+  colorOverrides: {
+    card: "#030303",
+    cardForeground: "#fff7ed",
+    popover: "#050505",
+    popoverForeground: "#fff7ed",
+    primary: "#ff3d00",
+    primaryForeground: "#020202",
+    secondary: "rgba(255, 61, 0, 0.07)",
+    secondaryForeground: "#fff7ed",
+    muted: "rgba(255, 247, 237, 0.06)",
+    mutedForeground: "rgba(255, 247, 237, 0.62)",
+    accent: "rgba(255, 61, 0, 0.12)",
+    accentForeground: "#ff7a3d",
+    destructive: "#ff1200",
+    destructiveForeground: "#ffffff",
+    success: "#22d3ee",
+    warning: "#ff3d00",
+    border: "rgba(255, 61, 0, 0.22)",
+    input: "rgba(255, 61, 0, 0.24)",
+    ring: "#ff3d00",
+  },
+  seriesColors: {
+    inputTokenAccent: "#ff7a3d",
+    outputTokenAccent: "#22d3ee",
+  },
+  componentStyles: {
+    backdrop: {
+      fillerOpacity: "0.018",
+      fillerBlendMode: "screen",
+    },
+    header: {
+      background: "rgba(2, 2, 2, 0.96)",
+      borderImage: "linear-gradient(90deg, rgba(255,61,0,0.42), rgba(255,61,0,0.10)) 1",
+    },
+    sidebar: {
+      background: "rgba(2, 2, 2, 0.97)",
+      borderImage: "linear-gradient(180deg, rgba(255,61,0,0.36), rgba(255,255,255,0.08), rgba(255,61,0,0.24)) 1",
+    },
+    page: {
+      background: "#020202",
+    },
+  },
+  customCSS: `
+html,
+body,
+#root {
+  background: #020202;
+}
+
+body {
+  background-image:
+    linear-gradient(rgba(255, 61, 0, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 61, 0, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 78% 10%, rgba(255, 61, 0, 0.08), transparent 28rem);
+  background-size: 48px 48px, 48px 48px, auto;
+}
+
+#app-sidebar {
+  box-shadow: inset -1px 0 0 rgba(255, 61, 0, 0.16);
+}
+
+#app-sidebar nav a,
+#app-sidebar button {
+  font-family: var(--theme-font-mono);
+  letter-spacing: 0.14em;
+}
+
+#app-sidebar nav a[aria-current="page"] {
+  color: #ff3d00;
+  background: rgba(255, 61, 0, 0.06);
+}
+
+#app-sidebar nav a[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 9999px;
+  background: #ff3d00;
+  transform: translateY(-50%);
+  box-shadow: 0 0 14px rgba(255, 61, 0, 0.8);
+}
+
+.bg-card,
+[class*="bg-card/"],
+.bg-popover,
+.bg-background-base\/70,
+.bg-background-base\/80,
+.bg-background-base\/90,
+.bg-background-base\/95 {
+  background-color: #030303 !important;
+}
+
+.border-border,
+.border-current\/20,
+.border-current\/15,
+.border-current\/10 {
+  border-color: rgba(255, 61, 0, 0.20) !important;
+}
+
+.shadow-2xl,
+.shadow-xl,
+.shadow-lg {
+  box-shadow: none !important;
+}
+
+.rounded-2xl,
+.rounded-3xl,
+.rounded-xl {
+  border-radius: 10px !important;
+}
+
+.text-success {
+  color: #22d3ee !important;
+}
+
+.text-warning,
+[class*="text-amber-"],
+[class*="text-yellow-"] {
+  color: #ff3d00 !important;
+}
+
+.text-destructive {
+  color: #ff1200 !important;
+}
+
+[class*="border-amber-"],
+[class*="border-yellow-"] {
+  border-color: rgba(255, 61, 0, 0.36) !important;
+}
+
+[class*="bg-amber-"],
+[class*="bg-yellow-"] {
+  background-color: rgba(255, 61, 0, 0.10) !important;
+}
+
+.bg-success,
+.bg-success\/15,
+.bg-success\/20 {
+  background-color: rgba(34, 211, 238, 0.12) !important;
+}
+
+.bg-warning,
+.bg-warning\/15,
+.bg-warning\/20 {
+  background-color: rgba(255, 61, 0, 0.12) !important;
+}
+
+.bg-destructive,
+.bg-destructive\/15,
+.bg-destructive\/20 {
+  background-color: rgba(255, 18, 0, 0.14) !important;
+}
+
+main,
+[role="main"] {
+  background: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-color: #ff3d00 !important;
+  box-shadow: 0 0 0 1px rgba(255, 61, 0, 0.85) !important;
+}
+`,
+  swatchColors: ["#020202", "#ff3d00", "#fff7ed"],
+};
+
 /**
  * Same look as ``defaultTheme`` but with a larger root font size, looser
  * line-height, and ``spacious`` density so every rem-based size in the
@@ -303,6 +502,7 @@ export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   default: defaultTheme,
   "default-large": defaultLargeTheme,
   "nous-blue": nousBlueTheme,
+  "mission-control": missionControlTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,

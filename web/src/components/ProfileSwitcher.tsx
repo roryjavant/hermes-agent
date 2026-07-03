@@ -30,15 +30,15 @@ export function ProfileSwitcher({ collapsed }: { collapsed?: boolean }) {
       <Users
         className={cn(
           "h-3.5 w-3.5 shrink-0",
-          isOther ? "text-amber-300" : "text-text-tertiary",
+          isOther ? "text-primary" : "text-text-tertiary",
         )}
       />
       <select
         aria-label={t.app.managingProfile ?? "Managing profile"}
         className={cn(
-          "h-7 w-full min-w-0 rounded-none border bg-background px-1 text-xs",
+          "h-7 w-full min-w-0 rounded-none border bg-background px-1 font-mono-ui text-xs uppercase tracking-[0.08em]",
           isOther
-            ? "border-amber-500/50 text-amber-300"
+            ? "border-primary/50 bg-primary/10 text-primary"
             : "border-border text-text-secondary",
           collapsed && "lg:hidden",
         )}

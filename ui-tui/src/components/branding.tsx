@@ -159,6 +159,7 @@ const TOOLSETS_MAX = 8
 
 export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
   const term = useStdout().stdout?.columns ?? 100
+  const shellBorderStyle = process.env.HERMES_TUI_INLINE === '1' ? 'single' : 'round'
   const cols = Math.max(20, Math.min(term, maxWidth ?? term))
   const heroLines = caduceus(t.color, t.bannerHero || undefined)
   const heroW = t.bannerHero ? Math.max(artWidth(heroLines), CADUCEUS_WIDTH) : artWidth(heroLines) || CADUCEUS_WIDTH
@@ -285,7 +286,7 @@ export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
   }
 
   return (
-    <Box borderColor={t.color.border} borderStyle="round" marginBottom={1} paddingX={2} paddingY={1}>
+    <Box borderColor={t.color.border} borderStyle={shellBorderStyle} marginBottom={1} paddingX={2} paddingY={1}>
       {wide && (
         <Box flexDirection="column" marginRight={2} width={leftW}>
           <ArtLines lines={heroLines} />

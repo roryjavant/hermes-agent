@@ -37,7 +37,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
@@ -99,6 +99,7 @@ class ReminderCreate(BaseModel):
     title: str
     notes: str = ""
     due_at: Optional[str] = None
+    priority: bool = False
 
 
 class ReminderUpdate(BaseModel):
@@ -106,6 +107,11 @@ class ReminderUpdate(BaseModel):
     notes: Optional[str] = None
     due_at: Optional[str] = None
     completed: Optional[bool] = None
+    priority: Optional[bool] = None
+
+
+class ReminderReorder(BaseModel):
+    ordered_ids: List[str]
 
 
 class PrivateIdeasPasswordCheck(BaseModel):
@@ -559,7 +565,7 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
     "dashboard.theme": {
         "type": "select",
         "description": "Web dashboard visual theme",
-        "options": ["default", "midnight", "ember", "mono", "cyberpunk", "rose"],
+        "options": ["default", "default-large", "nous-blue", "mission-control", "midnight", "ember", "mono", "cyberpunk", "rose"],
     },
     "display.resume_display": {
         "type": "select",
@@ -3160,9 +3166,44 @@ def _serialize_reminder(item: Dict[str, Any]) -> Dict[str, Any]:
         "notes": str(item.get("notes") or ""),
         "due_at": item.get("due_at") if item.get("due_at") else None,
         "completed": bool(item.get("completed")),
+        "priority": bool(item.get("priority")),
+        "order_index": int(item.get("order_index") or 0),
         "created_at": str(item.get("created_at") or _utc_now_iso()),
         "updated_at": str(item.get("updated_at") or _utc_now_iso()),
     }
+
+
+def _reminder_legacy_sort_key(item: Dict[str, Any]) -> Tuple[int, int, str, str]:
+    if bool(item.get("completed")):
+        rank = 4
+    else:
+        due_raw = item.get("due_at") or ""
+        if not due_raw:
+            rank = 3
+        else:
+            try:
+                due = datetime.fromisoformat(str(due_raw).replace("Z", "+00:00"))
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                if due < now:
+                    rank = 0
+                elif (due - now).total_seconds() <= 48 * 60 * 60:
+                    rank = 1
+                else:
+                    rank = 2
+            except ValueError:
+                rank = 3
+    priority_rank = 0 if bool(item.get("priority")) else 1
+    due_key = str(item.get("due_at") or "9999-12-31T23:59:59")
+    return (rank, priority_rank, due_key, str(item.get("title") or ""))
+
+
+def _normalize_reminders(reminders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    ordered = list(reminders)
+    if ordered and not any("order_index" in item for item in ordered):
+        ordered = sorted(ordered, key=_reminder_legacy_sort_key)
+    return [_serialize_reminder({**item, "order_index": index}) for index, item in enumerate(ordered)]
 
 
 def _find_reminder(reminders: List[Dict[str, Any]], reminder_id: str) -> Tuple[int, Dict[str, Any]]:
@@ -3263,7 +3304,7 @@ def _require_private_ideas_token(request: Request) -> None:
 
 @app.get("/api/reminders")
 async def get_reminders():
-    reminders = [_serialize_reminder(item) for item in _read_reminders()]
+    reminders = _normalize_reminders(_read_reminders())
     return {"reminders": reminders}
 
 
@@ -3272,7 +3313,7 @@ async def create_reminder(payload: ReminderCreate):
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="Reminder title is required")
-    reminders = [_serialize_reminder(item) for item in _read_reminders()]
+    reminders = _normalize_reminders(_read_reminders())
     now = _utc_now_iso()
     reminder = {
         "id": secrets.token_hex(8),
@@ -3280,6 +3321,8 @@ async def create_reminder(payload: ReminderCreate):
         "notes": payload.notes.strip(),
         "due_at": payload.due_at or None,
         "completed": False,
+        "priority": bool(payload.priority),
+        "order_index": len(reminders),
         "created_at": now,
         "updated_at": now,
     }
@@ -3290,7 +3333,7 @@ async def create_reminder(payload: ReminderCreate):
 
 @app.patch("/api/reminders/{reminder_id}")
 async def update_reminder(reminder_id: str, payload: ReminderUpdate):
-    reminders = [_serialize_reminder(item) for item in _read_reminders()]
+    reminders = _normalize_reminders(_read_reminders())
     index, reminder = _find_reminder(reminders, reminder_id)
     updates = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
     if "title" in updates:
@@ -3304,15 +3347,43 @@ async def update_reminder(reminder_id: str, payload: ReminderUpdate):
         reminder["due_at"] = updates["due_at"] or None
     if "completed" in updates:
         reminder["completed"] = bool(updates["completed"])
+    if "priority" in updates:
+        reminder["priority"] = bool(updates["priority"])
     reminder["updated_at"] = _utc_now_iso()
     reminders[index] = reminder
     _write_reminders(reminders)
     return {"reminder": reminder}
 
 
+@app.post("/api/reminders/reorder")
+async def reorder_reminders(payload: ReminderReorder):
+    reminders = _normalize_reminders(_read_reminders())
+    if not reminders:
+        return {"reminders": []}
+    seen: Set[str] = set()
+    ordered_ids: List[str] = []
+    for reminder_id in payload.ordered_ids:
+        if reminder_id and reminder_id not in seen:
+            seen.add(reminder_id)
+            ordered_ids.append(reminder_id)
+    by_id = {str(item["id"]): item for item in reminders}
+    missing = [reminder_id for reminder_id in ordered_ids if reminder_id not in by_id]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Unknown reminder id: {missing[0]}")
+    ordered = [by_id[reminder_id] for reminder_id in ordered_ids]
+    ordered.extend(item for item in reminders if str(item["id"]) not in seen)
+    now = _utc_now_iso()
+    for index, reminder in enumerate(ordered):
+        reminder["order_index"] = index
+        if str(reminder["id"]) in seen:
+            reminder["updated_at"] = now
+    _write_reminders(ordered)
+    return {"reminders": ordered}
+
+
 @app.delete("/api/reminders/{reminder_id}")
 async def delete_reminder(reminder_id: str):
-    reminders = [_serialize_reminder(item) for item in _read_reminders()]
+    reminders = _normalize_reminders(_read_reminders())
     index, _reminder = _find_reminder(reminders, reminder_id)
     del reminders[index]
     _write_reminders(reminders)
@@ -13016,6 +13087,32 @@ async def get_mission_control_activity():
     }
 
 
+def _audio_duration_seconds(path: Path) -> float | None:
+    """Best-effort local audio duration for Mission Control visual sync."""
+    if not path.exists():
+        return None
+    if sys.platform == "darwin":
+        try:
+            completed = subprocess.run(
+                ["afinfo", str(path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+        except Exception:
+            return None
+        for line in completed.stdout.splitlines():
+            if "estimated duration:" not in line:
+                continue
+            try:
+                return float(line.split("estimated duration:", 1)[1].split()[0])
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
 @app.post("/api/mission-control/ding")
 async def play_mission_control_ding(body: MissionControlDingRequest):
     """Play a local host notification sound for Mission Control."""
@@ -13037,7 +13134,8 @@ async def play_mission_control_ding(body: MissionControlDingRequest):
             )
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Could not play sound: {exc}") from exc
-        return {"ok": True, "kind": kind, "method": "afplay", "sound": sound}
+        duration_seconds = _audio_duration_seconds(sound_path)
+        return {"ok": True, "kind": kind, "method": "afplay", "sound": sound, "duration_seconds": duration_seconds}
 
     print("\a", end="", flush=True)
     return {"ok": True, "kind": kind, "method": "terminal-bell"}
@@ -13079,12 +13177,14 @@ async def play_mission_control_announcement(body: MissionControlAnnouncementRequ
             )
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Could not play announcement: {exc}") from exc
+        duration_seconds = _audio_duration_seconds(file_path)
         return {
             "ok": True,
             "kind": kind,
             "method": "tts-afplay",
             "file_path": str(file_path),
             "provider": result.get("provider"),
+            "duration_seconds": duration_seconds,
         }
 
     return {
@@ -13521,6 +13621,7 @@ _BUILTIN_DASHBOARD_THEMES = [
     {"name": "default",       "label": "Hermes Teal",         "description": "Classic dark teal — the canonical Hermes look"},
     {"name": "default-large", "label": "Hermes Teal (Large)", "description": "Hermes Teal with bigger fonts and roomier spacing"},
     {"name": "nous-blue",     "label": "Nous Blue",           "description": "Light mode — vivid Nous-blue accents on cream canvas"},
+    {"name": "mission-control", "label": "Mission Control",   "description": "Black/orange cockpit command center inspired by Mission Control"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
     {"name": "mono",      "label": "Mono",           "description": "Clean grayscale — minimal and focused"},

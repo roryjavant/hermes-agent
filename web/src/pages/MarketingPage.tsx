@@ -353,15 +353,19 @@ function MarketingAgentOrb({ agent, isLast }: { agent: MissionControlProfileTeam
       <span className="block text-xs font-bold uppercase tracking-[0.14em] text-foreground">{agent.role}</span>
       <span className="mt-1 block truncate font-mono-ui text-xs text-midground">{agent.profile}</span>
       <span className="mt-2 block text-[0.68rem] uppercase tracking-[0.1em] text-muted-foreground">
-        {statusLabel}
+        Status: {statusLabel}
         {agent.pid ? ` · pid ${agent.pid}` : ""}
       </span>
       {agent.detail && (
         <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground">{agent.detail}</span>
       )}
-      {canLaunch && (
+      {canLaunch ? (
         <span className="mt-2 block text-[0.68rem] uppercase tracking-[0.1em] text-current/70">
           Click to launch chat →
+        </span>
+      ) : (
+        <span className="mt-2 block text-[0.68rem] uppercase tracking-[0.1em] text-current/70">
+          Configure profile before launch
         </span>
       )}
       <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-current/20 bg-popover/95" />

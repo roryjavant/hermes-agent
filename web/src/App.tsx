@@ -275,6 +275,19 @@ const BUILTIN_NAV_REST: NavItem[] = [
   },
 ];
 
+const PRIMARY_DASHBOARD_TAB_PATHS = new Set([
+  "/mission-control",
+  "/launchpad",
+  "/team",
+  "/knowledge-base",
+  "/marketing",
+  "/research",
+  "/repos",
+  "/reminders",
+  "/flow",
+  "/rory",
+]);
+
 const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Activity,
   BarChart3,
@@ -350,16 +363,22 @@ function buildNavItems(
 function partitionSidebarNav(
   builtIn: NavItem[],
   manifests: PluginManifest[],
-): { coreItems: NavItem[]; pluginItems: NavItem[] } {
+): { primaryItems: NavItem[]; puppeteerItems: NavItem[]; pluginItems: NavItem[] } {
   const merged = buildNavItems(builtIn, manifests);
   const builtinPaths = new Set(builtIn.map((i) => i.path));
-  const coreItems: NavItem[] = [];
+  const primaryItems: NavItem[] = [];
+  const puppeteerItems: NavItem[] = [];
   const pluginItems: NavItem[] = [];
   for (const item of merged) {
-    if (builtinPaths.has(item.path)) coreItems.push(item);
-    else pluginItems.push(item);
+    if (!builtinPaths.has(item.path)) {
+      pluginItems.push(item);
+    } else if (PRIMARY_DASHBOARD_TAB_PATHS.has(item.path)) {
+      primaryItems.push(item);
+    } else {
+      puppeteerItems.push(item);
+    }
   }
-  return { coreItems, pluginItems };
+  return { primaryItems, puppeteerItems, pluginItems };
 }
 
 function buildRoutes(
@@ -520,6 +539,10 @@ export default function App() {
     () => partitionSidebarNav(builtinNav, manifests),
     [builtinNav, manifests],
   );
+  const puppeteerNavItems = useMemo(
+    () => [...sidebarNav.puppeteerItems, ...sidebarNav.pluginItems],
+    [sidebarNav.puppeteerItems, sidebarNav.pluginItems],
+  );
   const routes = useMemo(
     () => buildRoutes(builtinRoutes, manifests),
     [builtinRoutes, manifests],
@@ -658,9 +681,9 @@ export default function App() {
                   className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground uppercase"
                   style={{ mixBlendMode: "plus-lighter" }}
                 >
-                  Hermes
+                  Master
                   <br />
-                  Agent
+                  Puppeteer
                 </Typography>
               </div>
 
@@ -698,7 +721,7 @@ export default function App() {
               aria-label={t.app.navigation}
             >
               <ul className="flex flex-col">
-                {sidebarNav.coreItems.map((item) => (
+                {sidebarNav.primaryItems.map((item) => (
                   <SidebarNavLink
                     closeMobile={closeMobile}
                     collapsed={isDesktopCollapsed}
@@ -708,39 +731,18 @@ export default function App() {
                     tooltipWarmRef={tooltipWarmRef}
                   />
                 ))}
+                {puppeteerNavItems.length > 0 && (
+                  <SidebarNavGroup
+                    closeMobile={closeMobile}
+                    collapsed={isDesktopCollapsed}
+                    items={puppeteerNavItems}
+                    label="Puppeteers"
+                    pathname={normalizedPath}
+                    t={t}
+                    tooltipWarmRef={tooltipWarmRef}
+                  />
+                )}
               </ul>
-
-              {sidebarNav.pluginItems.length > 0 && (
-                <div
-                  aria-labelledby="hermes-sidebar-plugin-nav-heading"
-                  className="flex flex-col border-t border-current/10 pb-2"
-                  role="group"
-                >
-                  <span
-                    className={cn(
-                      "px-5 pt-2.5 pb-1",
-                      "font-mondwest text-display text-xs tracking-[0.12em] text-text-tertiary",
-                      isDesktopCollapsed && "lg:hidden",
-                    )}
-                    id="hermes-sidebar-plugin-nav-heading"
-                  >
-                    {t.app.pluginNavSection}
-                  </span>
-
-                  <ul className="flex flex-col">
-                    {sidebarNav.pluginItems.map((item) => (
-                      <SidebarNavLink
-                        closeMobile={closeMobile}
-                        collapsed={isDesktopCollapsed}
-                        item={item}
-                        key={item.path}
-                        t={t}
-                        tooltipWarmRef={tooltipWarmRef}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )}
             </nav>
 
             <SidebarSystemActions
@@ -885,6 +887,100 @@ export default function App() {
 function ProfileKeyedRoutes({ children }: { children: ReactNode }) {
   const { profile } = useProfileScope();
   return <div key={profile || "__own__"} className="contents">{children}</div>;
+}
+
+function SidebarNavGroup({
+  closeMobile,
+  collapsed,
+  items,
+  label,
+  pathname,
+  t,
+  tooltipWarmRef,
+}: SidebarNavGroupProps) {
+  const liRef = useRef<HTMLLIElement>(null);
+  const active = items.some((item) => pathname === item.path || pathname.startsWith(`${item.path}/`));
+  const [open, setOpen] = useState(active);
+  const [hovered, setHovered] = useState(false);
+
+  useEffect(() => {
+    if (active) setOpen(true);
+  }, [active]);
+
+  return (
+    <li
+      ref={liRef}
+      onMouseEnter={collapsed ? () => setHovered(true) : undefined}
+      onMouseLeave={collapsed ? () => setHovered(false) : undefined}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-label={collapsed ? label : undefined}
+        onFocus={collapsed ? () => setHovered(true) : undefined}
+        onBlur={collapsed ? () => setHovered(false) : undefined}
+        className={cn(
+          "group/nav relative flex w-full items-center gap-3",
+          "px-5 py-2.5",
+          "font-mondwest text-display uppercase text-sm tracking-[0.12em]",
+          "whitespace-nowrap transition-colors cursor-pointer",
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground",
+          active ? "text-primary" : "text-text-secondary hover:text-midground",
+        )}
+      >
+        <Brain className="h-3.5 w-3.5 shrink-0" />
+        <span
+          className={cn(
+            "truncate transition-opacity duration-300",
+            collapsed ? "lg:opacity-0" : "lg:opacity-100",
+          )}
+        >
+          {label}
+        </span>
+        <span
+          aria-hidden
+          className={cn(
+            "ml-auto text-[0.68rem] text-primary transition-transform duration-150",
+            open && "rotate-90",
+            collapsed && "lg:hidden",
+          )}
+        >
+          ▸
+        </span>
+        <span
+          aria-hidden
+          className="absolute inset-y-0.5 left-1.5 right-1.5 bg-midground opacity-0 pointer-events-none transition-opacity duration-200 group-hover/nav:opacity-5"
+        />
+        {active && (
+          <span
+            aria-hidden
+            className="absolute left-0 top-0 bottom-0 w-px bg-primary"
+            style={{ mixBlendMode: "plus-lighter" }}
+          />
+        )}
+      </button>
+
+      {collapsed && hovered && liRef.current && (
+        <SidebarTooltip anchor={liRef.current} label={label} warmRef={tooltipWarmRef} />
+      )}
+
+      {open && !collapsed && (
+        <ul className="border-l border-primary/25 ml-5 my-1 flex flex-col">
+          {items.map((item) => (
+            <SidebarNavLink
+              closeMobile={closeMobile}
+              collapsed={collapsed}
+              item={item}
+              key={item.path}
+              t={t}
+              tooltipWarmRef={tooltipWarmRef}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
 }
 
 function SidebarNavLink({
@@ -1274,6 +1370,16 @@ interface SidebarNavLinkProps {
   closeMobile: () => void;
   collapsed: boolean;
   item: NavItem;
+  t: Translations;
+  tooltipWarmRef: TooltipWarmRef;
+}
+
+interface SidebarNavGroupProps {
+  closeMobile: () => void;
+  collapsed: boolean;
+  items: NavItem[];
+  label: string;
+  pathname: string;
   t: Translations;
   tooltipWarmRef: TooltipWarmRef;
 }

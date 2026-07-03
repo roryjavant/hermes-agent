@@ -255,23 +255,11 @@ export default function LaunchpadPage() {
 
   return (
     <div className="min-h-full w-full p-4 lg:p-6">
-      <div className="mb-5 overflow-hidden rounded-3xl border border-border/70 bg-card/72 p-5 shadow-2xl shadow-black/20">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-current/15 bg-black/25 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-text-tertiary">
-              <Rocket className="size-3.5 text-midground" />
-              Project launchpad
-            </div>
-            <h1 className="font-expanded text-3xl font-black uppercase tracking-[0.08em] text-midground">
-              Start local projects
-            </h1>
-            <p className="mt-3 text-sm leading-6 text-text-secondary">
-              Each square starts the project’s local dev server from its checkout and opens the localhost URL.
-            </p>
-          </div>
+      {errors.__load ? (
+        <div className="mb-5 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          Could not load project status: {errors.__load}
         </div>
-        {errors.__load ? <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">Could not load project status: {errors.__load}</div> : null}
-      </div>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
         {featured.map((project) => (

@@ -1,9 +1,11 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
+  type AnimationEvent,
   type CSSProperties,
   type FormEvent,
 } from "react";
@@ -25,6 +27,7 @@ import {
   Terminal,
   Trash2,
   Users,
+  Volume2,
   X,
   Zap,
   type LucideIcon,
@@ -39,7 +42,7 @@ import {
 } from "@nous-research/ui/ui/components/card";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Switch } from "@nous-research/ui/ui/components/switch";
-import { api } from "@/lib/api";
+import { api, HERMES_BASE_PATH } from "@/lib/api";
 import type {
   CronJob,
   KanbanBoardResponse,
@@ -64,6 +67,23 @@ import { PluginSlot } from "@/plugins";
 import ChatPage from "@/pages/ChatPage";
 import { cn, timeAgo } from "@/lib/utils";
 
+type MissionControlDingResponse = {
+  ok: boolean;
+  kind: string;
+  method: string;
+  sound?: string;
+  duration_seconds?: number;
+};
+
+type MissionControlAnnouncementResponse = {
+  ok: boolean;
+  kind: string;
+  method: string;
+  file_path: string;
+  provider?: string;
+  duration_seconds?: number;
+};
+
 type LoadState = {
   status: StatusResponse | null;
   sessions: PaginatedSessions | null;
@@ -78,7 +98,7 @@ type LoadState = {
 
 type BadgeTone = "success" | "warning" | "destructive" | "secondary" | "outline";
 type TeamFilter = "all" | string;
-type MissionControlSoundSetting = MissionControlDing | "announce" | "terminalAnnounce";
+type MissionControlSoundSetting = MissionControlDing | "announce" | "terminalAnnounce" | "launchClip";
 type MissionControlSoundSettings = Record<MissionControlSoundSetting, boolean>;
 type MissionTask = KanbanTaskSummary & {
   column: string;
@@ -108,6 +128,10 @@ type TimelineItem = {
 };
 
 type ReadinessTone = "ready" | "working" | "review";
+type MissionSoundVisualState = {
+  active: boolean;
+  label: string;
+};
 
 type OperationsItem = {
   id: string;
@@ -156,6 +180,7 @@ const MISSION_CONTROL_FULL_REFRESH_MS = 15000;
 const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 5000;
 const MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS = 6000;
 const MISSION_CONTROL_SOUND_SETTINGS_KEY = "missionControl.soundSettings";
+const MISSION_CONTROL_PROMPT_AWAY_CLIP_INDEX_KEY = "missionControl.promptAwayClipIndex";
 const MISSION_CONTROL_FINAL_OUTPUT_SEEN_KEY = "missionControl.finalOutputSeen";
 const ALL_TEAMS_FILTER = "all";
 const TEAM_FEED_RECENT_SESSION_SECONDS = 60 * 60;
@@ -179,7 +204,13 @@ const emptyState: LoadState = {
 };
 
 function readCachedSoundSettings(): MissionControlSoundSettings {
-  const defaults: MissionControlSoundSettings = { approval: true, done: true, announce: true, terminalAnnounce: false };
+  const defaults: MissionControlSoundSettings = {
+    approval: true,
+    done: true,
+    announce: true,
+    terminalAnnounce: false,
+    launchClip: false,
+  };
   if (typeof window === "undefined") return defaults;
   try {
     const raw = window.localStorage.getItem(MISSION_CONTROL_SOUND_SETTINGS_KEY);
@@ -190,6 +221,7 @@ function readCachedSoundSettings(): MissionControlSoundSettings {
       done: parsed.done ?? defaults.done,
       announce: parsed.announce ?? defaults.announce,
       terminalAnnounce: parsed.terminalAnnounce ?? defaults.terminalAnnounce,
+      launchClip: parsed.launchClip ?? defaults.launchClip,
     };
   } catch {
     return defaults;
@@ -199,6 +231,17 @@ function readCachedSoundSettings(): MissionControlSoundSettings {
 function cacheSoundSettings(value: MissionControlSoundSettings): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(MISSION_CONTROL_SOUND_SETTINGS_KEY, JSON.stringify(value));
+}
+
+function nextMissionControlPromptAwayClipIndex(): number {
+  if (typeof window === "undefined") return 0;
+  const clipCount = MISSION_CONTROL_PROMPT_AWAY_CLIPS.length;
+  if (clipCount === 0) return 0;
+  const raw = window.localStorage.getItem(MISSION_CONTROL_PROMPT_AWAY_CLIP_INDEX_KEY);
+  const current = Number.parseInt(raw ?? "0", 10);
+  const clipIndex = Number.isFinite(current) && current >= 0 ? current % clipCount : 0;
+  window.localStorage.setItem(MISSION_CONTROL_PROMPT_AWAY_CLIP_INDEX_KEY, String((clipIndex + 1) % clipCount));
+  return clipIndex;
 }
 
 function readSeenFinalOutputs(): Record<string, string> {
@@ -477,8 +520,44 @@ async function playMissionControlDoneDing(): Promise<void> {
   await playMissionControlDing("done");
 }
 
-async function playMissionControlAnnouncement(text: string, kind: MissionControlDing = "done"): Promise<void> {
-  await api.playMissionControlAnnouncement(text, kind);
+async function playMissionControlAnnouncement(text: string, kind: MissionControlDing = "done"): Promise<MissionControlAnnouncementResponse> {
+  return api.playMissionControlAnnouncement(text, kind);
+}
+
+const MISSION_CONTROL_PROMPT_AWAY_CLIPS = [
+  "/audio/prompt-away/mission-control-prompt-away-1.mp3",
+  "/audio/prompt-away/mission-control-prompt-away-2.mp3",
+  "/audio/prompt-away/mission-control-prompt-away-3.mp3",
+  "/audio/prompt-away/mission-control-prompt-away-4.mp3",
+  "/audio/prompt-away/mission-control-prompt-away-5.mp3",
+];
+
+async function playMissionControlPromptAwayClip(clipIndex: number): Promise<void> {
+  if (typeof window === "undefined") return;
+  const clipPath = MISSION_CONTROL_PROMPT_AWAY_CLIPS[clipIndex % MISSION_CONTROL_PROMPT_AWAY_CLIPS.length]
+    ?? "/audio/only-one-prompt-away.mp3";
+  const audio = new Audio(`${HERMES_BASE_PATH}${clipPath}`);
+  audio.volume = 1;
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+    };
+    const handleEnded = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Prompt-away clip failed to play."));
+    };
+    audio.addEventListener("ended", handleEnded, { once: true });
+    audio.addEventListener("error", handleError, { once: true });
+    audio.play().catch((error) => {
+      cleanup();
+      reject(error);
+    });
+  });
 }
 
 function terminalAnnouncementSubject(item: OperationsItem): string {
@@ -499,10 +578,9 @@ function terminalResultAnnouncement(item: OperationsItem, tone: ReadinessTone): 
   return `${subject} completed.`;
 }
 
-async function playMissionControlDing(kind: MissionControlDing): Promise<void> {
+async function playMissionControlDing(kind: MissionControlDing): Promise<MissionControlDingResponse | void> {
   try {
-    await api.playMissionControlDing(kind);
-    return;
+    return await api.playMissionControlDing(kind);
   } catch {
     // Fall back to browser audio when the dashboard backend is stale or unavailable.
   }
@@ -558,7 +636,26 @@ async function playMissionControlAudioElementDing(kind: MissionControlDing): Pro
   if (typeof window === "undefined") return;
   const audio = new Audio(missionControlDingDataUrl(kind));
   audio.volume = 1;
-  await audio.play();
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+    };
+    const handleEnded = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Mission Control ding failed to play."));
+    };
+    audio.addEventListener("ended", handleEnded, { once: true });
+    audio.addEventListener("error", handleError, { once: true });
+    audio.play().catch((error) => {
+      cleanup();
+      reject(error);
+    });
+  });
 }
 
 function missionControlDingDataUrl(kind: MissionControlDing): string {
@@ -654,6 +751,147 @@ function performanceRiskFromTelemetry(source: {
     label,
     detail: `Likely degraded by ${parts.join(" + ")}.`,
   };
+}
+
+// Procedural EKG trace: P wave, QRS complex, T wave per beat, with per-beat
+// variation in spacing/amplitude plus baseline wander so it reads like a real
+// hospital monitor instead of a uniform loop. Midline y=16 on a 32-tall grid.
+// The x axis is normalized to a constant width so successive waveforms swap in
+// without rescaling the strip.
+function buildEcgGeometry(rng: () => number, beats: number): { d: string; width: number } {
+  const mid = 16;
+  let x = 0;
+  const points: Array<[number, number]> = [[0, mid]];
+  const lineTo = (nx: number, ny: number) => {
+    x = nx;
+    points.push([nx, ny]);
+  };
+  const wanderTo = (target: number) => {
+    while (x < target - 7) {
+      lineTo(x + 4 + rng() * 5, mid + (rng() - 0.5) * 1.8);
+    }
+    lineTo(target, mid);
+  };
+
+  for (let i = 0; i < beats; i += 1) {
+    wanderTo(x + 14 + rng() * 22);
+    const p = 2.5 + rng() * 2;
+    lineTo(x + 4, mid - p);
+    lineTo(x + 4, mid);
+    wanderTo(x + 5 + rng() * 5);
+    const r = 9.5 + rng() * 4;
+    const s = 7.5 + rng() * 4.5;
+    lineTo(x + 3, mid + 2 + rng() * 2);
+    lineTo(x + 4, mid - r);
+    lineTo(x + 4, mid + s);
+    lineTo(x + 4, mid);
+    wanderTo(x + 8 + rng() * 6);
+    const t = 3.5 + rng() * 3;
+    lineTo(x + 5, mid - t);
+    lineTo(x + 5 + rng() * 3, mid);
+  }
+  wanderTo(x + 12 + rng() * 10);
+
+  const width = beats * 55;
+  const scale = width / x;
+  const d = points
+    .map(([px, py], i) => `${i === 0 ? "M" : "L"}${(px * scale).toFixed(1)} ${py.toFixed(1)}`)
+    .join(" ");
+  return { d, width };
+}
+
+const ECG_HEAD_WIDTH = 26;
+
+function HeartbeatTrace({
+  className,
+  sweepSeconds = 1.2,
+  beats = 4,
+}: {
+  className?: string;
+  sweepSeconds?: number;
+  beats?: number;
+}) {
+  // Fresh waveform on every pass, and a random rate/phase per monitor, so
+  // multiple live agents never pulse in lockstep or repeat themselves.
+  // The scan is a mask window translating at constant horizontal speed —
+  // dash-offset sweeps stall on spikes where arc length piles up — with a
+  // gradient beam head drawing the trace behind it. The waveform swaps at
+  // the cycle wrap while both mask rects are off-screen.
+  const maskId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const [trace, setTrace] = useState(() => buildEcgGeometry(Math.random, beats));
+  const timing = useMemo(
+    () => ({
+      duration: sweepSeconds * (0.85 + Math.random() * 0.3),
+      delay: -Math.random() * sweepSeconds,
+    }),
+    [sweepSeconds],
+  );
+  const handleScanIteration = useCallback(
+    (event: AnimationEvent<SVGRectElement>) => {
+      if (event.animationName !== "agent-ecg-scan") return;
+      setTrace(buildEcgGeometry(Math.random, beats));
+    },
+    [beats],
+  );
+
+  const travel = trace.width + ECG_HEAD_WIDTH;
+  const scanStyle: CSSProperties = {
+    animationDuration: `${timing.duration}s`,
+    animationDelay: `${timing.delay}s`,
+  };
+
+  return (
+    <svg
+      className={cn("agent-ecg", className)}
+      viewBox={`0 0 ${trace.width} 32`}
+      preserveAspectRatio="none"
+      fill="none"
+      aria-hidden="true"
+      style={{ "--agent-ecg-travel": `${travel}px` } as CSSProperties}
+    >
+      <defs>
+        <linearGradient id={`ecg-${maskId}-fade`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#fff" stopOpacity="0" />
+          <stop offset="1" stopColor="#fff" />
+        </linearGradient>
+        <mask id={`ecg-${maskId}-reveal`} maskUnits="userSpaceOnUse" x="0" y="0" width={trace.width} height="32">
+          <rect className="agent-ecg__scan" x={-travel} y="0" width={travel} height="32" fill="#fff" style={scanStyle} />
+        </mask>
+        <mask id={`ecg-${maskId}-beam`} maskUnits="userSpaceOnUse" x="0" y="0" width={trace.width} height="32">
+          <rect
+            className="agent-ecg__scan"
+            x={-ECG_HEAD_WIDTH}
+            y="0"
+            width={ECG_HEAD_WIDTH}
+            height="32"
+            fill={`url(#ecg-${maskId}-fade)`}
+            style={scanStyle}
+            onAnimationIteration={handleScanIteration}
+          />
+        </mask>
+      </defs>
+      <path
+        className="agent-ecg__base"
+        d={trace.d}
+        mask={`url(#ecg-${maskId}-reveal)`}
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <path
+        className="agent-ecg__sweep"
+        d={trace.d}
+        mask={`url(#ecg-${maskId}-beam)`}
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
 }
 
 function ActivityLightPopover({ item, rowLabel }: { item: OperationsItem; rowLabel: string }) {
@@ -1085,6 +1323,7 @@ function glyphForTeamRole(role: string): string {
   return "agent";
 }
 
+
 function linkedChildCount(task: MissionTask): number {
   const maybeCounts = task as MissionTask & { link_counts?: { children?: number } };
   return Math.max(0, Number(maybeCounts.link_counts?.children ?? 0) || 0);
@@ -1400,7 +1639,7 @@ function MissionOrb({
   const active = metrics.find((metric) => metric.id === selectedMetric) ?? metrics[0];
 
   return (
-    <div className="mission-orb relative ml-auto flex aspect-square w-full max-w-[18rem] items-center justify-center">
+    <div className="mission-orb relative ml-auto flex aspect-square w-full max-w-[16.5rem] 2xl:max-w-[18rem] items-center justify-center">
       <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 240 240" aria-hidden="true">
         <circle cx="120" cy="120" r="96" fill="none" stroke="#ff3d00" strokeOpacity="0.22" strokeWidth="1" />
         <circle cx="120" cy="120" r="84" fill="none" stroke="#22d3ee" strokeOpacity="0.32" strokeWidth="1" strokeDasharray="22 18" />
@@ -1442,6 +1681,39 @@ function MissionOrb({
         <span className="mt-1 font-mono-ui text-4xl leading-none text-white">{score}</span>
         <span className="mt-1 max-w-24 truncate text-[0.62rem] uppercase tracking-[0.18em] text-[#22d3ee]/75">{active.label}</span>
       </div>
+    </div>
+  );
+}
+
+function MissionSoundBridge({ active, label }: MissionSoundVisualState) {
+  const bars = [34, 58, 42, 76, 52, 92, 46, 68, 38, 84, 56, 72];
+  if (!active) return null;
+  return (
+    <div
+      className="mission-sound-bridge mission-sound-bridge--active pointer-events-none relative hidden min-h-[9rem] items-center xl:flex"
+      aria-hidden="true"
+    >
+      <div className="mission-sound-bridge__rail" />
+      <div className="mission-sound-bridge__capsule">
+        <div className="mission-sound-bridge__label-row">
+          <span className="mission-sound-bridge__dot" />
+          <span>{label}</span>
+        </div>
+        <div className="mission-sound-bridge__wave" aria-hidden="true">
+          {bars.map((height, index) => (
+            <span
+              key={`${height}-${index}`}
+              className="mission-sound-bridge__bar"
+              style={{
+                "--bar-height": `${height}%`,
+                "--bar-delay": `${index * 72}ms`,
+              } as CSSProperties}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="mission-sound-bridge__packet mission-sound-bridge__packet--one" />
+      <div className="mission-sound-bridge__packet mission-sound-bridge__packet--two" />
     </div>
   );
 }
@@ -2034,6 +2306,8 @@ function ActiveOperationsBoard({
   liveProfiles,
   soundSettings,
   onSoundSettingChange,
+  onSoundStarted,
+  onSoundEnded,
   onRefresh,
   taskByProfile,
   tasksByTeam,
@@ -2044,6 +2318,8 @@ function ActiveOperationsBoard({
   liveProfiles: Map<string, MissionControlActivity>;
   soundSettings: MissionControlSoundSettings;
   onSoundSettingChange: (kind: MissionControlSoundSetting, enabled: boolean) => void;
+  onSoundStarted: (label: string, durationMs?: number) => void;
+  onSoundEnded: () => void;
   onRefresh: () => Promise<void> | void;
   taskByProfile: Map<string, MissionTask>;
   tasksByTeam: Map<string, MissionTask[]>;
@@ -2058,6 +2334,7 @@ function ActiveOperationsBoard({
   const [expandedTeamRows, setExpandedTeamRows] = useState<Set<string>>(() => new Set());
   const [seenFinalOutputs, setSeenFinalOutputs] = useState<Record<string, string>>(() => readSeenFinalOutputs());
   const [testAnnounceState, setTestAnnounceState] = useState<"idle" | "playing" | "ok" | "error">("idle");
+  const [promptAwayState, setPromptAwayState] = useState<"idle" | "playing" | "error">("idle");
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<MissionTask | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [deleteTaskError, setDeleteTaskError] = useState<string | null>(null);
@@ -2108,6 +2385,7 @@ function ActiveOperationsBoard({
 
   const testAnnouncement = useCallback(() => {
     setTestAnnounceState("playing");
+    onSoundStarted("Test announcement", 3400);
     void playMissionControlAnnouncement("Mission Control: test announcement complete.")
       .then(() => {
         setTestAnnounceState("ok");
@@ -2117,7 +2395,23 @@ function ActiveOperationsBoard({
         setTestAnnounceState("error");
         window.setTimeout(() => setTestAnnounceState("idle"), 4000);
       });
-  }, []);
+  }, [onSoundStarted]);
+
+  const playPromptAwayClip = useCallback(() => {
+    const clipIndex = nextMissionControlPromptAwayClipIndex();
+    setPromptAwayState("playing");
+    onSoundStarted("Prompt-away clip");
+    void playMissionControlPromptAwayClip(clipIndex)
+      .then(() => {
+        onSoundEnded();
+        window.setTimeout(() => setPromptAwayState("idle"), 2400);
+      })
+      .catch(() => {
+        onSoundEnded();
+        setPromptAwayState("error");
+        window.setTimeout(() => setPromptAwayState("idle"), 3000);
+      });
+  }, [onSoundEnded, onSoundStarted]);
 
   const requestDeleteTeamTask = (task: MissionTask) => {
     setDeleteTaskTarget(task);
@@ -2209,6 +2503,11 @@ function ActiveOperationsBoard({
               checked={soundSettings.terminalAnnounce}
               onChange={(checked) => onSoundSettingChange("terminalAnnounce", checked)}
             />
+            <SoundToggle
+              label="Launch clip"
+              checked={soundSettings.launchClip}
+              onChange={(checked) => onSoundSettingChange("launchClip", checked)}
+            />
             <Button
               type="button"
               ghost
@@ -2222,6 +2521,18 @@ function ActiveOperationsBoard({
                 : testAnnounceState === "error"
                   ? "Announce failed"
                   : "Test announce"}
+            </Button>
+            <Button
+              type="button"
+              ghost
+              size="sm"
+              className="px-2"
+              aria-label="Play it's only one prompt away clip"
+              title={promptAwayState === "error" ? "Clip failed" : "Play: It's only one prompt away"}
+              disabled={promptAwayState === "playing"}
+              onClick={playPromptAwayClip}
+            >
+              {promptAwayState === "playing" ? <Spinner /> : <Volume2 className="h-3.5 w-3.5" />}
             </Button>
           </div>
         </div>
@@ -2353,6 +2664,7 @@ function ActiveOperationsBoard({
                               const rowKey = row.label;
                               const isExpanded = expandedTeamRows.has(rowKey);
                               const allTeamItems = orchestratorItem ? [orchestratorItem, ...row.items] : row.items;
+                              const teamIsRunning = allTeamItems.some((item) => item.tone === "working");
                               const workflowStages = workflowStagesForTeam(row.items, "workflow" in row ? row.workflow : undefined);
                               const showsFinalResearchOutput = rowTitle.toLowerCase() === "hermes research";
                               const rowTeamId = "teamId" in row ? row.teamId : row.label;
@@ -2420,6 +2732,9 @@ function ActiveOperationsBoard({
                                       </span>
                                       <span className="sr-only">{isExpanded ? "Collapse" : "Expand"} {rowTitle}</span>
                                     </button>
+                                    <span className="hidden h-6 min-w-0 items-center px-3 text-[#ff3d00]/85 md:flex" aria-hidden="true">
+                                      {teamIsRunning && <HeartbeatTrace />}
+                                    </span>
                                     <span className="flex flex-wrap items-center justify-end gap-1.5">
                                       {allTeamItems.map((item) => {
                                         const itemTc = toneColors[item.tone] ?? toneColors.ready;
@@ -2660,6 +2975,7 @@ function ActiveOperationsBoard({
                               );
                             }
 
+                            const rowIsRunning = row.items.some((item) => item.tone === "working");
                             return (
                               <div key={row.label} className="grid gap-2 border-t border-border/60 pt-2 first:border-t-0 first:pt-0 md:grid-cols-[minmax(12rem,18rem)_1fr]">
                                 <div className="min-w-0">
@@ -2672,6 +2988,11 @@ function ActiveOperationsBoard({
                                       {buildLightElement(item, { size: "sm", rowLabel: row.label })}
                                     </span>
                                   ))}
+                                  {rowIsRunning && (
+                                    <span className="hidden h-6 min-w-[5rem] flex-1 items-center pl-1 text-[#ff3d00]/85 sm:flex" aria-hidden="true">
+                                      <HeartbeatTrace />
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -2787,7 +3108,7 @@ function ActiveOperationsBoard({
   );
 }
 
-function MissionControlTerminalDock() {
+function MissionControlTerminalDock({ workingProfiles }: { workingProfiles: Set<string> }) {
   const terminals = [
     { id: "personal", label: "Personal", profile: "rorypersonal", hero: "ONLY" },
     { id: "juror", label: "Juror", profile: "jurorcoordinator", hero: "ONE" },
@@ -2817,6 +3138,11 @@ function MissionControlTerminalDock() {
               <span className="ml-2 truncate font-mono-ui text-[0.64rem] uppercase tracking-[0.12em] text-muted-foreground">
                 {terminal.label} · {terminal.profile}
               </span>
+              {workingProfiles.has(terminal.profile) && (
+                <span className="ml-auto flex h-4 w-28 shrink-0 items-center text-[#ff3d00]/85" aria-hidden="true">
+                  <HeartbeatTrace beats={2} />
+                </span>
+              )}
             </div>
             <div className="h-[28rem] min-h-0 bg-black">
               <ChatPage embedded isActive profileOverride={terminal.profile} embeddedHeroText={terminal.hero} />
@@ -2911,9 +3237,13 @@ export default function MissionControlPage() {
   const [spotlight, setSpotlight] = useState({ x: 72, y: 18 });
   const [selectedMetric, setSelectedMetric] = useState("gateway");
   const [soundSettings, setSoundSettings] = useState<MissionControlSoundSettings>(() => readCachedSoundSettings());
+  const [soundVisual, setSoundVisual] = useState<MissionSoundVisualState>({ active: false, label: "Audio playing" });
+  const soundVisualTimerRef = useRef<number | null>(null);
   const previousTerminalTonesRef = useRef<Map<string, ReadinessTone> | null>(null);
   const previousTaskStatusesRef = useRef<Map<string, string> | null>(null);
   const currentTerminalReviewIdsRef = useRef<Set<string>>(new Set());
+  const launchClipPlayedRef = useRef(false);
+  const pendingLaunchClipRef = useRef(false);
   const pendingApprovalDingRef = useRef(false);
   const pendingDoneDingRef = useRef(false);
   const lastKanbanActivityRefreshRef = useRef(0);
@@ -2924,6 +3254,72 @@ export default function MissionControlPage() {
       cacheSoundSettings(next);
       return next;
     });
+  }, []);
+
+  const beginSoundVisual = useCallback((label: string, durationMs?: number) => {
+    if (soundVisualTimerRef.current !== null) {
+      window.clearTimeout(soundVisualTimerRef.current);
+      soundVisualTimerRef.current = null;
+    }
+    setSoundVisual({ active: true, label });
+    if (typeof durationMs === "number") {
+      soundVisualTimerRef.current = window.setTimeout(() => {
+        setSoundVisual((current) => ({ ...current, active: false }));
+        soundVisualTimerRef.current = null;
+      }, durationMs);
+    }
+  }, []);
+
+  const endSoundVisual = useCallback(() => {
+    if (soundVisualTimerRef.current !== null) {
+      window.clearTimeout(soundVisualTimerRef.current);
+      soundVisualTimerRef.current = null;
+    }
+    setSoundVisual((current) => ({ ...current, active: false }));
+  }, []);
+
+  const playWithSoundVisual = useCallback(
+    async (
+      label: string,
+      fallbackDurationMs: number,
+      player: () => Promise<{ duration_seconds?: number } | void>,
+    ) => {
+      beginSoundVisual(label);
+      const startedAt = Date.now();
+      try {
+        const result = await player();
+        const durationMs = typeof result?.duration_seconds === "number"
+          ? Math.max(350, result.duration_seconds * 1000)
+          : fallbackDurationMs;
+        const remainingMs = Math.max(0, durationMs - (Date.now() - startedAt));
+        if (soundVisualTimerRef.current !== null) {
+          window.clearTimeout(soundVisualTimerRef.current);
+        }
+        if (remainingMs === 0) {
+          setSoundVisual((current) => ({ ...current, active: false }));
+          soundVisualTimerRef.current = null;
+        } else {
+          soundVisualTimerRef.current = window.setTimeout(() => {
+            setSoundVisual((current) => ({ ...current, active: false }));
+            soundVisualTimerRef.current = null;
+          }, remainingMs);
+        }
+      } catch (error) {
+        if (soundVisualTimerRef.current !== null) {
+          window.clearTimeout(soundVisualTimerRef.current);
+          soundVisualTimerRef.current = null;
+        }
+        setSoundVisual((current) => ({ ...current, active: false }));
+        throw error;
+      }
+    },
+    [beginSoundVisual],
+  );
+
+  useEffect(() => () => {
+    if (soundVisualTimerRef.current !== null) {
+      window.clearTimeout(soundVisualTimerRef.current);
+    }
   }, []);
 
   const loadActivity = useCallback(async () => {
@@ -3029,6 +3425,19 @@ export default function MissionControlPage() {
   }, [load, loadActivity]);
 
   useEffect(() => {
+    if (launchClipPlayedRef.current || !soundSettings.launchClip) return;
+    launchClipPlayedRef.current = true;
+    void playWithSoundVisual(
+      "Prompt-away clip",
+      5200,
+      () => playMissionControlPromptAwayClip(nextMissionControlPromptAwayClipIndex()),
+    ).catch(() => {
+      // Browsers can block page-load audio before user activation. Try once on the next gesture.
+      pendingLaunchClipRef.current = true;
+    });
+  }, [playWithSoundVisual, soundSettings.launchClip]);
+
+  useEffect(() => {
     const refreshVisible = () => {
       if (!document.hidden) {
         void loadActivity();
@@ -3091,6 +3500,16 @@ export default function MissionControlPage() {
   );
   const teamTaskByProfile = useMemo(() => currentTaskByProfile(data), [data]);
   const teamTasksById = useMemo(() => currentTasksByTeam(data), [data]);
+  const workingProfiles = useMemo(() => {
+    const profiles = new Set<string>();
+    for (const record of data.activity?.activities ?? []) {
+      if (record.status === "working" && record.profile) profiles.add(record.profile);
+    }
+    for (const item of operations) {
+      if (item.tone === "working" && item.profileName) profiles.add(item.profileName);
+    }
+    return profiles;
+  }, [data.activity, operations]);
   const score = useMemo(() => computeMissionScore(data), [data]);
   const readiness = useMemo(() => {
     if (data.status?.gateway_exit_reason) {
@@ -3117,13 +3536,13 @@ export default function MissionControlPage() {
     if (!soundSettings.announce || announcements.length === 0) return;
 
     for (const announcement of announcements) {
-      void playMissionControlAnnouncement(announcement).catch(() => {
+      void playWithSoundVisual("Task voice update", 3400, () => playMissionControlAnnouncement(announcement)).catch(() => {
         if (soundSettings.done) {
-          void playMissionControlDoneDing().catch(() => undefined);
+          void playWithSoundVisual("Done tone", 1300, playMissionControlDoneDing).catch(() => undefined);
         }
       });
     }
-  }, [data, soundSettings.announce, soundSettings.done]);
+  }, [data, playWithSoundVisual, soundSettings.announce, soundSettings.done]);
 
   useEffect(() => {
     const previousTones = previousTerminalTonesRef.current;
@@ -3140,13 +3559,13 @@ export default function MissionControlPage() {
     });
 
     if (hasNewReviewLight && soundSettings.approval) {
-      void playMissionControlApprovalDing().catch(() => {
+      void playWithSoundVisual("Approval tone", 1500, playMissionControlApprovalDing).catch(() => {
         // Browsers can block audio before user activation. Retry once the user next clicks/presses a key.
         pendingApprovalDingRef.current = true;
       });
     }
     if (hasNewReadyLight && soundSettings.done) {
-      void playMissionControlDoneDing().catch(() => {
+      void playWithSoundVisual("Done tone", 1300, playMissionControlDoneDing).catch(() => {
         pendingDoneDingRef.current = true;
       });
     }
@@ -3167,19 +3586,23 @@ export default function MissionControlPage() {
         .slice(0, 2);
 
       for (const { item, tone } of announcements) {
-        void playMissionControlAnnouncement(
-          terminalResultAnnouncement(item, tone),
-          tone === "review" ? "approval" : "done",
+        void playWithSoundVisual(
+          tone === "review" ? "Terminal approval" : "Terminal complete",
+          3400,
+          () => playMissionControlAnnouncement(
+            terminalResultAnnouncement(item, tone),
+            tone === "review" ? "approval" : "done",
+          ),
         ).catch(() => {
           if (tone === "review" && soundSettings.approval) {
-            void playMissionControlApprovalDing().catch(() => undefined);
+            void playWithSoundVisual("Approval tone", 1500, playMissionControlApprovalDing).catch(() => undefined);
           } else if (tone === "ready" && soundSettings.done) {
-            void playMissionControlDoneDing().catch(() => undefined);
+            void playWithSoundVisual("Done tone", 1300, playMissionControlDoneDing).catch(() => undefined);
           }
         });
       }
     }
-  }, [soundSettings.approval, soundSettings.done, soundSettings.terminalAnnounce, terminalItemsById, terminalReviewIds, terminalTones]);
+  }, [playWithSoundVisual, soundSettings.approval, soundSettings.done, soundSettings.terminalAnnounce, terminalItemsById, terminalReviewIds, terminalTones]);
 
   useEffect(() => {
     const playPendingDing = () => {
@@ -3188,14 +3611,24 @@ export default function MissionControlPage() {
       });
       if (pendingApprovalDingRef.current && soundSettings.approval && currentTerminalReviewIdsRef.current.size > 0) {
         pendingApprovalDingRef.current = false;
-        void playMissionControlApprovalDing().catch(() => {
+        void playWithSoundVisual("Approval tone", 1500, playMissionControlApprovalDing).catch(() => {
           pendingApprovalDingRef.current = true;
         });
       }
       if (pendingDoneDingRef.current && soundSettings.done) {
         pendingDoneDingRef.current = false;
-        void playMissionControlDoneDing().catch(() => {
+        void playWithSoundVisual("Done tone", 1300, playMissionControlDoneDing).catch(() => {
           pendingDoneDingRef.current = true;
+        });
+      }
+      if (pendingLaunchClipRef.current && soundSettings.launchClip) {
+        pendingLaunchClipRef.current = false;
+        void playWithSoundVisual(
+          "Prompt-away clip",
+          5200,
+          () => playMissionControlPromptAwayClip(nextMissionControlPromptAwayClipIndex()),
+        ).catch(() => {
+          pendingLaunchClipRef.current = true;
         });
       }
     };
@@ -3205,7 +3638,7 @@ export default function MissionControlPage() {
       window.removeEventListener("pointerdown", playPendingDing);
       window.removeEventListener("keydown", playPendingDing);
     };
-  }, [soundSettings.approval, soundSettings.done]);
+  }, [playWithSoundVisual, soundSettings.approval, soundSettings.done, soundSettings.launchClip]);
 
   if (loading) {
     return (
@@ -3250,7 +3683,7 @@ export default function MissionControlPage() {
             </span>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[1fr_22rem] xl:items-center">
+          <div className="grid gap-6 xl:grid-cols-[minmax(21rem,0.8fr)_minmax(14rem,0.75fr)_minmax(15rem,18rem)] xl:items-center 2xl:grid-cols-[minmax(28rem,0.86fr)_minmax(18rem,1fr)_22rem]">
             <div>
               <h2
                 className="mission-title font-light uppercase leading-[0.9] tracking-[0.18em] text-white"
@@ -3258,11 +3691,9 @@ export default function MissionControlPage() {
               >
                 Mission Control
               </h2>
-              <div className="mission-mantra mt-4 inline-flex items-center gap-3" aria-label="Mission Control mantra">
-                <span className="mission-mantra__rule" aria-hidden="true" />
-                <span>It’s only one prompt away</span>
-                <span className="mission-mantra__rule" aria-hidden="true" />
-              </div>
+              <p className="mission-mantra mt-3" aria-label="Mission Control mantra">
+                It’s only one prompt away
+              </p>
               {/* Inline HUD metrics */}
               <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2">
                 {[
@@ -3278,11 +3709,16 @@ export default function MissionControlPage() {
                 ))}
               </div>
             </div>
-            <MissionOrb
-              metrics={metrics}
-              score={score}
-              selectedMetric={selectedMetric}
-            />
+            <div className="mission-sound-bridge-slot hidden min-h-[9rem] xl:flex xl:items-center xl:justify-center">
+              <MissionSoundBridge active={soundVisual.active} label={soundVisual.label} />
+            </div>
+            <div className="flex justify-end">
+              <MissionOrb
+                metrics={metrics}
+                score={score}
+                selectedMetric={selectedMetric}
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -3316,6 +3752,8 @@ export default function MissionControlPage() {
         liveProfiles={liveProfiles}
         soundSettings={soundSettings}
         onSoundSettingChange={updateSoundSetting}
+        onSoundStarted={beginSoundVisual}
+        onSoundEnded={endSoundVisual}
         onRefresh={load}
         taskByProfile={teamTaskByProfile}
         tasksByTeam={teamTasksById}
@@ -3330,7 +3768,7 @@ export default function MissionControlPage() {
 
       <MissionSectionBreak eyebrow="Embedded panes" label="Terminal dock" />
 
-      <MissionControlTerminalDock />
+      <MissionControlTerminalDock workingProfiles={workingProfiles} />
       <CommandDock />
       <PluginSlot name="mission-control:bottom" />
     </div>

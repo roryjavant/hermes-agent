@@ -1,10 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type CSSProperties } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   AlertTriangle,
   BellRing,
   CalendarClock,
   CheckCircle2,
   CircleDot,
+  GripVertical,
   Loader2,
   Pencil,
   Plus,
@@ -22,11 +40,12 @@ interface ReminderFormState {
   title: string;
   notes: string;
   due_at: string;
+  priority: boolean;
 }
 
 type ReminderTone = "overdue" | "soon" | "upcoming" | "none" | "done";
 
-const EMPTY_FORM: ReminderFormState = { title: "", notes: "", due_at: "" };
+const EMPTY_FORM: ReminderFormState = { title: "", notes: "", due_at: "", priority: false };
 
 const TONE_META: Record<ReminderTone, { label: string; className: string; glow: string; textClassName: string; icon: typeof CircleDot }> = {
   overdue: {
@@ -111,6 +130,9 @@ function ReminderRow({
   onSave,
   onCancel,
   onDelete,
+  onPriorityToggle,
+  dragHandleProps,
+  sortableDisabled = false,
 }: {
   reminder: ReminderItem;
   editing: boolean;
@@ -122,14 +144,27 @@ function ReminderRow({
   onSave: () => void;
   onCancel: () => void;
   onDelete: () => void;
+  onPriorityToggle: () => void;
+  dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
+  sortableDisabled?: boolean;
 }) {
   const tone = reminderTone(reminder);
   const meta = TONE_META[tone];
   const Icon = meta.icon;
 
   return (
-    <div className="group grid gap-3 border-b border-border/50 bg-card/45 px-3 py-3 transition-colors hover:bg-card/75 md:grid-cols-[minmax(16rem,1.4fr)_minmax(10rem,0.7fr)_minmax(14rem,1fr)_14rem] md:items-center md:px-4">
+    <div className="group grid gap-3 border-b border-border/50 bg-card/45 px-3 py-3 transition-colors hover:bg-card/75 md:grid-cols-[minmax(16rem,1.4fr)_minmax(10rem,0.7fr)_minmax(14rem,1fr)_10rem] md:items-center md:px-4">
       <div className="flex min-w-0 items-start gap-3">
+        <button
+          type="button"
+          disabled={busy || editing || sortableDisabled || !dragHandleProps}
+          className="mt-0.5 grid size-7 shrink-0 cursor-grab place-items-center rounded-full border border-border/45 bg-background-base/25 text-muted-foreground/80 transition-colors hover:border-midground/50 hover:bg-card hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-35"
+          aria-label="Drag to reorder reminder"
+          title={sortableDisabled ? "Clear the filter to reorder" : "Drag to reorder"}
+          {...dragHandleProps}
+        >
+          <GripVertical className="size-3.5" />
+        </button>
         <button
           type="button"
           onClick={onToggle}
@@ -154,11 +189,20 @@ function ReminderRow({
               className="min-h-20 rounded-xl border border-border/70 bg-background-base/70 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-midground/70"
               placeholder="Notes"
             />
+            <label className="inline-flex w-fit items-center gap-2 rounded-xl border border-warning/35 bg-warning/10 px-3 py-2 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] text-warning">
+              <input type="checkbox" checked={editForm.priority} onChange={(event) => onChangeEdit({ ...editForm, priority: event.target.checked })} />
+              Priority !
+            </label>
           </div>
         ) : (
           <div className="min-w-0">
-            <h2 className={cn("truncate font-expanded text-sm font-black uppercase tracking-[0.08em] text-foreground", reminder.completed && "text-muted-foreground line-through")}>
-              {reminder.title}
+            <h2 className={cn("flex min-w-0 items-center gap-2 truncate font-expanded text-sm font-black uppercase tracking-[0.08em] text-foreground", reminder.completed && "text-muted-foreground line-through")}>
+              <span className="truncate">{reminder.title}</span>
+              {reminder.priority ? (
+                <span className="grid size-5 shrink-0 place-items-center rounded-full border border-warning/60 bg-warning/15 font-mono-ui text-xs text-warning shadow-[0_0_16px_rgba(242,201,76,0.35)]" aria-label="Priority reminder">
+                  !
+                </span>
+              ) : null}
             </h2>
             {reminder.notes ? <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-text-secondary">{reminder.notes}</p> : <p className="mt-1 text-sm text-muted-foreground">No notes</p>}
           </div>
@@ -186,7 +230,7 @@ function ReminderRow({
         <p className="mt-0.5 text-text-secondary">{dueLabel(reminder.updated_at)}</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 md:justify-end">
+      <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
         {editing ? (
           <>
             <button
@@ -214,37 +258,72 @@ function ReminderRow({
               onClick={onToggle}
               disabled={busy}
               className={cn(
-                "inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border px-2 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                "grid size-8 place-items-center rounded-full border bg-background-base/35 transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                 reminder.completed
-                  ? "border-border/70 bg-background-base/60 text-muted-foreground hover:border-midground/50 hover:bg-card"
-                  : "border-success/45 bg-success/10 text-success hover:bg-success/15",
+                  ? "border-border/55 text-muted-foreground hover:border-midground/50 hover:bg-card hover:text-foreground"
+                  : "border-success/35 text-success/80 hover:border-success/55 hover:bg-success/10 hover:text-success",
               )}
               aria-label={reminder.completed ? "Mark reminder not done" : "Mark reminder done"}
+              title={reminder.completed ? "Undo done" : "Done"}
             >
               {busy ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
-              {reminder.completed ? "Undo" : "Done"}
             </button>
             <button
               type="button"
               onClick={onEdit}
               disabled={busy}
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-border/70 bg-background-base/60 px-2 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] text-foreground transition-colors hover:border-midground/50 hover:bg-card disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid size-8 place-items-center rounded-full border border-border/55 bg-background-base/35 text-muted-foreground transition-colors hover:border-midground/50 hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Edit reminder"
+              title="Edit"
             >
               <Pencil className="size-3.5" />
-              Edit
+            </button>
+            <button
+              type="button"
+              onClick={onPriorityToggle}
+              disabled={busy}
+              className={cn(
+                "grid size-8 place-items-center rounded-full border bg-background-base/35 font-mono-ui text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                reminder.priority
+                  ? "border-warning/55 bg-warning/10 text-warning shadow-[0_0_14px_rgba(242,201,76,0.16)] hover:bg-warning/15"
+                  : "border-border/55 text-muted-foreground hover:border-warning/40 hover:text-warning",
+              )}
+              aria-pressed={reminder.priority}
+              aria-label={reminder.priority ? "Remove reminder priority" : "Mark reminder priority"}
+              title={reminder.priority ? "Remove priority" : "Priority"}
+            >
+              !
             </button>
             <button
               type="button"
               onClick={onDelete}
               disabled={busy}
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-destructive/40 bg-destructive/10 px-2 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] text-destructive transition-colors hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid size-8 place-items-center rounded-full border border-border/50 bg-background-base/30 text-muted-foreground/80 transition-colors hover:border-destructive/45 hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Delete reminder"
+              title="Delete"
             >
               {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-              Delete
             </button>
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function SortableReminderRow(props: Parameters<typeof ReminderRow>[0]) {
+  const { reminder } = props;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: reminder.id, disabled: props.editing || props.busy || props.sortableDisabled });
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 20 : undefined,
+    position: isDragging ? "relative" : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={cn(isDragging && "opacity-80")}>
+      <ReminderRow {...props} dragHandleProps={{ ...attributes, ...listeners }} />
     </div>
   );
 }
@@ -279,15 +358,34 @@ export default function RemindersPage() {
   const sortedReminders = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const filtered = needle ? reminders.filter((item) => `${item.title} ${item.notes} ${item.due_at ?? ""}`.toLowerCase().includes(needle)) : reminders;
-    const rank: Record<ReminderTone, number> = { overdue: 0, soon: 1, upcoming: 2, none: 3, done: 4 };
-    return [...filtered].sort((a, b) => {
-      const toneDiff = rank[reminderTone(a)] - rank[reminderTone(b)];
-      if (toneDiff !== 0) return toneDiff;
-      const aDue = a.due_at ? new Date(a.due_at).getTime() : Number.MAX_SAFE_INTEGER;
-      const bDue = b.due_at ? new Date(b.due_at).getTime() : Number.MAX_SAFE_INTEGER;
-      return aDue - bDue || a.title.localeCompare(b.title);
-    });
+    return [...filtered].sort((a, b) => a.order_index - b.order_index || a.created_at.localeCompare(b.created_at) || a.title.localeCompare(b.title));
   }, [query, reminders]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const reorderReminders = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || query.trim()) return;
+    const currentIds = sortedReminders.map((item) => item.id);
+    const oldIndex = currentIds.indexOf(String(active.id));
+    const newIndex = currentIds.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    const orderedIds: string[] = arrayMove(currentIds, oldIndex, newIndex);
+    const byId = new Map(reminders.map((item) => [item.id, item]));
+    const optimistic = orderedIds.map((id: string, index: number) => ({ ...byId.get(id)!, order_index: index }));
+    setReminders(optimistic);
+    setError(null);
+    try {
+      const result = await api.reorderReminders(orderedIds);
+      setReminders(result.reminders);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      void load();
+    }
+  };
 
   const counts = useMemo(() => {
     return reminders.reduce(
@@ -308,7 +406,7 @@ export default function RemindersPage() {
     setSaving(true);
     setError(null);
     try {
-      const result = await api.createReminder({ title: form.title, notes: form.notes, due_at: form.due_at || null });
+      const result = await api.createReminder({ title: form.title, notes: form.notes, due_at: form.due_at || null, priority: form.priority });
       setReminders((prev) => [...prev, result.reminder]);
       setForm(EMPTY_FORM);
     } catch (err) {
@@ -320,14 +418,14 @@ export default function RemindersPage() {
 
   const startEdit = (reminder: ReminderItem) => {
     setEditingId(reminder.id);
-    setEditForm({ title: reminder.title, notes: reminder.notes, due_at: toInputDateTime(reminder.due_at) });
+    setEditForm({ title: reminder.title, notes: reminder.notes, due_at: toInputDateTime(reminder.due_at), priority: reminder.priority });
   };
 
   const saveEdit = async (reminder: ReminderItem) => {
     setBusyId(reminder.id);
     setError(null);
     try {
-      const result = await api.updateReminder(reminder.id, { title: editForm.title, notes: editForm.notes, due_at: editForm.due_at || null });
+      const result = await api.updateReminder(reminder.id, { title: editForm.title, notes: editForm.notes, due_at: editForm.due_at || null, priority: editForm.priority });
       setReminders((prev) => prev.map((item) => (item.id === reminder.id ? result.reminder : item)));
       setEditingId(null);
     } catch (err) {
@@ -342,6 +440,19 @@ export default function RemindersPage() {
     setError(null);
     try {
       const result = await api.updateReminder(reminder.id, { completed: !reminder.completed });
+      setReminders((prev) => prev.map((item) => (item.id === reminder.id ? result.reminder : item)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const toggleReminderPriority = async (reminder: ReminderItem) => {
+    setBusyId(reminder.id);
+    setError(null);
+    try {
+      const result = await api.updateReminder(reminder.id, { priority: !reminder.priority });
       setReminders((prev) => prev.map((item) => (item.id === reminder.id ? result.reminder : item)));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -395,7 +506,7 @@ export default function RemindersPage() {
       </section>
 
       <section className="rounded-3xl border border-border/70 bg-background-base/35 p-4 shadow-2xl shadow-black/10">
-        <div className="grid gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(12rem,0.8fr)_auto] lg:items-start">
+        <div className="grid gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(12rem,0.8fr)_minmax(9rem,0.45fr)_auto] lg:items-start">
           <div className="grid gap-2">
             <input
               value={form.title}
@@ -416,6 +527,10 @@ export default function RemindersPage() {
             onChange={(event) => setForm({ ...form, due_at: event.target.value })}
             className="rounded-xl border border-border/70 bg-card/70 px-3 py-2 font-mono-ui text-sm text-foreground outline-none focus:border-midground/70"
           />
+          <label className={cn("inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border px-3 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em]", form.priority ? "border-warning/55 bg-warning/15 text-warning" : "border-border/70 bg-card/70 text-muted-foreground")}>
+            <input type="checkbox" checked={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.checked })} />
+            Priority !
+          </label>
           <Button onClick={() => void createReminder()} disabled={saving} prefix={saving ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}>
             Add reminder
           </Button>
@@ -438,27 +553,33 @@ export default function RemindersPage() {
         </div>
       ) : sortedReminders.length > 0 ? (
         <section className="overflow-hidden rounded-3xl border border-border/70 bg-background-base/35 shadow-2xl shadow-black/10">
-          <div className="hidden border-b border-border/70 bg-card/70 px-4 py-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground md:grid md:grid-cols-[minmax(16rem,1.4fr)_minmax(10rem,0.7fr)_minmax(14rem,1fr)_14rem]">
+          <div className="hidden border-b border-border/70 bg-card/70 px-4 py-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground md:grid md:grid-cols-[minmax(16rem,1.4fr)_minmax(10rem,0.7fr)_minmax(14rem,1fr)_10rem]">
             <span>Reminder</span>
             <span>Due</span>
             <span>Updated</span>
             <span>Actions</span>
           </div>
-          {sortedReminders.map((reminder) => (
-            <ReminderRow
-              key={reminder.id}
-              reminder={reminder}
-              editing={editingId === reminder.id}
-              editForm={editForm}
-              busy={busyId === reminder.id}
-              onToggle={() => void toggleReminder(reminder)}
-              onEdit={() => startEdit(reminder)}
-              onChangeEdit={setEditForm}
-              onSave={() => void saveEdit(reminder)}
-              onCancel={() => setEditingId(null)}
-              onDelete={() => void deleteReminder(reminder)}
-            />
-          ))}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => void reorderReminders(event)}>
+            <SortableContext items={sortedReminders.map((item) => item.id)} strategy={verticalListSortingStrategy}>
+              {sortedReminders.map((reminder) => (
+                <SortableReminderRow
+                  key={reminder.id}
+                  reminder={reminder}
+                  editing={editingId === reminder.id}
+                  editForm={editForm}
+                  busy={busyId === reminder.id}
+                  sortableDisabled={Boolean(query.trim())}
+                  onToggle={() => void toggleReminder(reminder)}
+                  onEdit={() => startEdit(reminder)}
+                  onChangeEdit={setEditForm}
+                  onSave={() => void saveEdit(reminder)}
+                  onCancel={() => setEditingId(null)}
+                  onDelete={() => void deleteReminder(reminder)}
+                  onPriorityToggle={() => void toggleReminderPriority(reminder)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </section>
       ) : (
         <div className="rounded-3xl border border-border/70 bg-card/70 p-10 text-center text-sm text-muted-foreground">

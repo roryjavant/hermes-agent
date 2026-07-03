@@ -23,7 +23,10 @@ def test_launchpad_header_and_action_buttons_match_requested_polish():
     assert "Fixed local commands only" not in source
     assert "ShieldCheck" not in source
     assert "bg-slate-950/72" not in source
-    assert "border border-border/70 bg-card/72" in source
+    assert "Project launchpad" not in source
+    assert "Start local projects" not in source
+    assert "Each square starts the project" not in source
+    assert "border border-border/70 bg-card/72" not in source
     assert "Play" in source
     assert "Stop" in source
     assert "aria-label={running ? `Stop ${project.title}` : `Play ${project.title}`}" in source

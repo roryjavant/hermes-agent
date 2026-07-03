@@ -280,6 +280,23 @@ code { font-size: 0.875rem; }
   100% { transform: translateY(300%); opacity: 0; }
 }
 
+@keyframes mission-sound-packet {
+  0%   { transform: translateX(-50%) scaleX(0.2); opacity: 0; }
+  14%  { opacity: 0.72; }
+  82%  { opacity: 0.72; }
+  100% { transform: translateX(50%) scaleX(1); opacity: 0; }
+}
+
+@keyframes mission-sound-bars {
+  0%, 100% { height: 18%; opacity: 0.35; }
+  45%      { height: var(--bar-height, 70%); opacity: 1; }
+}
+
+@keyframes mission-sound-dot {
+  0%, 100% { opacity: 0.45; transform: scale(0.82); }
+  50%      { opacity: 1; transform: scale(1.08); }
+}
+
 /* Page-level background — true black with orange/champagne UI lights. */
 .mission-control-surface {
   background-color: #020202;
@@ -348,23 +365,12 @@ code { font-size: 0.875rem; }
 }
 
 .mission-mantra {
-  border: 1px solid rgba(255, 61, 0, 0.22);
-  border-radius: 9999px;
-  background: rgba(255, 61, 0, 0.035);
-  color: rgba(255, 247, 237, 0.72);
-  padding: 0.45rem 0.8rem;
+  color: rgba(255, 247, 237, 0.54);
   font-family: var(--theme-font-mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.18em;
-  line-height: 1;
+  font-size: clamp(0.68rem, 1vw, 0.82rem);
+  letter-spacing: 0.22em;
+  line-height: 1.2;
   text-transform: uppercase;
-}
-
-.mission-mantra__rule {
-  display: inline-block;
-  width: 1.4rem;
-  height: 1px;
-  background: rgba(34, 211, 238, 0.44);
 }
 
 .mission-mini-grid > * {
@@ -375,6 +381,137 @@ code { font-size: 0.875rem; }
 }
 
 /* ── Orb ──────────────────────────────────────── */
+.mission-sound-bridge {
+  width: 100%;
+  align-self: stretch;
+  justify-content: center;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 260ms ease, transform 260ms ease;
+}
+
+.mission-sound-bridge--idle {
+  opacity: 0.22;
+}
+
+.mission-sound-bridge--active {
+  opacity: 1;
+}
+
+.mission-sound-bridge__rail {
+  position: absolute;
+  left: -1rem;
+  right: -1rem;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 61, 0, 0), rgba(255, 61, 0, 0.42), rgba(34, 211, 238, 0.28), rgba(255, 61, 0, 0.38), rgba(255, 61, 0, 0));
+  box-shadow: 0 0 18px rgba(255, 61, 0, 0.18);
+}
+
+.mission-sound-bridge__capsule {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 26rem);
+  border: 1px solid rgba(255, 61, 0, 0.30);
+  background: rgba(3, 3, 3, 0.88);
+  padding: 0.72rem 0.95rem 0.9rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 30px rgba(255, 61, 0, 0.08);
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__capsule {
+  border-color: rgba(255, 61, 0, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 34px rgba(255, 61, 0, 0.18);
+}
+
+.mission-sound-bridge__label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: rgba(255, 247, 237, 0.42);
+  font-family: var(--theme-font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__label-row {
+  color: rgba(255, 61, 0, 0.86);
+}
+
+.mission-sound-bridge__dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border: 1px solid rgba(34, 211, 238, 0.62);
+  background: rgba(34, 211, 238, 0.35);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.30);
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__dot {
+  animation: mission-sound-dot 740ms ease-in-out infinite;
+}
+
+.mission-sound-bridge__wave {
+  position: relative;
+  margin-top: 0.9rem;
+  display: flex;
+  height: 3.4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.32rem;
+  border-top: 1px solid rgba(255, 61, 0, 0.14);
+  border-bottom: 1px solid rgba(255, 61, 0, 0.14);
+  padding: 0.45rem 0;
+}
+
+.mission-sound-bridge__wave::before,
+.mission-sound-bridge__wave::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.mission-sound-bridge__wave::before { top: 50%; }
+.mission-sound-bridge__wave::after { top: 25%; opacity: 0.55; }
+
+.mission-sound-bridge__bar {
+  position: relative;
+  z-index: 1;
+  width: 0.28rem;
+  height: 18%;
+  min-height: 0.45rem;
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.72), rgba(255, 61, 0, 0.96));
+  box-shadow: 0 0 12px rgba(255, 61, 0, 0.22);
+  opacity: 0.35;
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__bar {
+  animation: mission-sound-bars 720ms ease-in-out infinite;
+  animation-delay: var(--bar-delay, 0ms);
+}
+
+.mission-sound-bridge__packet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  height: 2px;
+  background: linear-gradient(90deg, rgba(255, 61, 0, 0), rgba(34, 211, 238, 0.85), rgba(255, 61, 0, 0.95), rgba(255, 61, 0, 0));
+  opacity: 0;
+  transform-origin: center;
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__packet {
+  animation: mission-sound-packet 1.28s linear infinite;
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__packet--two {
+  animation-delay: 640ms;
+}
+
 .mission-orb__halo {
   background: none;
   border: 1px solid rgba(255, 61, 0, 0.34);
@@ -445,6 +582,50 @@ code { font-size: 0.875rem; }
   left: 50%;
   animation: agent-wire-travel-y 1.8s linear infinite;
   transform: translate(-50%, -50%);
+}
+
+/* EKG heartbeat trace shown while an agent is actively running.
+   Oscilloscope-style: a mask window scans left-to-right at constant
+   horizontal speed, drawing the trace behind a gradient beam head (no
+   future waveform is shown). --agent-ecg-travel is set per instance to
+   viewBox width + head width so the beam fully enters and exits, then the
+   drawn trace wipes exactly as the next pass fires. */
+@keyframes agent-ecg-scan {
+  from { transform: translateX(0); }
+  to   { transform: translateX(var(--agent-ecg-travel, 246px)); }
+}
+
+.agent-ecg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.agent-ecg__scan {
+  animation: agent-ecg-scan 1.2s linear infinite;
+}
+
+.agent-ecg__base {
+  stroke-opacity: 0.32;
+}
+
+.agent-ecg__sweep {
+  filter: drop-shadow(0 0 3px currentColor);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Park the scan fully advanced: the dim trace shows whole, the beam rests off-screen. */
+  .agent-ecg__scan {
+    animation: none;
+    transform: translateX(var(--agent-ecg-travel, 246px));
+  }
+
+  .mission-sound-bridge__dot,
+  .mission-sound-bridge__bar,
+  .mission-sound-bridge__packet {
+    animation: none !important;
+  }
 }
 
 /* ------------------------------------------------------------------ */

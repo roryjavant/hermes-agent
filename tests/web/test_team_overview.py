@@ -24,12 +24,18 @@ def test_mission_control_header_has_sleek_mantra():
     css_source = (REPO_ROOT / "web" / "src" / "index.css").read_text()
 
     hero_source = page_source[page_source.index("Mission Control") : page_source.index("{/* Inline HUD metrics */}")]
-    assert "mission-mantra" in hero_source
+    assert '<p className="mission-mantra mt-3"' in hero_source
     assert "It’s only one prompt away" in hero_source
     assert 'aria-label="Mission Control mantra"' in hero_source
+    assert "mission-mantra--hero" not in hero_source
+    assert "mission-mantra__rule" not in hero_source
     assert ".mission-mantra" in css_source
-    assert "rgba(255, 61, 0, 0.035)" in css_source
-    assert "rgba(34, 211, 238, 0.44)" in css_source
+    assert ".mission-mantra--hero" not in css_source
+    assert ".mission-mantra__rule" not in css_source
+    mantra_css = css_source[css_source.index(".mission-mantra {") : css_source.index(".mission-mini-grid")]
+    assert "border:" not in mantra_css
+    assert "background:" not in mantra_css
+    assert "rgba(34, 211, 238" not in mantra_css
 
 
 def test_mission_control_light_agent_modal_fits_viewport():
@@ -637,6 +643,19 @@ def test_mission_control_active_sessions_metric_uses_terminal_lights():
     assert "const activeSessions =" not in source
 
 
+def test_mission_control_audio_visual_only_renders_while_sound_is_active():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    bridge_block = source[source.index("function MissionSoundBridge") : source.index("function MissionSectionBreak")]
+    assert "if (!active) return null;" in bridge_block
+    assert "Audio bus armed" not in bridge_block
+    assert "mission-sound-bridge--idle" not in bridge_block
+    assert "mission-sound-bridge-slot hidden min-h-[9rem] xl:flex xl:items-center xl:justify-center" in source
+    assert "<div className=\"flex justify-end\">" in source
+    assert "onSoundEnded" in source
+    assert "playMissionControlPromptAwayClip" in source
+
+
 def test_mission_control_metric_cards_do_not_render_tone_badges():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
     metric_card = source[source.index("function MetricCard") : source.index("function Timeline")]
@@ -700,6 +719,8 @@ def test_mission_control_embeds_four_terminal_panes_at_bottom():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
     chat_source = (REPO_ROOT / "web" / "src" / "pages" / "ChatPage.tsx").read_text()
 
+    branding_source = (REPO_ROOT / "ui-tui" / "src" / "components" / "branding.tsx").read_text()
+
     terminal_dock_source = source[source.index("function MissionControlTerminalDock") : source.index("function CommandDock")]
 
     assert 'import ChatPage from "@/pages/ChatPage";' in source
@@ -716,7 +737,10 @@ def test_mission_control_embeds_four_terminal_panes_at_bottom():
     assert '"████▄ ████▄ ▄███▄ ███ ███ ████▄ █████"' in chat_source
     assert '"▄███▄ ██   ██ ▄███▄ ██ ██  "' in chat_source
     assert 'className="h-[28rem] min-h-0 bg-black"' in source
-    assert "<MissionControlTerminalDock />" in source
+    assert "process.env.HERMES_TUI_INLINE === '1' ? 'single' : 'round'" in branding_source
+    assert 'borderStyle={shellBorderStyle}' in branding_source
+    assert 'borderStyle="round" marginBottom={1} paddingX={2} paddingY={1}' not in branding_source
+    assert "<MissionControlTerminalDock workingProfiles={workingProfiles} />" in source
     for profile in ["rorypersonal", "jurorcoordinator", "hresearchstrategist", "hmarketingplanner"]:
         assert profile in source
     assert "embedded = false" in chat_source

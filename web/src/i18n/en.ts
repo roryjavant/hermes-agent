@@ -53,8 +53,8 @@ export const en: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
-    brandShort: "HA",
+    brand: "Master Puppeteer",
+    brandShort: "MP",
     closeNavigation: "Close navigation",
     closeModelTools: "Close model and tools",
     footer: {

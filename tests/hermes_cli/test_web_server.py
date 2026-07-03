@@ -904,24 +904,27 @@ class TestWebServerEndpoints:
 
         create = self.client.post(
             "/api/reminders",
-            json={"title": "Pay renewal", "notes": "Before trial ends", "due_at": "2026-07-01T09:00"},
+            json={"title": "Pay renewal", "notes": "Before trial ends", "due_at": "2026-07-01T09:00", "priority": True},
         )
 
         assert create.status_code == 200
         reminder = create.json()["reminder"]
         assert reminder["title"] == "Pay renewal"
         assert reminder["completed"] is False
+        assert reminder["priority"] is True
+        assert reminder["order_index"] == 0
         assert reminder_store.exists()
 
         update = self.client.patch(
             f"/api/reminders/{reminder['id']}",
-            json={"title": "Pay annual renewal", "completed": True, "due_at": None},
+            json={"title": "Pay annual renewal", "completed": True, "due_at": None, "priority": False},
         )
 
         assert update.status_code == 200
         updated = update.json()["reminder"]
         assert updated["title"] == "Pay annual renewal"
         assert updated["completed"] is True
+        assert updated["priority"] is False
         assert updated["due_at"] is None
 
         listed = self.client.get("/api/reminders")
@@ -932,6 +935,29 @@ class TestWebServerEndpoints:
         assert delete.status_code == 200
         assert delete.json()["ok"] is True
         assert self.client.get("/api/reminders").json()["reminders"] == []
+
+    def test_reminders_reorder_persists_manual_order(self, tmp_path, monkeypatch):
+        from hermes_cli import web_server
+
+        reminder_store = tmp_path / "dashboard_reminders.json"
+        monkeypatch.setattr(web_server, "_reminders_path", lambda: reminder_store)
+
+        first = self.client.post("/api/reminders", json={"title": "First"}).json()["reminder"]
+        second = self.client.post("/api/reminders", json={"title": "Second"}).json()["reminder"]
+        third = self.client.post("/api/reminders", json={"title": "Third"}).json()["reminder"]
+
+        reorder = self.client.post("/api/reminders/reorder", json={"ordered_ids": [third["id"], first["id"], second["id"]]})
+
+        assert reorder.status_code == 200
+        reordered = reorder.json()["reminders"]
+        assert [item["id"] for item in reordered] == [third["id"], first["id"], second["id"]]
+        assert [item["order_index"] for item in reordered] == [0, 1, 2]
+        listed = self.client.get("/api/reminders").json()["reminders"]
+        assert [item["id"] for item in listed] == [third["id"], first["id"], second["id"]]
+
+        missing = self.client.post("/api/reminders/reorder", json={"ordered_ids": ["missing"]})
+        assert missing.status_code == 400
+        assert missing.json()["detail"] == "Unknown reminder id: missing"
 
     def test_reminders_reject_blank_title(self, tmp_path, monkeypatch):
         from hermes_cli import web_server
@@ -1059,6 +1085,15 @@ class TestWebServerEndpoints:
         assert resp.status_code == 401
 
     # ── Dashboard font override ─────────────────────────────────────────
+
+    def test_dashboard_themes_include_mission_control(self):
+        resp = self.client.get("/api/dashboard/themes")
+        assert resp.status_code == 200
+        themes = resp.json()["themes"]
+        mission = next((theme for theme in themes if theme["name"] == "mission-control"), None)
+        assert mission is not None
+        assert mission["label"] == "Mission Control"
+        assert "black/orange" in mission["description"].lower()
 
     def test_get_dashboard_font_defaults_to_theme(self):
         """With no override persisted, the active font is the theme sentinel."""

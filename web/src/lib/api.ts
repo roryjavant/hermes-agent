@@ -324,13 +324,13 @@ export const api = {
   getMissionControlActivity: (options?: FetchJSONOptions) =>
     fetchJSON<MissionControlActivityResponse>("/api/mission-control/activity", undefined, options),
   playMissionControlDing: (kind: "approval" | "done", options?: FetchJSONOptions) =>
-    fetchJSON<{ ok: boolean; kind: string; method: string; sound?: string }>("/api/mission-control/ding", {
+    fetchJSON<{ ok: boolean; kind: string; method: string; sound?: string; duration_seconds?: number }>("/api/mission-control/ding", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind }),
     }, options),
   playMissionControlAnnouncement: (text: string, kind: "approval" | "done" = "done", options?: FetchJSONOptions) =>
-    fetchJSON<{ ok: boolean; kind: string; method: string; file_path: string; provider?: string }>("/api/mission-control/announce", {
+    fetchJSON<{ ok: boolean; kind: string; method: string; file_path: string; provider?: string; duration_seconds?: number }>("/api/mission-control/announce", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, kind }),
@@ -353,6 +353,12 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    }, options),
+  reorderReminders: (orderedIds: string[], options?: FetchJSONOptions) =>
+    fetchJSON<RemindersResponse>("/api/reminders/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ordered_ids: orderedIds }),
     }, options),
   deleteReminder: (reminderId: string, options?: FetchJSONOptions) =>
     fetchJSON<{ ok: boolean }>(`/api/reminders/${encodeURIComponent(reminderId)}`, { method: "DELETE" }, options),
@@ -2070,6 +2076,8 @@ export interface ReminderItem {
   notes: string;
   due_at: string | null;
   completed: boolean;
+  priority: boolean;
+  order_index: number;
   created_at: string;
   updated_at: string;
 }
@@ -2078,6 +2086,7 @@ export interface ReminderCreate {
   title: string;
   notes?: string;
   due_at?: string | null;
+  priority?: boolean;
 }
 
 export interface ReminderUpdate {
@@ -2085,6 +2094,7 @@ export interface ReminderUpdate {
   notes?: string;
   due_at?: string | null;
   completed?: boolean;
+  priority?: boolean;
 }
 
 export interface RemindersResponse {
