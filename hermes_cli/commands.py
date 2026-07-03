@@ -212,6 +212,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
                             "heartbeat", "assignees", "context", "specify", "gc")),
     CommandDef("reload", "Reload .env variables into the running session", "Tools & Skills",
                cli_only=True),
+    CommandDef("shell", "Run a local shell command directly from the TUI/CLI",
+               "Tools & Skills", cli_only=True, aliases=("sh",), args_hint="<command>"),
     CommandDef("reload-mcp", "Reload MCP servers from config", "Tools & Skills",
                aliases=("reload_mcp",)),
     CommandDef("reload-skills", "Re-scan ~/.hermes/skills/ for newly installed or removed skills",

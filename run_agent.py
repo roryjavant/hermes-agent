@@ -3033,6 +3033,31 @@ class AIAgent:
         from agent.agent_runtime_helpers import apply_pending_steer_to_tool_results
         return apply_pending_steer_to_tool_results(self, messages, num_tool_msgs)
 
+    def _publish_runtime_activity_status(self, status: str, detail: str = "") -> None:
+        """Best-effort Mission Control heartbeat for this agent process."""
+        try:
+            from hermes_cli.runtime_activity import publish_activity
+
+            if os.environ.get("HERMES_KANBAN_TASK"):
+                activity_source = "kanban"
+            elif getattr(self, "_delegate_depth", 0):
+                activity_source = "delegate"
+            else:
+                activity_source = (
+                    getattr(self, "_activity_source", None)
+                    or os.environ.get("HERMES_ACTIVITY_SOURCE", "cli")
+                )
+            publish_activity(
+                source=activity_source,
+                status=status,
+                detail=detail,
+                session_id=str(getattr(self, "session_id", "") or ""),
+                cwd=os.getcwd(),
+            )
+        except Exception:
+            # Mission Control activity is diagnostic only; never break a turn.
+            pass
+
     def _touch_activity(self, desc: str) -> None:
         """Update the last-activity timestamp and description (thread-safe).
 
@@ -3044,6 +3069,7 @@ class AIAgent:
         """
         self._last_activity_ts = time.time()
         self._last_activity_desc = desc
+        self._publish_runtime_activity_status("working", desc)
         if os.environ.get("HERMES_KANBAN_TASK"):
             try:
                 from tools.kanban_tools import heartbeat_current_worker_from_env
@@ -5721,17 +5747,21 @@ class AIAgent:
     ) -> Dict[str, Any]:
         """Forwarder — see ``agent.conversation_loop.run_conversation``."""
         from agent.conversation_loop import run_conversation
-        return run_conversation(
-            self,
-            user_message,
-            system_message,
-            conversation_history,
-            task_id,
-            stream_callback,
-            persist_user_message,
-            persist_user_timestamp=persist_user_timestamp,
-            moa_config=moa_config,
-        )
+        self._publish_runtime_activity_status("working", "agent turn started")
+        try:
+            return run_conversation(
+                self,
+                user_message,
+                system_message,
+                conversation_history,
+                task_id,
+                stream_callback,
+                persist_user_message,
+                persist_user_timestamp=persist_user_timestamp,
+                moa_config=moa_config,
+            )
+        finally:
+            self._publish_runtime_activity_status("ready", "waiting for input")
 
     def chat(self, message: str, stream_callback: Optional[callable] = None) -> str:
         """

@@ -532,6 +532,58 @@ export const api = {
   // Cron jobs
   getCronJobs: (profile = "all") =>
     fetchJSON<CronJob[]>(`/api/cron/jobs?profile=${encodeURIComponent(profile)}`),
+  // Kanban dashboard plugin summaries and safe operational controls for management pages
+  getKanbanBoards: (options?: FetchJSONOptions) =>
+    fetchJSON<KanbanBoardsResponse>("/api/plugins/kanban/boards", undefined, options),
+  getKanbanBoard: (board?: string, options?: FetchJSONOptions) => {
+    const qs = board ? `?board=${encodeURIComponent(board)}` : "";
+    return fetchJSON<KanbanBoardResponse>(`/api/plugins/kanban/board${qs}`, undefined, options);
+  },
+  getKanbanActiveWorkers: (board?: string) => {
+    const qs = board ? `?board=${encodeURIComponent(board)}` : "";
+    return fetchJSON<KanbanActiveWorkersResponse>(`/api/plugins/kanban/workers/active${qs}`);
+  },
+  getKanbanEvents: (board?: string, since = 0, limit = 50) => {
+    const qs = new URLSearchParams();
+    if (board) qs.set("board", board);
+    qs.set("since", String(since));
+    qs.set("limit", String(limit));
+    return fetchJSON<KanbanEventsFrame>(`/api/plugins/kanban/events?${qs}`);
+  },
+  dispatchKanban: (board?: string, dryRun = true, max = 1) => {
+    const qs = new URLSearchParams();
+    if (board) qs.set("board", board);
+    qs.set("dry_run", String(dryRun));
+    qs.set("max", String(max));
+    return fetchJSON<KanbanDispatchResponse>(`/api/plugins/kanban/dispatch?${qs}`, { method: "POST" });
+  },
+  updateKanbanTaskStatus: (taskId: string, status: string, board?: string, summary?: string) => {
+    const qs = board ? `?board=${encodeURIComponent(board)}` : "";
+    return fetchJSON<{ task: KanbanTaskSummary }>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}${qs}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, summary }),
+    });
+  },
+  getKanbanTask: (taskId: string, board?: string) => {
+    const qs = board ? `?board=${encodeURIComponent(board)}` : "";
+    return fetchJSON<KanbanTaskDetailResponse>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}${qs}`);
+  },
+  updateKanbanTask: (taskId: string, updates: KanbanTaskUpdate, board?: string) => {
+    const qs = board ? `?board=${encodeURIComponent(board)}` : "";
+    return fetchJSON<{ task: KanbanTaskSummary }>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}${qs}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+  },
+  deleteKanbanTask: (taskId: string, board?: string) => {
+    const qs = board ? `?board=${encodeURIComponent(board)}` : "";
+    return fetchJSON<{ deleted: boolean; task_id: string }>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}${qs}`, {
+      method: "DELETE",
+    });
+  },
+
   getCronDeliveryTargets: () =>
     fetchJSON<{ targets: CronDeliveryTarget[] }>("/api/cron/delivery-targets"),
   createCronJob: (job: CronJobMutation, profile = "default") =>
@@ -1915,6 +1967,156 @@ export interface ModelsAnalyticsResponse {
     total_api_calls: number;
   };
   period_days: number;
+}
+
+export interface KanbanBoardMeta {
+  slug: string;
+  name?: string | null;
+  description?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  is_current?: boolean;
+  counts?: Record<string, number>;
+  total?: number;
+}
+
+export interface KanbanTaskSummary {
+  id: string;
+  title: string;
+  body?: string | null;
+  assignee: string | null;
+  status: string;
+  priority?: number;
+  created_by?: string | null;
+  created_at?: number;
+  started_at?: number | null;
+  completed_at?: number | null;
+  tenant?: string | null;
+  latest_summary?: string | null;
+  skills?: string[] | null;
+  current_run_id?: number | null;
+  link_counts?: { parents?: number; children?: number };
+}
+
+export interface KanbanTaskComment {
+  id: number;
+  task_id: string;
+  author: string | null;
+  body: string;
+  created_at: number;
+}
+
+export interface KanbanTaskEvent {
+  id: number;
+  task_id: string;
+  kind: string;
+  payload: Record<string, unknown> | null;
+  created_at: number;
+  run_id: number | null;
+}
+
+export interface KanbanTaskRun {
+  id: number;
+  task_id: string;
+  profile: string | null;
+  status: string | null;
+  outcome: string | null;
+  summary: string | null;
+  error: string | null;
+  started_at: number | null;
+  ended_at: number | null;
+  last_heartbeat_at: number | null;
+}
+
+export interface KanbanTaskDetailResponse {
+  task: KanbanTaskSummary;
+  comments: KanbanTaskComment[];
+  events: KanbanTaskEvent[];
+  attachments: Array<Record<string, unknown>>;
+  links: Array<Record<string, unknown>>;
+  runs: KanbanTaskRun[];
+}
+
+export interface KanbanTaskUpdate {
+  status?: string;
+  assignee?: string | null;
+  priority?: number;
+  title?: string;
+  body?: string;
+  result?: string;
+  block_reason?: string;
+  summary?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface KanbanBoardColumn {
+  name: string;
+  tasks: KanbanTaskSummary[];
+}
+
+export interface KanbanBoardsResponse {
+  boards: KanbanBoardMeta[];
+  current: string;
+}
+
+export interface KanbanBoardResponse {
+  columns: KanbanBoardColumn[];
+  tenants: string[];
+  assignees: string[];
+  latest_event_id: number;
+  now: number;
+}
+
+export interface KanbanEvent {
+  id: number;
+  task_id: string;
+  run_id: number | null;
+  kind: string;
+  payload: Record<string, unknown> | null;
+  created_at: number;
+}
+
+export interface KanbanEventsFrame {
+  events: KanbanEvent[];
+  cursor: number;
+}
+
+export interface KanbanActiveWorker {
+  run_id: number;
+  task_id: string;
+  task_title: string;
+  task_status: string;
+  task_assignee: string | null;
+  profile: string | null;
+  worker_pid: number | null;
+  started_at: number | null;
+  last_heartbeat_at: number | null;
+}
+
+export interface KanbanActiveWorkersResponse {
+  workers: KanbanActiveWorker[];
+  count: number;
+  checked_at: number;
+}
+
+export interface KanbanDispatchCandidate {
+  task_id?: string;
+  id?: string;
+  title?: string;
+  assignee?: string | null;
+  profile?: string | null;
+  status?: string;
+  reason?: string;
+}
+
+export interface KanbanDispatchResponse {
+  dry_run?: boolean;
+  spawned?: KanbanDispatchCandidate[];
+  candidates?: KanbanDispatchCandidate[];
+  skipped?: KanbanDispatchCandidate[];
+  errors?: string[];
+  result?: string;
+  max_spawn?: number;
 }
 
 export interface CronJobRepeat {

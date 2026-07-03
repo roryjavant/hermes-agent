@@ -8629,6 +8629,41 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             from hermes_cli.config import reload_env
             count = reload_env()
             print(f"  Reloaded .env ({count} var(s) updated)")
+        elif canonical == "shell":
+            parts = cmd_original.split(None, 1)
+            payload = parts[1].strip() if len(parts) > 1 else ""
+            if not payload:
+                _cprint("  Usage: /shell <command>  (alias: /sh <command>)")
+            else:
+                import subprocess
+
+                timeout = int(os.getenv("HERMES_SHELL_COMMAND_TIMEOUT", "120"))
+                cwd = os.getenv("TERMINAL_CWD") or os.getcwd()
+                try:
+                    result = subprocess.run(
+                        payload,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                        cwd=cwd,
+                    )
+                    output = (
+                        (result.stdout or "")
+                        + ("\n" if result.stdout and result.stderr else "")
+                        + (result.stderr or "")
+                    ).strip()
+                    prefix = f"[dim]$ {payload}[/]\n"
+                    if output:
+                        self._console_print(prefix + _rich_text_from_ansi(output[:48_000]))
+                    else:
+                        self._console_print(prefix + "[dim](no output)[/]")
+                    if result.returncode != 0:
+                        self._console_print(f"[bold red]exit code {result.returncode}[/]")
+                except subprocess.TimeoutExpired:
+                    self._console_print(f"[bold red]Shell command timed out after {timeout}s[/]")
+                except Exception as e:
+                    self._console_print(f"[bold red]Shell command error: {e}[/]")
         elif canonical == "reload-mcp":
             # Interactive reload: confirm first (unless the user has opted out).
             # The auto-reload path (file watcher) calls _reload_mcp directly

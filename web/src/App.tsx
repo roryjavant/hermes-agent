@@ -83,6 +83,8 @@ import ModelsPage from "@/pages/ModelsPage";
 import CronPage from "@/pages/CronPage";
 import ProfilesPage from "@/pages/ProfilesPage";
 import ProfileBuilderPage from "@/pages/ProfileBuilderPage";
+import TeamPage from "@/pages/TeamPage";
+import TeamPresentPage from "@/pages/TeamPresentPage";
 import SkillsPage from "@/pages/SkillsPage";
 import PluginsPage from "@/pages/PluginsPage";
 import McpPage from "@/pages/McpPage";
@@ -147,6 +149,8 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/system": SystemPage,
   "/profiles": ProfilesPage,
   "/profiles/new": ProfileBuilderPage,
+  "/team": TeamPage,
+  "/team/present": TeamPresentPage,
   "/config": ConfigPage,
   "/env": EnvPage,
   "/docs": DocsPage,
@@ -189,6 +193,7 @@ const BUILTIN_NAV_REST: NavItem[] = [
   { path: "/webhooks", label: "Webhooks", icon: Webhook },
   { path: "/pairing", label: "Pairing", icon: ShieldCheck },
   { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
+  { path: "/team", labelKey: "team", label: "Team", icon: Users },
   { path: "/config", labelKey: "config", label: "Config", icon: Settings },
   { path: "/env", labelKey: "keys", label: "Keys", icon: KeyRound },
   { path: "/system", label: "System", icon: Wrench },

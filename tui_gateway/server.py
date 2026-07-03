@@ -11422,6 +11422,34 @@ def _(rid, params: dict) -> dict:
         if qc.get("type") == "alias":
             return _ok(rid, {"type": "alias", "target": qc.get("target", "")})
 
+    if name == "shell":
+        if not arg.strip():
+            return _err(rid, 4004, "usage: /shell <command>  (alias: /sh <command>)")
+        try:
+            timeout = min(int(os.getenv("HERMES_SHELL_COMMAND_TIMEOUT", "120")), 600)
+        except ValueError:
+            timeout = 120
+        try:
+            r = subprocess.run(
+                arg,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=_terminal_task_cwd(session),
+                env=os.environ.copy(),
+            )
+        except subprocess.TimeoutExpired:
+            return _err(rid, 4018, f"shell command timed out after {timeout}s")
+        output = (
+            (r.stdout or "")
+            + ("\n" if r.stdout and r.stderr else "")
+            + (r.stderr or "")
+        ).strip() or "(no output)"
+        if r.returncode != 0:
+            output = f"{output}\n(exit code {r.returncode})"
+        return _ok(rid, {"type": "plugin", "output": f"$ {arg}\n{output[:48_000]}"})
+
     try:
         from hermes_cli.plugins import (
             get_plugin_command_handler,
