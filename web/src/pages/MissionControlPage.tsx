@@ -2716,9 +2716,88 @@ function ActiveOperationsBoard({
                                 </span>
                               );
 
+                              const buildCompactFlowOrb = (item: OperationsItem) => {
+                                const itemTc = toneColors[item.tone] ?? toneColors.ready;
+                                const title = `${item.roleName || item.roleGlyph || item.kind}${item.currentTask ? ` · ${item.currentTask.title || item.currentTask.id}` : ""}`;
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => openLightAgent(item)}
+                                    className={cn(
+                                      "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-black/20 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/70",
+                                      itemTc.border,
+                                      itemTc.bg,
+                                      itemTc.text,
+                                      itemTc.shadow,
+                                    )}
+                                    title={title}
+                                    aria-label={`Open ${item.roleName || item.roleGlyph || item.kind} details`}
+                                  >
+                                    {shouldPulseLight(item) && (
+                                      <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", itemTc.border)} />
+                                    )}
+                                    <span className="absolute inset-[3px] rounded-full border border-current/20" />
+                                    <span className="absolute inset-[8px] rounded-full border border-current/10" />
+                                    <span className="relative z-10 h-1.5 w-1.5 rounded-full bg-current/80 shadow-[0_0_6px_currentColor]" />
+                                    {item.performanceRisk && (
+                                      <span
+                                        className={cn(
+                                          "absolute -right-1 -top-1 z-20 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border px-0.5 font-mono-ui text-[0.45rem] leading-none bg-[rgb(3,5,18)]",
+                                          item.performanceRisk.level === "critical"
+                                            ? "border-[#ff1200]/85 text-[#ff1200] shadow-[0_0_10px_rgba(255,18,0,0.22)]"
+                                            : "border-[#ff3d00]/60 text-[#ff3d00]/85",
+                                        )}
+                                      >
+                                        {item.performanceRisk.label}
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              };
+
+                              const buildCompactWire = (tone: ReadinessTone, widthClass = "w-14") => {
+                                const tc = toneColors[tone] ?? toneColors.ready;
+                                return (
+                                  <span className={cn("relative flex h-7 shrink-0 items-center justify-center", widthClass, tc.wire)} aria-hidden="true">
+                                    <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/28" />
+                                    <span className="agent-wire__dot absolute left-1/2 top-1/2 h-0.5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current/70 shadow-[0_0_4px_currentColor]" />
+                                    <span className="absolute right-0 top-1/2 -translate-y-1/2 font-mono-ui text-[0.56rem] text-current/80">›</span>
+                                  </span>
+                                );
+                              };
+
+                              const buildCompactFan = (items: OperationsItem[], side: "in" | "out") => (
+                                <span className="relative flex h-14 w-10 shrink-0 items-center justify-center text-[#22d3ee]/42" aria-hidden="true">
+                                  <span className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 border-t border-dashed border-current/30" />
+                                  {items.map((item, itemIndex) => {
+                                    const yClass = itemIndex === 0 ? "top-[0.95rem]" : itemIndex === items.length - 1 ? "bottom-[0.95rem]" : "top-1/2 -translate-y-1/2";
+                                    const branchTc = toneColors[item.tone] ?? toneColors.ready;
+                                    const rotation = side === "in"
+                                      ? itemIndex === 0 ? "rotate-[30deg]" : itemIndex === items.length - 1 ? "-rotate-[30deg]" : ""
+                                      : itemIndex === 0 ? "-rotate-[30deg]" : itemIndex === items.length - 1 ? "rotate-[30deg]" : "";
+                                    return (
+                                      <span
+                                        key={`compact-fan-${side}:${item.id}`}
+                                        className={cn(
+                                          "absolute h-px w-10 border-t border-dashed border-current/35",
+                                          side === "in" ? "right-0 origin-right" : "left-0 origin-left",
+                                          yClass,
+                                          branchTc.wire,
+                                          rotation,
+                                        )}
+                                      />
+                                    );
+                                  })}
+                                  {side === "out" && (
+                                    <span className="absolute right-0 top-1/2 -translate-y-1/2 font-mono-ui text-[0.56rem] text-current/80">›</span>
+                                  )}
+                                </span>
+                              );
+
                               return (
-                                <div key={row.label} className="border-t border-border/60 pt-2 first:border-t-0 first:pt-0">
-                                  <div className="grid w-full items-center gap-2 rounded border border-border/50 bg-background-base/25 px-2 py-1.5 transition-colors duration-200 md:grid-cols-[minmax(12rem,18rem)_1fr_auto]">
+                                <div key={row.label} className="border-t border-border/55 pt-1.5 first:border-t-0 first:pt-0">
+                                  <div className="grid w-full items-center gap-6 rounded border border-border/50 bg-background-base/25 px-2 py-1 transition-colors duration-200 md:grid-cols-[minmax(16rem,32rem)_minmax(44rem,56rem)]">
                                     <button
                                       type="button"
                                       aria-expanded={isExpanded}
@@ -2732,56 +2811,59 @@ function ActiveOperationsBoard({
                                       </span>
                                       <span className="sr-only">{isExpanded ? "Collapse" : "Expand"} {rowTitle}</span>
                                     </button>
-                                    <span className="hidden h-6 min-w-0 items-center px-3 text-[#ff3d00]/85 md:flex" aria-hidden="true">
+                                    {!isExpanded && <span className="hidden h-5 min-w-0 items-center px-3 text-[#ff3d00]/85" aria-hidden="true">
                                       {teamIsRunning && <HeartbeatTrace />}
-                                    </span>
-                                    <span className="flex flex-wrap items-center justify-end gap-1.5">
-                                      {allTeamItems.map((item) => {
-                                        const itemTc = toneColors[item.tone] ?? toneColors.ready;
-                                        const MiniIcon = item.icon;
+                                    </span>}
+                                    {!isExpanded && <span className="flex min-w-0 items-center justify-start overflow-x-auto overflow-y-visible py-1 md:col-start-2">
+                                      {orchestratorItem && (
+                                        <span className="flex items-center">
+                                          {buildCompactFlowOrb(orchestratorItem)}
+                                          {buildCompactWire(orchestratorItem.tone)}
+                                        </span>
+                                      )}
+                                      {workflowStages.map((stage, index, stages) => {
+                                        const isLastStage = index === stages.length - 1;
+                                        const shouldShowStageWire = !isLastStage || showsFinalResearchOutput;
+                                        const stageTone: ReadinessTone = stage.items.some((item) => item.tone === "review")
+                                          ? "review"
+                                          : stage.items.some((item) => item.tone === "working")
+                                            ? "working"
+                                            : "ready";
+                                        const isParallel = stage.mode === "parallel" || stage.items.length > 1;
                                         return (
-                                          <button
-                                            key={item.id}
-                                            type="button"
-                                            onClick={() => openLightAgent(item)}
-                                            className={cn(
-                                              "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 bg-black/20 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/70",
-                                              itemTc.border,
-                                              itemTc.bg,
-                                              itemTc.text,
-                                              itemTc.shadow,
-                                            )}
-                                            title={`${item.roleName || item.roleGlyph || item.kind}${item.currentTask ? ` · ${item.currentTask.title || item.currentTask.id}` : ""}`}
-                                            aria-label={`Open ${item.roleName || item.roleGlyph || item.kind} details`}
-                                          >
-                                            {shouldPulseLight(item) && (
-                                              <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", itemTc.border)} />
-                                            )}
-                                            <span className="absolute inset-[3px] rounded-full border border-current/20" />
-                                            <span className="absolute inset-[9px] rounded-full border border-current/10" />
-                                            {item.roleGlyph ? (
-                                              <span className="relative z-10 max-w-[1.55rem] truncate text-center font-mono-ui text-[0.38rem] font-bold uppercase leading-none tracking-[0.03em] text-white/75">
-                                                {item.roleGlyph}
-                                              </span>
-                                            ) : (
-                                              <MiniIcon className="relative z-10 h-3 w-3 text-white/70" />
-                                            )}
-                                            {item.performanceRisk && (
-                                              <span
-                                                className={cn(
-                                                  "absolute -right-1 -top-1 z-20 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border px-0.5 font-mono-ui text-[0.45rem] leading-none bg-[rgb(3,5,18)]",
-                                                  item.performanceRisk.level === "critical"
-                                                    ? "border-[#ff1200]/85 text-[#ff1200] shadow-[0_0_10px_rgba(255,18,0,0.22)]"
-                                                    : "border-[#ff3d00]/60 text-[#ff3d00]/85",
-                                                )}
-                                              >
-                                                {item.performanceRisk.label}
-                                              </span>
-                                            )}
-                                          </button>
+                                          <span key={`compact:${row.label}:${stage.label}:${index}`} className="flex items-center">
+                                            <span className={cn("flex items-center", isParallel ? "gap-0" : "gap-1")}> 
+                                              {isParallel ? (
+                                                <span className="flex items-center">
+                                                  {buildCompactFan(stage.items, "in")}
+                                                  <span className="flex flex-col gap-1.5">
+                                                    {stage.items.map((item) => buildCompactFlowOrb(item))}
+                                                  </span>
+                                                  {shouldShowStageWire && buildCompactFan(stage.items, "out")}
+                                                </span>
+                                              ) : (
+                                                stage.items.map((item) => buildCompactFlowOrb(item))
+                                              )}
+                                            </span>
+                                            {shouldShowStageWire && !isParallel && buildCompactWire(stageTone)}
+                                          </span>
                                         );
                                       })}
-                                    </span>
+                                      {showsFinalResearchOutput && latestKb && (
+                                        <Link
+                                          to={`/knowledge-base?base=${encodeURIComponent(latestKb.slug)}`}
+                                          onClick={handleFinalResearchOutputClick}
+                                          className={cn(
+                                            "relative flex h-7 w-7 shrink-0 items-center justify-center rounded border bg-[#ff3d00]/[0.035] text-[#ff3d00]/75 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/70",
+                                            finalOutputIsNew ? "border-[#ff3d00]/55 text-[#ff3d00]" : "border-[#ff3d00]/35",
+                                          )}
+                                          title={`Final output: ${latestKb.title}`}
+                                          aria-label={`Final output: ${latestKb.title}`}
+                                        >
+                                          <FileText className="h-3 w-3" />
+                                        </Link>
+                                      )}
+                                    </span>}
                                   </div>
 
                                   {visibleTeamTasks.length > 0 && (

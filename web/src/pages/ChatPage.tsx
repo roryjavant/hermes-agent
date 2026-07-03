@@ -504,6 +504,33 @@ export default function ChatPage({
     fitRef.current = fit;
     term.loadAddon(fit);
 
+    // Embedded Mission Control panes should open at the top of the freshly
+    // painted TUI banner/hero instead of auto-following xterm.js to the bottom
+    // while startup output streams in. Keep nudging only until the user actually
+    // scrolls or types, so normal interactive terminal behavior takes over.
+    let keepEmbeddedAtTop = embedded;
+    let embeddedTopRaf = 0;
+    const scrollEmbeddedPaneToTop = () => {
+      if (!keepEmbeddedAtTop) return;
+      if (embeddedTopRaf) return;
+      embeddedTopRaf = requestAnimationFrame(() => {
+        embeddedTopRaf = 0;
+        if (!keepEmbeddedAtTop) return;
+        try {
+          term.scrollToTop();
+        } catch {
+          /* ignore renderer lifecycle races */
+        }
+      });
+    };
+    const releaseEmbeddedTopLock = () => {
+      keepEmbeddedAtTop = false;
+      if (embeddedTopRaf) {
+        cancelAnimationFrame(embeddedTopRaf);
+        embeddedTopRaf = 0;
+      }
+    };
+
     // Dashboard chat should scroll the browser-side transcript, not send
     // mouse-wheel protocol bytes through the PTY.
     term.attachCustomWheelEventHandler((ev) => {
@@ -512,6 +539,7 @@ export default function ChatPage({
         return false;
       }
 
+      releaseEmbeddedTopLock();
       const step = Math.max(1, Math.round(Math.abs(delta) / 50));
       term.scrollLines(delta > 0 ? step : -step);
 
@@ -699,10 +727,14 @@ export default function ChatPage({
     };
 
     ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") {
-        term.write(ev.data);
+      const data =
+        typeof ev.data === "string"
+          ? ev.data
+          : new Uint8Array(ev.data as ArrayBuffer);
+      if (keepEmbeddedAtTop) {
+        term.write(data, scrollEmbeddedPaneToTop);
       } else {
-        term.write(new Uint8Array(ev.data as ArrayBuffer));
+        term.write(data);
       }
     };
 
@@ -774,6 +806,7 @@ export default function ChatPage({
       // eslint-disable-next-line no-control-regex -- intentional ESC byte in xterm SGR mouse report parser
       const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
       onDataDisposable = term.onData((data) => {
+        releaseEmbeddedTopLock();
         if (ws.readyState !== WebSocket.OPEN) return;
 
         if (SGR_MOUSE_RE.test(data)) {
@@ -808,6 +841,7 @@ export default function ChatPage({
       host.removeEventListener("mousedown", focusTerminalFromPointer, { capture: true });
       host.removeEventListener("click", focusTerminalFromPointer, { capture: true });
       if (warmFocusTimer) window.clearTimeout(warmFocusTimer);
+      releaseEmbeddedTopLock();
       if (hostSyncRaf) cancelAnimationFrame(hostSyncRaf);
       if (settleRaf1) cancelAnimationFrame(settleRaf1);
       if (settleRaf2) cancelAnimationFrame(settleRaf2);

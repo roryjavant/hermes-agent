@@ -630,6 +630,10 @@ def test_chat_page_honors_profile_query_from_team_launch():
     assert "onPointerDownCapture={embedded ? handleTerminalFramePointerDown : undefined}" in source
     assert "focus-within:ring-2" in source
     assert "host.tabIndex = 0;" in source
+    assert "let keepEmbeddedAtTop = embedded;" in source
+    assert "term.scrollToTop();" in source
+    assert "term.write(data, scrollEmbeddedPaneToTop);" in source
+    assert "releaseEmbeddedTopLock();" in source
     assert "buildWsUrl(authParam, resumeParam, channel, chatProfile, embeddedHero)" in source
     assert "[channel, resumeParam, chatProfile, embedded, embeddedHero]" in source
 
@@ -765,7 +769,17 @@ def test_mission_control_collapsed_team_orbs_are_clickable_role_lights_not_fake_
 
     assert "aria-label={`Open ${item.roleName || item.roleGlyph || item.kind} details`}" in source
     assert "onClick={() => openLightAgent(item)}" in source
-    assert "max-w-[1.55rem] truncate text-center font-mono-ui" in source
+    assert "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full" in source
+    assert "md:grid-cols-[minmax(16rem,32rem)_minmax(44rem,56rem)]" in source
+    assert "justify-start overflow-x-auto overflow-y-visible py-1 md:col-start-2" in source
+    assert "const buildCompactFan = (items: OperationsItem[], side: \"in\" | \"out\")" in source
+    assert "{shouldShowStageWire && buildCompactFan(stage.items, \"out\")}" in source
+    assert "{shouldShowStageWire && !isParallel && buildCompactWire(stageTone)}" in source
+    assert "{!isExpanded && <span className=\"flex min-w-0 items-center justify-start overflow-x-auto overflow-y-visible py-1 md:col-start-2\">" in source
+    assert "const buildCompactWire = (tone: ReadinessTone, widthClass = \"w-14\")" in source
+    assert "relative flex h-14 w-10 shrink-0" in source
+    assert "relative flex h-9 w-9 shrink-0" not in source
+    assert "h-[4.6rem]" not in source
     assert "profile agents" not in source
     assert "w-full text-center" not in source
     assert "max-w-[8rem] text-center font-mono-ui text-[0.5rem] uppercase" not in source

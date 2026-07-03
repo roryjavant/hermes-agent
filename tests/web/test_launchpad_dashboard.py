@@ -31,13 +31,17 @@ def test_launchpad_header_and_action_buttons_match_requested_polish():
     assert "Stop" in source
     assert "aria-label={running ? `Stop ${project.title}` : `Play ${project.title}`}" in source
     assert "text-success" in source
-    assert "text-rose-100" in source
+    assert "text-destructive" in source
+    assert "text-rose-100" not in source
+    assert "from-fuchsia" not in source
+    assert "from-lime" not in source
     assert "bottom-3 right-4" in source
     assert "size-8" in source
     assert "pr-12 pt-4" in source
     assert "Pause" not in source
     assert "Stopping…" not in source
     assert "  Square," in source
+    assert "Mission Control Launchpad" in source
 
 
 def test_launchpad_has_open_webui_card_without_moving_juror_research_to_its_port():

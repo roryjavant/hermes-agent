@@ -11,7 +11,6 @@ import {
   Play,
   Rocket,
   Search,
-  Sparkles,
   Square,
 } from "lucide-react";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
@@ -40,7 +39,7 @@ const PROJECTS: LaunchpadProject[] = [
     description: "Start the Next.js Juror Research app locally and open its localhost UI.",
     launchLabel: "Start localhost",
     fallbackUrl: "http://127.0.0.1:3010",
-    accent: "from-cyan-300/24 via-sky-400/14 to-blue-500/8 text-cyan-100 border-cyan-200/25",
+    accent: "from-[#130905]/95 via-[#060606]/96 to-[#010101] text-orange-100 border-primary/25",
     icon: Network,
     stats: ["Next dev", "localhost:3010", "JR app"],
   },
@@ -51,7 +50,7 @@ const PROJECTS: LaunchpadProject[] = [
     description: "Start the Agent Arena live poker viewer and open it on localhost.",
     launchLabel: "Start arena",
     fallbackUrl: "http://127.0.0.1:8787",
-    accent: "from-fuchsia-300/22 via-purple-500/14 to-rose-500/8 text-fuchsia-100 border-fuchsia-200/25",
+    accent: "from-[#130905]/95 via-[#060606]/96 to-[#010101] text-orange-100 border-primary/25",
     icon: Bot,
     stats: ["Live HTML", "localhost:8787", "Poker viewer"],
   },
@@ -62,7 +61,7 @@ const PROJECTS: LaunchpadProject[] = [
     description: "Start the Hermes dashboard web dev server for this checkout.",
     launchLabel: "Start UI dev",
     fallbackUrl: "http://127.0.0.1:5177/launchpad",
-    accent: "from-amber-300/22 via-orange-400/14 to-yellow-500/8 text-amber-100 border-amber-200/25",
+    accent: "from-[#1a0803]/95 via-[#080504]/96 to-[#010101] text-[#ff7a3d] border-primary/35",
     icon: CircuitBoard,
     stats: ["Vite dev", "localhost:5177", "This repo"],
   },
@@ -73,7 +72,7 @@ const PROJECTS: LaunchpadProject[] = [
     description: "Open the local Open WebUI chat surface connected to Hermes Agent.",
     launchLabel: "Start WebUI",
     fallbackUrl: "http://127.0.0.1:3000",
-    accent: "from-blue-300/22 via-indigo-400/14 to-violet-500/8 text-blue-100 border-blue-200/25",
+    accent: "from-[#130905]/95 via-[#060606]/96 to-[#010101] text-orange-100 border-primary/25",
     icon: MessageSquare,
     stats: ["Docker UI", "localhost:3000", "Hermes chat"],
   },
@@ -84,7 +83,7 @@ const PROJECTS: LaunchpadProject[] = [
     description: "Start the defensive OSINT lab UI for local digital-footprint checks.",
     launchLabel: "Start lab",
     fallbackUrl: "http://127.0.0.1:5178",
-    accent: "from-lime-300/20 via-emerald-400/14 to-slate-500/8 text-lime-100 border-lime-200/25",
+    accent: "from-[#130905]/95 via-[#060606]/96 to-[#010101] text-orange-100 border-primary/25",
     icon: Search,
     stats: ["Vite + API", "localhost:5178", "OSINT Lab"],
   },
@@ -95,7 +94,7 @@ const PROJECTS: LaunchpadProject[] = [
     description: "Start Rory Home Hub locally for household boards, devices, and photo frame work.",
     launchLabel: "Start hub",
     fallbackUrl: "http://127.0.0.1:4317",
-    accent: "from-emerald-300/20 via-teal-400/14 to-cyan-500/8 text-emerald-100 border-emerald-200/25",
+    accent: "from-[#130905]/95 via-[#060606]/96 to-[#010101] text-orange-100 border-primary/25",
     icon: Home,
     stats: ["Node server", "localhost:4317", "House UI"],
   },
@@ -124,25 +123,29 @@ function ProjectSquare({
   const running = status?.running ?? false;
 
   return (
-    <Card className="group relative flex min-h-[23rem] overflow-hidden border-current/15 bg-background-base/70 shadow-2xl shadow-black/20 transition-transform duration-150 hover:-translate-y-0.5 hover:border-current/25">
+    <Card className="group relative flex min-h-[23rem] overflow-hidden border-primary/20 bg-[#030303]/90 shadow-none transition-colors duration-150 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-primary/55 before:to-transparent hover:border-primary/45">
       <CardContent className="relative flex h-full flex-col p-0">
         <button
           type="button"
           onClick={() => onLaunch(project)}
           disabled={launching || !installed}
-          className="flex h-full min-h-[23rem] w-full flex-col items-stretch text-left disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70"
+          className="flex h-full min-h-[23rem] w-full flex-col items-stretch text-left disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/80"
           aria-label={`${project.launchLabel}: ${project.title}`}
         >
           <div className={cn("relative h-[7.75rem] overflow-hidden border-b bg-gradient-to-br p-4", project.accent)}>
-            <div className="pointer-events-none absolute -right-10 -top-10 size-32 rounded-full bg-current/15 blur-2xl transition-transform duration-300 group-hover:scale-125" />
+            <div className="pointer-events-none absolute inset-0 opacity-[0.22] [background-image:linear-gradient(rgba(255,61,0,0.24)_1px,transparent_1px),linear-gradient(90deg,rgba(255,61,0,0.18)_1px,transparent_1px)] [background-size:22px_22px]" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#030303] to-transparent" />
+            <div className="pointer-events-none absolute right-4 top-4 h-14 w-14 border border-primary/25 bg-primary/5" />
             <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <Badge className="mb-3 max-w-full truncate bg-black/24 text-current">{project.kicker}</Badge>
-                <h2 className="min-h-[3.35rem] font-expanded text-xl font-black uppercase leading-[1.1] tracking-[0.08em] text-current">
+                <Badge className="mb-3 max-w-full truncate rounded-sm border border-primary/20 bg-black/45 px-2 font-mono text-[0.62rem] font-semibold uppercase tracking-[0.22em] text-orange-100/80 shadow-none">
+                  {project.kicker}
+                </Badge>
+                <h2 className="min-h-[3.35rem] font-expanded text-xl font-black uppercase leading-[1.1] tracking-[0.1em] text-orange-50">
                   {project.title}
                 </h2>
               </div>
-              <span className="grid size-12 shrink-0 place-items-center rounded-2xl border border-current/25 bg-black/24 shadow-[0_0_28px_currentColor]">
+              <span className="grid size-12 shrink-0 place-items-center rounded-lg border border-primary/35 bg-black/55 text-primary shadow-none">
                 {launching ? <Loader2 className="size-6 animate-spin" /> : <Icon className="size-6" />}
               </span>
             </div>
@@ -152,21 +155,21 @@ function ProjectSquare({
             <p className="min-h-[3.75rem] text-sm leading-6 text-text-secondary">{project.description}</p>
             <div className="flex flex-wrap gap-2">
               {project.stats.map((stat) => (
-                <span key={stat} className="rounded-full border border-current/15 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">
+                <span key={stat} className="rounded-sm border border-primary/20 bg-black/30 px-2.5 py-1 font-mono text-[10px] font-black uppercase tracking-[0.16em] text-text-tertiary">
                   {stat}
                 </span>
               ))}
             </div>
-            <div className="rounded-xl border border-current/10 bg-black/20 px-3 py-2 text-xs text-text-tertiary">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate">{url.replace("http://", "")}</span>
-                <span className={cn("shrink-0 font-bold", running ? "text-success" : installed ? "text-warning" : "text-destructive")}>
+            <div className="rounded-lg border border-primary/15 bg-black/30 px-3 py-2 font-mono text-xs text-text-tertiary">
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <span className="min-w-0 truncate">{url.replace("http://", "")}</span>
+                <span className={cn("shrink-0 font-bold", running ? "text-success" : installed ? "text-primary" : "text-destructive")}>
                   {running ? "running" : installed ? "ready" : "missing"}
                 </span>
               </div>
               {error ? <div className="mt-1 line-clamp-2 text-destructive">{error}</div> : null}
             </div>
-            <div className="mt-auto flex items-center justify-between border-t border-current/10 pb-1 pr-12 pt-4 text-sm font-bold text-midground">
+            <div className="mt-auto flex items-center justify-between border-t border-primary/15 pb-1 pr-12 pt-4 text-sm font-bold text-midground">
               <span>{launching ? "Starting…" : running ? "Open localhost" : project.launchLabel}</span>
               {running ? <ExternalLink className="size-4" /> : <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />}
             </div>
@@ -185,10 +188,10 @@ function ProjectSquare({
           }}
           disabled={(running && stopping) || (!running && (launching || !installed))}
           className={cn(
-            "absolute bottom-3 right-4 z-20 grid size-8 place-items-center rounded-full border shadow-lg backdrop-blur transition-colors disabled:cursor-wait disabled:opacity-70",
+            "absolute bottom-3 right-4 z-20 grid size-8 place-items-center rounded-full border shadow-none backdrop-blur transition-colors disabled:cursor-wait disabled:opacity-70",
             running
-              ? "border-rose-300/35 bg-rose-950/75 text-rose-100 shadow-rose-950/30 hover:border-rose-200/65 hover:bg-rose-500/25"
-              : "border-success/35 bg-success/15 text-success shadow-success/15 hover:border-success/65 hover:bg-success/25",
+              ? "border-destructive/45 bg-destructive/15 text-destructive hover:border-destructive/70 hover:bg-destructive/20"
+              : "border-success/35 bg-success/15 text-success hover:border-success/65 hover:bg-success/20",
           )}
           aria-label={running ? `Stop ${project.title}` : `Play ${project.title}`}
           title={running ? `Stop ${project.title}` : `Play ${project.title}`}
@@ -254,14 +257,14 @@ export default function LaunchpadPage() {
   };
 
   return (
-    <div className="min-h-full w-full p-4 lg:p-6">
+    <div className="launchpad-mission-control min-h-full w-full p-4 lg:p-6">
       {errors.__load ? (
         <div className="mb-5 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
           Could not load project status: {errors.__load}
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" aria-label="Mission Control Launchpad">
         {featured.map((project) => (
           <ProjectSquare
             key={project.id}
@@ -276,14 +279,6 @@ export default function LaunchpadPage() {
         ))}
       </div>
 
-      <div className="mt-5 rounded-2xl border border-current/10 bg-background-base/55 p-4 text-sm text-text-secondary">
-        <div className="mb-2 flex items-center gap-2 font-bold text-midground">
-          <Sparkles className="size-4" />
-          Launch behavior
-        </div>
-        Launchpad starts a fixed command for each known project, reuses an already-running localhost server when available,
-        and writes output to the matching dashboard action log.
-      </div>
     </div>
   );
 }
