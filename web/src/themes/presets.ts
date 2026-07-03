@@ -184,27 +184,297 @@ export const roseTheme: DashboardTheme = {
   },
 };
 
-/** Light mode — vivid Nous-blue accents on a cream canvas. */
+/**
+ * Nous Blue — the inverted "light mode" Hermes look, ported from the
+ * LENS_5I overlay preset in `@nous-research/ui`.
+ *
+ * Unlike the other built-ins (which paint dark color directly on the
+ * canvas), this theme relies on `<Backdrop />`'s foreground inversion
+ * layer: an opaque white sheet at z-200 with `mix-blend-mode: difference`
+ * that flips the entire stack below it. Authoring colors stay dark
+ * (`#170d02` brown background, `#FFAC02` orange midground), and the
+ * inversion converts them to their visual complements at paint time —
+ * the orange midground reads as #0053FD Nous-blue on screen, against a
+ * cream `#E8F2FD` canvas.
+ *
+ * Note on bg blend mode: the DS Lens uses `multiply` for LENS_5I because
+ * nousnet-web's <body> is white; hermes-agent's App root is `bg-black`,
+ * so we leave the bg layer's blend mode at the `difference` default —
+ * `difference(#170d02, #000)` passes the bg through unchanged, and the
+ * subsequent FG-difference layer then inverts it to cream. Using
+ * `multiply` here would collapse the bg to pure black against the
+ * `bg-black` root and produce a plain-white canvas instead of the
+ * intended cream-blue.
+ *
+ * Source of truth for the palette: `design-language/src/ui/components/
+ * overlays/lens.ts` (LENS_5I export).
+ */
 export const nousBlueTheme: DashboardTheme = {
   name: "nous-blue",
   label: "Nous Blue",
   description: "Light mode — vivid Nous-blue accents on cream canvas",
   palette: {
-    background: { hex: "#E8F2FD", alpha: 1 },
-    midground: { hex: "#0053FD", alpha: 1 },
-    foreground: { hex: "#170d02", alpha: 0 },
-    warmGlow: "rgba(0, 83, 253, 0.12)",
-    noiseOpacity: 0,
+    background: { hex: "#170d02", alpha: 1 },
+    midground: { hex: "#FFAC02", alpha: 1 },
+    foreground: { hex: "#FFFFFF", alpha: 1 },
+    // Same warm-amber as nousnet-web's overlay glow; after the FG
+    // inversion it reads as a cool ultraviolet vignette in the top-left.
+    warmGlow: "rgba(255, 172, 2, 0.18)",
+    // Noise sits above the FG inversion and is NOT flipped, so a softer
+    // multiplier keeps it from speckling over the bright post-inversion
+    // canvas.
+    noiseOpacity: 0.4,
   },
   typography: DEFAULT_TYPOGRAPHY,
   layout: DEFAULT_LAYOUT,
-  terminalBackground: "#f5f8fc",
-  terminalForeground: "#170d02",
-  seriesColors: {
-    inputTokenAccent: "#001934",
-    outputTokenAccent: "#0053fd",
+  // Inverted page: the embedded terminal is below the FG layer too, so
+  // a `#000000` source paints as visual white — i.e. a proper light-mode
+  // terminal pane. xterm picks lighter palette colors against the "black"
+  // canvas, which then read as dark text on screen post-inversion.
+  terminalBackground: "#000000",
+  componentStyles: {
+    backdrop: {
+      // Lower than LENS_5I.Lens.fillerOpacity (0.06). The filler texture
+      // gets amplified post-inversion: small variations against the deep
+      // `#170d02` source bg are barely visible, but those same variations
+      // against the bright `#E8F2FD` post-inversion canvas read as a
+      // heavy cloud/marble pattern — especially on near-empty pages
+      // (loading spinners, blank states). 0.02 keeps subtle grain
+      // without overwhelming the canvas.
+      fillerOpacity: "0.02",
+    },
   },
-  swatchColors: ["#170d02", "#0053FD", "#E8F2FD"],
+  // Pre-invert absolute-hex tokens so they read as their familiar colors
+  // through the FG difference layer. e.g. source #04D3C9 (cyan) is what
+  // gets painted, and `255 - channel` flips it to #FB2C36 (red) on screen.
+  // Without these, the default destructive/success/warning tokens would
+  // appear as their unintuitive complements.
+  colorOverrides: {
+    destructive: "#04d3c9",
+    destructiveForeground: "#000000",
+    success: "#b5217f",
+    warning: "#0042c7",
+  },
+  // Pre-inverted data-series accents for the Analytics/Models token
+  // charts. The defaults (#ffe6cb cream + #34d399 emerald) would render
+  // through the FG difference layer as dark navy + hot-coral on the
+  // bright Nous-blue canvas — the coral is the "red" users see for
+  // Output values without these overrides. Source → on-screen:
+  //   Input:  #ffe6cb → #001934 (dark navy)        ← unchanged
+  //   Output: #ffac02 → #0053fd (vivid Nous-blue)  ← brand accent
+  // Input keeps the cream source so it stays a neutral, low-contrast
+  // dark-blue against the cream canvas; output paints as the brand
+  // Nous-blue so the "primary" series in token-flow charts reads as
+  // the highlight color, matching the rest of the inverted UI chrome.
+  seriesColors: {
+    inputTokenAccent: "#ffe6cb",
+    outputTokenAccent: "#ffac02",
+  },
+  // Explicit picker swatch — the raw palette hex (`#170d02`, `#FFAC02`,
+  // amber rgba) doesn't reflect what users see after the FG inversion,
+  // so we paint the post-inversion visual triplet directly:
+  //   white → vivid Nous-blue → cream/light-blue
+  // matching the actual on-screen rendering of the theme.
+  swatchColors: ["#FFFFFF", "#0053FD", "#E8F2FD"],
+};
+
+export const missionControlTheme: DashboardTheme = {
+  name: "mission-control",
+  label: "Mission Control",
+  description: "Black/orange cockpit command center inspired by Mission Control",
+  palette: {
+    background: { hex: "#020202", alpha: 1 },
+    midground: { hex: "#fff7ed", alpha: 1 },
+    foreground: { hex: "#ffffff", alpha: 0 },
+    warmGlow: "rgba(255, 61, 0, 0.10)",
+    noiseOpacity: 0.55,
+  },
+  typography: {
+    ...DEFAULT_TYPOGRAPHY,
+    fontSans: `"Inter", ${SYSTEM_SANS}`,
+    fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
+    fontDisplay: `"Inter", ${SYSTEM_SANS}`,
+    fontUrl:
+      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap",
+    letterSpacing: "0.006em",
+  },
+  layout: {
+    ...DEFAULT_LAYOUT,
+    radius: "0.625rem",
+    density: "compact",
+  },
+  terminalBackground: "#000000",
+  colorOverrides: {
+    card: "#030303",
+    cardForeground: "#fff7ed",
+    popover: "#050505",
+    popoverForeground: "#fff7ed",
+    primary: "#ff3d00",
+    primaryForeground: "#020202",
+    secondary: "rgba(255, 61, 0, 0.07)",
+    secondaryForeground: "#fff7ed",
+    muted: "rgba(255, 247, 237, 0.06)",
+    mutedForeground: "rgba(255, 247, 237, 0.62)",
+    accent: "rgba(255, 61, 0, 0.12)",
+    accentForeground: "#ff7a3d",
+    destructive: "#ff1200",
+    destructiveForeground: "#ffffff",
+    success: "#22d3ee",
+    warning: "#ff3d00",
+    border: "rgba(255, 61, 0, 0.22)",
+    input: "rgba(255, 61, 0, 0.24)",
+    ring: "#ff3d00",
+  },
+  seriesColors: {
+    inputTokenAccent: "#ff7a3d",
+    outputTokenAccent: "#22d3ee",
+  },
+  componentStyles: {
+    backdrop: {
+      fillerOpacity: "0.018",
+      fillerBlendMode: "screen",
+    },
+    header: {
+      background: "rgba(2, 2, 2, 0.96)",
+      borderImage: "linear-gradient(90deg, rgba(255,61,0,0.42), rgba(255,61,0,0.10)) 1",
+    },
+    sidebar: {
+      background: "rgba(2, 2, 2, 0.97)",
+      borderImage: "linear-gradient(180deg, rgba(255,61,0,0.36), rgba(255,255,255,0.08), rgba(255,61,0,0.24)) 1",
+    },
+    page: {
+      background: "#020202",
+    },
+  },
+  customCSS: `
+html,
+body,
+#root {
+  background: #020202;
+}
+
+body {
+  background-image:
+    linear-gradient(rgba(255, 61, 0, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 61, 0, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 78% 10%, rgba(255, 61, 0, 0.08), transparent 28rem);
+  background-size: 48px 48px, 48px 48px, auto;
+}
+
+#app-sidebar {
+  box-shadow: inset -1px 0 0 rgba(255, 61, 0, 0.16);
+}
+
+#app-sidebar nav a,
+#app-sidebar button {
+  font-family: var(--theme-font-mono);
+  letter-spacing: 0.14em;
+}
+
+#app-sidebar nav a[aria-current="page"] {
+  color: #ff3d00;
+  background: rgba(255, 61, 0, 0.06);
+}
+
+#app-sidebar nav a[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 9999px;
+  background: #ff3d00;
+  transform: translateY(-50%);
+  box-shadow: 0 0 14px rgba(255, 61, 0, 0.8);
+}
+
+.bg-card,
+[class*="bg-card/"],
+.bg-popover,
+.bg-background-base\/70,
+.bg-background-base\/80,
+.bg-background-base\/90,
+.bg-background-base\/95 {
+  background-color: #030303 !important;
+}
+
+.border-border,
+.border-current\/20,
+.border-current\/15,
+.border-current\/10 {
+  border-color: rgba(255, 61, 0, 0.20) !important;
+}
+
+.shadow-2xl,
+.shadow-xl,
+.shadow-lg {
+  box-shadow: none !important;
+}
+
+.rounded-2xl,
+.rounded-3xl,
+.rounded-xl {
+  border-radius: 10px !important;
+}
+
+.text-success {
+  color: #22d3ee !important;
+}
+
+.text-warning,
+[class*="text-amber-"],
+[class*="text-yellow-"] {
+  color: #ff3d00 !important;
+}
+
+.text-destructive {
+  color: #ff1200 !important;
+}
+
+[class*="border-amber-"],
+[class*="border-yellow-"] {
+  border-color: rgba(255, 61, 0, 0.36) !important;
+}
+
+[class*="bg-amber-"],
+[class*="bg-yellow-"] {
+  background-color: rgba(255, 61, 0, 0.10) !important;
+}
+
+.bg-success,
+.bg-success\/15,
+.bg-success\/20 {
+  background-color: rgba(34, 211, 238, 0.12) !important;
+}
+
+.bg-warning,
+.bg-warning\/15,
+.bg-warning\/20 {
+  background-color: rgba(255, 61, 0, 0.12) !important;
+}
+
+.bg-destructive,
+.bg-destructive\/15,
+.bg-destructive\/20 {
+  background-color: rgba(255, 18, 0, 0.14) !important;
+}
+
+main,
+[role="main"] {
+  background: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-color: #ff3d00 !important;
+  box-shadow: 0 0 0 1px rgba(255, 61, 0, 0.85) !important;
+}
+`,
+  swatchColors: ["#020202", "#ff3d00", "#fff7ed"],
 };
 
 /**
@@ -232,6 +502,7 @@ export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   default: defaultTheme,
   "default-large": defaultLargeTheme,
   "nous-blue": nousBlueTheme,
+  "mission-control": missionControlTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,

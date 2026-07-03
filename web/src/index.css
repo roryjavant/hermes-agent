@@ -43,8 +43,10 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* Hermes Agent — Nous DS with the LENS_0 (Hermes teal) palette applied
-   statically as the default dashboard theme. */
+/* Hermes Agent — Nous DS with the LENS_0 (Hermes teal) lens applied   */
+/* statically. Mirrors nousnet-web/(hermes-agent)/layout.tsx so the    */
+/* canonical Hermes palette is the default — teal canvas + cream      */
+/* accent — without relying on leva/gsap at runtime.                  */
 /* ------------------------------------------------------------------ */
 
 :root {
@@ -60,6 +62,10 @@
   --background: color-mix(in srgb, #041c1c 100%, transparent);
   --background-base: #041c1c;
   --background-alpha: 1;
+
+  /* Consumed by <Backdrop />; also theme-switchable. */
+  --warm-glow: rgba(255, 189, 56, 0.35);
+  --noise-opacity-mul: 1;
 
   /* Typography tokens — rewritten by ThemeProvider. Defaults match the
      system stack so themes that don't override look native. */
@@ -222,6 +228,11 @@ code { font-size: 0.875rem; }
   display: none;
 }
 
+/* Plus-lighter blend used by logos/titles for a subtle glow. */
+.blend-lighter {
+  mix-blend-mode: plus-lighter;
+}
+
 /* System UI-monospace stack — distinct from `font-courier` (Courier
    Prime), used for dense data readouts where the display font would
    break the grid. Routes through the theme's mono stack so themes
@@ -243,5 +254,459 @@ code { font-size: 0.875rem; }
   pointer-events: none;
   background: repeating-conic-gradient(currentColor 0% 25%, #0000 0% 50%) 0 0 /
     2px 2px;
+}
+
+/* When a theme provides `assets.bg`, the backdrop's <div> renders it as
+   a CSS background; the default filler <img> is hidden to prevent
+   double-compositing. Unset → initial → empty, so the :not() selector
+   matches and the default image stays visible. */
+:root:not([style*="--theme-asset-bg:"]) .theme-default-filler {
+  display: block;
+}
+:root[style*="--theme-asset-bg:"] .theme-default-filler {
+  display: none;
+}
+
+/* Mission Control: sleek black/orange cockpit surface. */
+@keyframes mission-orb-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes mission-scanline {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  12%  { opacity: 0.4; }
+  55%  { opacity: 0.12; }
+  100% { transform: translateY(300%); opacity: 0; }
+}
+
+@keyframes mission-sound-packet {
+  0%   { transform: translateX(-50%) scaleX(0.2); opacity: 0; }
+  14%  { opacity: 0.72; }
+  82%  { opacity: 0.72; }
+  100% { transform: translateX(50%) scaleX(1); opacity: 0; }
+}
+
+@keyframes mission-sound-bars {
+  0%, 100% { height: 18%; opacity: 0.35; }
+  45%      { height: var(--bar-height, 70%); opacity: 1; }
+}
+
+@keyframes mission-sound-dot {
+  0%, 100% { opacity: 0.45; transform: scale(0.82); }
+  50%      { opacity: 1; transform: scale(1.08); }
+}
+
+/* Page-level background — true black with orange/champagne UI lights. */
+.mission-control-surface {
+  background-color: #020202;
+  background-image: none;
+  color: #fff7ed;
+  --mission-accent: #ff3d00;
+  --mission-accent-rgb: 255 61 0;
+  --mission-ready: #22d3ee;
+  --mission-running: #ff3d00;
+  --mission-alert: #ff1200;
+  --color-primary: #ff3d00;
+  --color-success: #22d3ee;
+  --color-warning: #ff3d00;
+  --color-destructive: #ff1200;
+  --color-ring: #ff3d00;
+  font-feature-settings: "cv01", "ss03";
+}
+
+.mission-control-surface::before {
+  content: none;
+}
+
+/* ── Hero ─────────────────────────────────────── */
+.mission-hero {
+  isolation: isolate;
+  min-height: 22rem;
+  border: 1px solid rgba(255, 61, 0, 0.22);
+  border-radius: 10px;
+  background: #030303;
+  box-shadow: none;
+}
+
+.mission-hero__glow {
+  background: none;
+}
+
+.mission-hero__grid {
+  opacity: 0;
+  background: none;
+  mask-image: none;
+}
+
+.mission-hero__scan {
+  pointer-events: none;
+  background: none;
+  animation: none;
+}
+
+.mission-kicker {
+  border: 1px solid rgba(255, 61, 0, 0.28);
+  border-radius: 9999px;
+  background: transparent;
+  color: #ff3d00;
+  padding: 0.28rem 0.72rem;
+  font-family: var(--theme-font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  box-shadow: none;
+}
+
+.mission-title {
+  letter-spacing: -0.025em;
+  color: #fff7ed;
+  text-shadow: none;
+}
+
+.mission-mantra {
+  color: rgba(255, 247, 237, 0.54);
+  font-family: var(--theme-font-mono);
+  font-size: clamp(0.68rem, 1vw, 0.82rem);
+  letter-spacing: 0.22em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.mission-mini-grid > * {
+  border-color: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.025);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* ── Orb ──────────────────────────────────────── */
+.mission-sound-bridge {
+  width: 100%;
+  align-self: stretch;
+  justify-content: center;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 260ms ease, transform 260ms ease;
+}
+
+.mission-sound-bridge--idle {
+  opacity: 0.22;
+}
+
+.mission-sound-bridge--active {
+  opacity: 1;
+}
+
+.mission-sound-bridge__rail {
+  position: absolute;
+  left: -1rem;
+  right: -1rem;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 61, 0, 0), rgba(255, 61, 0, 0.42), rgba(34, 211, 238, 0.28), rgba(255, 61, 0, 0.38), rgba(255, 61, 0, 0));
+  box-shadow: 0 0 18px rgba(255, 61, 0, 0.18);
+}
+
+.mission-sound-bridge__capsule {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 26rem);
+  border: 1px solid rgba(255, 61, 0, 0.30);
+  background: rgba(3, 3, 3, 0.88);
+  padding: 0.72rem 0.95rem 0.9rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 30px rgba(255, 61, 0, 0.08);
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__capsule {
+  border-color: rgba(255, 61, 0, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 34px rgba(255, 61, 0, 0.18);
+}
+
+.mission-sound-bridge__label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: rgba(255, 247, 237, 0.42);
+  font-family: var(--theme-font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__label-row {
+  color: rgba(255, 61, 0, 0.86);
+}
+
+.mission-sound-bridge__dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border: 1px solid rgba(34, 211, 238, 0.62);
+  background: rgba(34, 211, 238, 0.35);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.30);
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__dot {
+  animation: mission-sound-dot 740ms ease-in-out infinite;
+}
+
+.mission-sound-bridge__wave {
+  position: relative;
+  margin-top: 0.9rem;
+  display: flex;
+  height: 3.4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.32rem;
+  border-top: 1px solid rgba(255, 61, 0, 0.14);
+  border-bottom: 1px solid rgba(255, 61, 0, 0.14);
+  padding: 0.45rem 0;
+}
+
+.mission-sound-bridge__wave::before,
+.mission-sound-bridge__wave::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.mission-sound-bridge__wave::before { top: 50%; }
+.mission-sound-bridge__wave::after { top: 25%; opacity: 0.55; }
+
+.mission-sound-bridge__bar {
+  position: relative;
+  z-index: 1;
+  width: 0.28rem;
+  height: 18%;
+  min-height: 0.45rem;
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.72), rgba(255, 61, 0, 0.96));
+  box-shadow: 0 0 12px rgba(255, 61, 0, 0.22);
+  opacity: 0.35;
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__bar {
+  animation: mission-sound-bars 720ms ease-in-out infinite;
+  animation-delay: var(--bar-delay, 0ms);
+}
+
+.mission-sound-bridge__packet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  height: 2px;
+  background: linear-gradient(90deg, rgba(255, 61, 0, 0), rgba(34, 211, 238, 0.85), rgba(255, 61, 0, 0.95), rgba(255, 61, 0, 0));
+  opacity: 0;
+  transform-origin: center;
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__packet {
+  animation: mission-sound-packet 1.28s linear infinite;
+}
+
+.mission-sound-bridge--active .mission-sound-bridge__packet--two {
+  animation-delay: 640ms;
+}
+
+.mission-orb__halo {
+  background: none;
+  border: 1px solid rgba(255, 61, 0, 0.34);
+  box-shadow: none;
+  filter: none;
+  animation: mission-orb-rotate 18s linear infinite;
+}
+
+.mission-orb__sweep {
+  border: 1px dashed rgba(255, 61, 0, 0.24);
+  box-shadow: none;
+}
+
+/* ── Glass cards (metric, board, segment, strip) ─ */
+.mission-metric-card {
+  border-radius: 10px;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.mission-metric-card,
+.mission-control-strip {
+  background-color: #030303;
+  box-shadow: none;
+}
+
+.mission-metric-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent-light animations                                              */
+/* ------------------------------------------------------------------ */
+
+@keyframes agent-ping {
+  0%   { transform: scale(1);   opacity: 0.65; }
+  80%  { transform: scale(1.7); opacity: 0; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+@keyframes agent-wire-travel {
+  0%   { left: 4%; }
+  100% { left: 96%; }
+}
+
+.agent-light__ping {
+  animation: agent-ping 2.2s ease-out infinite;
+  pointer-events: none;
+}
+
+.agent-wire__dot {
+  position: absolute;
+  animation: agent-wire-travel 2s linear infinite;
+  transform: translateX(-50%) translateY(-50%);
+  top: 50%;
+}
+
+@keyframes agent-wire-travel-y {
+  0%   { top: 4%; }
+  100% { top: 96%; }
+}
+
+.agent-wire__dot--y {
+  position: absolute;
+  left: 50%;
+  animation: agent-wire-travel-y 1.8s linear infinite;
+  transform: translate(-50%, -50%);
+}
+
+/* EKG heartbeat trace shown while an agent is actively running.
+   Oscilloscope-style: a mask window scans left-to-right at constant
+   horizontal speed, drawing the trace behind a gradient beam head (no
+   future waveform is shown). --agent-ecg-travel is set per instance to
+   viewBox width + head width so the beam fully enters and exits, then the
+   drawn trace wipes exactly as the next pass fires. */
+@keyframes agent-ecg-scan {
+  from { transform: translateX(0); }
+  to   { transform: translateX(var(--agent-ecg-travel, 246px)); }
+}
+
+.agent-ecg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.agent-ecg__scan {
+  animation: agent-ecg-scan 1.2s linear infinite;
+}
+
+.agent-ecg__base {
+  stroke-opacity: 0.32;
+}
+
+.agent-ecg__sweep {
+  filter: drop-shadow(0 0 3px currentColor);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Park the scan fully advanced: the dim trace shows whole, the beam rests off-screen. */
+  .agent-ecg__scan {
+    animation: none;
+    transform: translateX(var(--agent-ecg-travel, 246px));
+  }
+
+  .mission-sound-bridge__dot,
+  .mission-sound-bridge__bar,
+  .mission-sound-bridge__packet {
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+
+.mission-active-board {
+  border-color: rgba(255, 61, 0, 0.18);
+  border-radius: 10px;
+  background: #020202;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.mission-signal-board {
+  border-color: rgba(255, 61, 0, 0.12);
+  border-radius: 10px;
+  background: #010101;
+  backdrop-filter: none;
+  overflow: visible;
+}
+
+.mission-signal-segment {
+  position: relative;
+  overflow: visible;
+  border-radius: 8px;
+  border-color: rgba(255, 255, 255, 0.10) !important;
+  background: #020202;
+  box-shadow: none;
+}
+
+.mission-signal-segment__title {
+  color: #fff7ed;
+  letter-spacing: 0.2em;
+}
+
+.mission-signal-segment__rule {
+  height: 1px;
+  flex: 1 1 auto;
+  background: rgba(255, 61, 0, 0.24);
+}
+
+.mission-signal-segment__count {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.46);
+}
+
+.mission-control-strip {
+  background: #0a0a0a;
+  backdrop-filter: blur(10px);
+}
+
+.mission-section-break {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 2.25rem;
+  margin-top: 0.35rem;
+  padding: 0 0.1rem;
+}
+
+.mission-section-break__eyebrow,
+.mission-section-break__label {
+  font-family: var(--font-mono-ui, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  font-size: 0.58rem;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+}
+
+.mission-section-break__eyebrow {
+  color: rgba(255, 61, 0, 0.72);
+}
+
+.mission-section-break__label {
+  color: rgba(255, 255, 255, 0.44);
+}
+
+.mission-section-break__rule {
+  height: 1px;
+  flex: 1 1 auto;
+  background: rgba(255, 61, 0, 0.28);
 }
 

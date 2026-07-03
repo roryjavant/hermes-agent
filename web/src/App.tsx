@@ -21,6 +21,7 @@ import {
 import {
   Activity,
   BarChart3,
+  BellRing,
   BookOpen,
   Clock,
   Code,
@@ -31,6 +32,7 @@ import {
   FolderOpen,
   FileText,
   Globe,
+  Gauge,
   Heart,
   KeyRound,
   Menu,
@@ -78,6 +80,8 @@ import EnvPage from "@/pages/EnvPage";
 import FilesPage from "@/pages/FilesPage";
 import SessionsPage from "@/pages/SessionsPage";
 import LogsPage from "@/pages/LogsPage";
+import MissionControlPage from "@/pages/MissionControlPage";
+import RemindersPage from "@/pages/RemindersPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import ModelsPage from "@/pages/ModelsPage";
 import CronPage from "@/pages/CronPage";
@@ -134,6 +138,8 @@ const CHAT_NAV_ITEM: NavItem = {
  */
 const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/": RootRedirect,
+  "/mission-control": MissionControlPage,
+  "/reminders": RemindersPage,
   "/sessions": SessionsPage,
   "/files": FilesPage,
   "/analytics": AnalyticsPage,
@@ -165,6 +171,18 @@ function ChatRouteSink() {
 }
 
 const BUILTIN_NAV_REST: NavItem[] = [
+  {
+    path: "/mission-control",
+    labelKey: "missionControl",
+    label: "Mission Control",
+    icon: Gauge,
+  },
+  {
+    path: "/reminders",
+    labelKey: "reminders",
+    label: "Reminders",
+    icon: BellRing,
+  },
   {
     path: "/sessions",
     labelKey: "sessions",

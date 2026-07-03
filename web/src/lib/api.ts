@@ -103,15 +103,33 @@ export async function fetchJSON<T>(
   if (token) {
     setSessionHeader(headers, token);
   }
-  const res = await fetch(`${BASE}${url}`, {
-    ...init,
-    headers,
-    // ``credentials: 'include'`` so the cookie-auth path (gated mode) works
-    // for any fetch routed through here. Loopback mode is unaffected — the
-    // server doesn't read cookies and the legacy session-token header is
-    // already attached above.
-    credentials: init?.credentials ?? "include",
-  });
+  const timeoutController = options?.timeoutMs ? new AbortController() : null;
+  let timeoutId: number | undefined;
+  if (timeoutController && init?.signal) {
+    if (init.signal.aborted) {
+      timeoutController.abort(init.signal.reason);
+    } else {
+      init.signal.addEventListener("abort", () => timeoutController.abort(init.signal?.reason), { once: true });
+    }
+  }
+  if (timeoutController && options?.timeoutMs) {
+    timeoutId = window.setTimeout(() => timeoutController.abort(), options.timeoutMs);
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${url}`, {
+      ...init,
+      headers,
+      signal: timeoutController?.signal ?? init?.signal,
+      // ``credentials: 'include'`` so the cookie-auth path (gated mode) works
+      // for any fetch routed through here. Loopback mode is unaffected — the
+      // server doesn't read cookies and the legacy session-token header is
+      // already attached above.
+      credentials: init?.credentials ?? "include",
+    });
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
   if (res.status === 401) {
     // Phase 6: the gated middleware emits a structured envelope so the
     // SPA can full-page-navigate to /login on session expiry. Parse it,
@@ -316,7 +334,48 @@ function appendProfileParam(url: string, profile?: string): string {
 
 export const api = {
   buildWsUrl,
-  getStatus: () => fetchJSON<StatusResponse>("/api/status"),
+  getStatus: (options?: FetchJSONOptions) => fetchJSON<StatusResponse>("/api/status", undefined, options),
+  getMissionControlActivity: (options?: FetchJSONOptions) =>
+    fetchJSON<MissionControlActivityResponse>("/api/mission-control/activity", undefined, options),
+  playMissionControlDing: (kind: "approval" | "done", options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean; kind: string; method: string; sound?: string; duration_seconds?: number }>("/api/mission-control/ding", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    }, options),
+  playMissionControlAnnouncement: (text: string, kind: "approval" | "done" = "done", options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean; kind: string; method: string; file_path: string; provider?: string; duration_seconds?: number }>("/api/mission-control/announce", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, kind }),
+    }, options),
+  getReminders: (options?: FetchJSONOptions) => fetchJSON<RemindersResponse>("/api/reminders", undefined, options),
+  createReminder: (payload: ReminderCreate, options?: FetchJSONOptions) =>
+    fetchJSON<ReminderMutationResponse>("/api/reminders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  updateReminder: (reminderId: string, payload: ReminderUpdate, options?: FetchJSONOptions) =>
+    fetchJSON<ReminderMutationResponse>(`/api/reminders/${encodeURIComponent(reminderId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  reorderReminders: (orderedIds: string[], options?: FetchJSONOptions) =>
+    fetchJSON<RemindersResponse>("/api/reminders/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ordered_ids: orderedIds }),
+    }, options),
+  deleteReminder: (reminderId: string, options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean }>(`/api/reminders/${encodeURIComponent(reminderId)}`, { method: "DELETE" }, options),
+  sendMissionControlProfileMessage: (profile: string, payload: MissionControlProfileMessageCreate) =>
+    fetchJSON<MissionControlProfileMessageResponse>(`/api/mission-control/profiles/${encodeURIComponent(profile)}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
   /**
    * Identity probe for the dashboard auth gate (Phase 7).
    *
@@ -352,14 +411,17 @@ export const api = {
   getSessions: (
     limit = 20,
     offset = 0,
-    profile = getManagementProfile(),
+    profile: string | undefined = getManagementProfile(),
     order: "created" | "recent" = "created",
+    options?: FetchJSONOptions,
   ) =>
     fetchJSON<PaginatedSessions>(
       appendProfileParam(
         `/api/sessions?limit=${limit}&offset=${offset}&order=${order}`,
         profile,
       ),
+      undefined,
+      options,
     ),
   getSessionMessages: (id: string, profile = getManagementProfile()) =>
     fetchJSON<SessionMessagesResponse>(
@@ -530,8 +592,8 @@ export const api = {
   },
 
   // Cron jobs
-  getCronJobs: (profile = "all") =>
-    fetchJSON<CronJob[]>(`/api/cron/jobs?profile=${encodeURIComponent(profile)}`),
+  getCronJobs: (profile = "all", options?: FetchJSONOptions) =>
+    fetchJSON<CronJob[]>(`/api/cron/jobs?profile=${encodeURIComponent(profile)}`, undefined, options),
   // Kanban dashboard plugin summaries and safe operational controls for management pages
   getKanbanBoards: (options?: FetchJSONOptions) =>
     fetchJSON<KanbanBoardsResponse>("/api/plugins/kanban/boards", undefined, options),
@@ -628,8 +690,8 @@ export const api = {
     }),
 
   // Profiles
-  getProfiles: () =>
-    fetchJSON<{ profiles: ProfileInfo[] }>("/api/profiles"),
+  getProfiles: (options?: FetchJSONOptions) =>
+    fetchJSON<{ profiles: ProfileInfo[] }>("/api/profiles", undefined, options),
   getActiveProfile: () =>
     fetchJSON<ActiveProfileInfo>("/api/profiles/active"),
   setActiveProfile: (name: string) =>
@@ -1273,6 +1335,175 @@ export interface ActionResponse {
   update_command?: string;
 }
 
+export interface MissionControlProfileMessageCreate {
+  message: string;
+}
+
+export interface MissionControlProfileMessageResponse {
+  ok: boolean;
+  profile: string;
+  action_name: string;
+  pid: number;
+  message: string;
+  created_base?: Record<string, unknown> | null;
+}
+
+
+export interface MissionControlTerminal {
+  id: string;
+  pid: number | null;
+  profile: string | null;
+  resume_session_id: string | null;
+  channel: string | null;
+  cwd: string | null;
+  command: string;
+  started_at: number;
+  uptime_seconds: number;
+  status: string;
+  detail?: string;
+  last_input_at?: number;
+  last_output_at?: number;
+  last_activity_at?: number;
+}
+
+export interface MissionControlActivity {
+  activity_id: string;
+  pid: number;
+  profile: string;
+  source: "cli" | "tui" | "dashboard" | "kanban" | "delegate" | "claude";
+  session_id: string;
+  cwd: string;
+  status: "ready" | "working" | "review";
+  detail: string;
+  started_at: number;
+  last_seen: number;
+  context_percent?: number;
+  context_tokens?: number;
+  context_length?: number;
+  compressions?: number;
+}
+
+export interface MissionControlBackgroundProcess {
+  session_id: string;
+  command: string;
+  cwd: string;
+  pid: number | null;
+  started_at: string;
+  uptime_seconds: number;
+  status: string;
+  output_preview?: string;
+  exit_code?: number;
+  detached?: boolean;
+}
+
+export interface MissionControlSubagent {
+  subagent_id: string;
+  parent_id?: string | null;
+  depth?: number;
+  goal?: string;
+  model?: string;
+  provider?: string;
+  started_at?: number;
+  tool_count?: number;
+  status?: string;
+  session_id?: string;
+}
+
+export interface MissionControlProfileTeamAgent {
+  profile: string;
+  role: string;
+  configured: boolean;
+  active: boolean;
+  status: "ready" | "working" | "review" | "missing" | string;
+  source: string;
+  pid?: number | null;
+  cwd: string;
+  detail: string;
+  last_seen?: number | null;
+  context_percent?: number;
+  context_tokens?: number;
+  context_length?: number;
+  compressions?: number;
+  is_orchestrator?: boolean;
+}
+
+export interface MissionControlTeamWorkflowStep {
+  label: string;
+  mode: "sequence" | "parallel" | string;
+  profiles: string[];
+}
+
+export interface MissionControlFinalOutputState {
+  kind: "knowledge_base" | string;
+  label: string;
+  latest_base?: {
+    slug: string;
+    title: string;
+    kicker?: string;
+    description?: string;
+    path: string;
+    entry_count: number;
+    updated_at: string;
+  } | null;
+}
+
+export interface MissionControlProfileTeam {
+  team_id: string;
+  label: string;
+  project_path: string;
+  profiles: string[];
+  workflow?: MissionControlTeamWorkflowStep[];
+  workflow_summary?: string;
+  final_output?: MissionControlFinalOutputState;
+  agents: MissionControlProfileTeamAgent[];
+}
+
+export interface MissionControlActivityResponse {
+  checked_at: number;
+  activities: MissionControlActivity[];
+  profile_teams?: MissionControlProfileTeam[];
+  terminals: MissionControlTerminal[];
+  background_processes: MissionControlBackgroundProcess[];
+  subagents: MissionControlSubagent[];
+}
+
+
+export interface ReminderItem {
+  id: string;
+  title: string;
+  notes: string;
+  due_at: string | null;
+  completed: boolean;
+  priority: boolean;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReminderCreate {
+  title: string;
+  notes?: string;
+  due_at?: string | null;
+  priority?: boolean;
+}
+
+export interface ReminderUpdate {
+  title?: string;
+  notes?: string;
+  due_at?: string | null;
+  completed?: boolean;
+  priority?: boolean;
+}
+
+export interface RemindersResponse {
+  reminders: ReminderItem[];
+}
+
+export interface ReminderMutationResponse {
+  reminder: ReminderItem;
+}
+
+
 export interface DebugShareResponse {
   ok: boolean;
   // label -> paste URL, e.g. { Report: "https://paste.rs/abc", "agent.log": "..." }
@@ -1664,6 +1895,8 @@ interface FetchJSONOptions {
    *  whose 401 is an expected signal (e.g. /api/auth/me in non-gated mode)
    *  rather than evidence of a rotated session token. */
   allowUnauthorized?: boolean;
+  /** Abort the request after this many milliseconds. */
+  timeoutMs?: number;
 }
 
 export interface ActionStatusResponse {

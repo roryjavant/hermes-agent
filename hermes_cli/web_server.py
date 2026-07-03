@@ -817,6 +817,42 @@ class ConfigUpdate(BaseModel):
     profile: Optional[str] = None
 
 
+# ---------------------------------------------------------------------------
+# Rory dashboard / Mission Control local surfaces
+# ---------------------------------------------------------------------------
+class ReminderCreate(BaseModel):
+    title: str
+    notes: str = ""
+    due_at: Optional[str] = None
+    priority: bool = False
+
+
+class ReminderUpdate(BaseModel):
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    due_at: Optional[str] = None
+    completed: Optional[bool] = None
+    priority: Optional[bool] = None
+
+
+class ReminderReorder(BaseModel):
+    ordered_ids: List[str]
+
+
+class MissionControlDingRequest(BaseModel):
+    kind: str = "approval"
+
+
+class MissionControlAnnouncementRequest(BaseModel):
+    text: str
+    kind: str = "done"
+
+
+class MissionControlProfileMessageCreate(BaseModel):
+    message: str
+    profile: Optional[str] = None
+
+
 class EnvVarUpdate(BaseModel):
     key: str
     value: str
@@ -14457,3 +14493,270 @@ def start_server(
         _runner(_serve(), loop_factory=_loop_factory)
     else:
         asyncio.run(_serve())
+
+
+# ---------------------------------------------------------------------------
+# Rory dashboard / Mission Control local surfaces
+# ---------------------------------------------------------------------------
+def _dashboard_reminders_path() -> Path:
+    return get_hermes_home() / "dashboard_reminders.json"
+
+
+def _dashboard_utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _read_dashboard_reminders() -> List[Dict[str, Any]]:
+    path = _dashboard_reminders_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Reminder store is not valid JSON: {path}") from exc
+    if not isinstance(data, list):
+        raise HTTPException(status_code=500, detail=f"Reminder store must contain a list: {path}")
+    return [item for item in data if isinstance(item, dict) and isinstance(item.get("id"), str)]
+
+
+def _write_dashboard_reminders(reminders: List[Dict[str, Any]]) -> None:
+    path = _dashboard_reminders_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(reminders, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _serialize_dashboard_reminder(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(item.get("id") or secrets.token_hex(8)),
+        "title": str(item.get("title") or "Untitled reminder"),
+        "notes": str(item.get("notes") or ""),
+        "due_at": item.get("due_at") if item.get("due_at") else None,
+        "completed": bool(item.get("completed")),
+        "priority": bool(item.get("priority")),
+        "order_index": int(item.get("order_index") or 0),
+        "created_at": str(item.get("created_at") or _dashboard_utc_now_iso()),
+        "updated_at": str(item.get("updated_at") or _dashboard_utc_now_iso()),
+    }
+
+
+def _dashboard_reminder_legacy_sort_key(item: Dict[str, Any]) -> Tuple[int, int, str, str]:
+    if bool(item.get("completed")):
+        rank = 4
+    else:
+        due_raw = item.get("due_at") or ""
+        if not due_raw:
+            rank = 3
+        else:
+            try:
+                due = datetime.fromisoformat(str(due_raw).replace("Z", "+00:00"))
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                if due < now:
+                    rank = 0
+                elif (due - now).total_seconds() <= 48 * 60 * 60:
+                    rank = 1
+                else:
+                    rank = 2
+            except ValueError:
+                rank = 3
+    priority_rank = 0 if bool(item.get("priority")) else 1
+    due_key = str(item.get("due_at") or "9999-12-31T23:59:59")
+    return (rank, priority_rank, due_key, str(item.get("title") or ""))
+
+
+def _normalize_dashboard_reminders(reminders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    ordered = list(reminders)
+    if ordered and not any("order_index" in item for item in ordered):
+        ordered = sorted(ordered, key=_dashboard_reminder_legacy_sort_key)
+    return [_serialize_dashboard_reminder({**item, "order_index": index}) for index, item in enumerate(ordered)]
+
+
+def _find_dashboard_reminder(reminders: List[Dict[str, Any]], reminder_id: str) -> Tuple[int, Dict[str, Any]]:
+    for index, reminder in enumerate(reminders):
+        if reminder.get("id") == reminder_id:
+            return index, reminder
+    raise HTTPException(status_code=404, detail="Reminder not found")
+
+
+@app.get("/api/reminders")
+async def get_reminders():
+    return {"reminders": _normalize_dashboard_reminders(_read_dashboard_reminders())}
+
+
+@app.post("/api/reminders")
+async def create_reminder(payload: ReminderCreate):
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Reminder title is required")
+    reminders = _normalize_dashboard_reminders(_read_dashboard_reminders())
+    now = _dashboard_utc_now_iso()
+    reminder = {
+        "id": secrets.token_hex(8),
+        "title": title,
+        "notes": payload.notes.strip(),
+        "due_at": payload.due_at or None,
+        "completed": False,
+        "priority": bool(payload.priority),
+        "order_index": len(reminders),
+        "created_at": now,
+        "updated_at": now,
+    }
+    reminders.append(reminder)
+    _write_dashboard_reminders(reminders)
+    return {"reminder": reminder}
+
+
+@app.patch("/api/reminders/{reminder_id}")
+async def update_reminder(reminder_id: str, payload: ReminderUpdate):
+    reminders = _normalize_dashboard_reminders(_read_dashboard_reminders())
+    index, reminder = _find_dashboard_reminder(reminders, reminder_id)
+    updates = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    if "title" in updates:
+        title = str(updates["title"]).strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Reminder title is required")
+        reminder["title"] = title
+    if "notes" in updates:
+        reminder["notes"] = str(updates["notes"] or "").strip()
+    if "due_at" in updates:
+        reminder["due_at"] = updates["due_at"] or None
+    if "completed" in updates:
+        reminder["completed"] = bool(updates["completed"])
+    if "priority" in updates:
+        reminder["priority"] = bool(updates["priority"])
+    reminder["updated_at"] = _dashboard_utc_now_iso()
+    reminders[index] = reminder
+    _write_dashboard_reminders(reminders)
+    return {"reminder": reminder}
+
+
+@app.post("/api/reminders/reorder")
+async def reorder_reminders(payload: ReminderReorder):
+    reminders = _normalize_dashboard_reminders(_read_dashboard_reminders())
+    seen: set[str] = set()
+    ordered_ids: List[str] = []
+    for reminder_id in payload.ordered_ids:
+        if reminder_id and reminder_id not in seen:
+            seen.add(reminder_id)
+            ordered_ids.append(reminder_id)
+    by_id = {str(item["id"]): item for item in reminders}
+    missing = [reminder_id for reminder_id in ordered_ids if reminder_id not in by_id]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Unknown reminder id: {missing[0]}")
+    ordered = [by_id[reminder_id] for reminder_id in ordered_ids]
+    ordered.extend(item for item in reminders if str(item["id"]) not in seen)
+    now = _dashboard_utc_now_iso()
+    for index, reminder in enumerate(ordered):
+        reminder["order_index"] = index
+        if str(reminder["id"]) in seen:
+            reminder["updated_at"] = now
+    _write_dashboard_reminders(ordered)
+    return {"reminders": ordered}
+
+
+@app.delete("/api/reminders/{reminder_id}")
+async def delete_reminder(reminder_id: str):
+    reminders = _normalize_dashboard_reminders(_read_dashboard_reminders())
+    index, _reminder = _find_dashboard_reminder(reminders, reminder_id)
+    del reminders[index]
+    _write_dashboard_reminders(reminders)
+    return {"ok": True}
+
+
+@app.get("/api/mission-control/activity")
+async def get_mission_control_activity():
+    processes: List[Dict[str, Any]] = []
+    subagents: List[Dict[str, Any]] = []
+    activities: List[Dict[str, Any]] = []
+    try:
+        from tools.process_registry import process_registry
+        processes = process_registry.list_sessions()
+    except Exception:
+        _log.debug("Mission Control process snapshot failed", exc_info=True)
+    try:
+        from tools.delegate_tool import list_active_subagents
+        subagents = list_active_subagents()
+    except Exception:
+        _log.debug("Mission Control subagent snapshot failed", exc_info=True)
+    try:
+        from hermes_cli.runtime_activity import read_all_profile_activities
+        activities = read_all_profile_activities()
+    except Exception:
+        _log.debug("Mission Control runtime activity snapshot failed", exc_info=True)
+    return {
+        "checked_at": time.time(),
+        "activities": activities,
+        "profile_teams": [],
+        "terminals": [],
+        "background_processes": processes,
+        "subagents": subagents,
+    }
+
+
+def _mission_control_audio_duration_seconds(path: Path) -> float | None:
+    if not path.exists() or sys.platform != "darwin":
+        return None
+    try:
+        completed = subprocess.run(
+            ["afinfo", str(path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    for line in completed.stdout.splitlines():
+        if "estimated duration:" not in line:
+            continue
+        try:
+            return float(line.split("estimated duration:", 1)[1].split()[0])
+        except (IndexError, ValueError):
+            return None
+    return None
+
+
+@app.post("/api/mission-control/ding")
+async def play_mission_control_ding(body: MissionControlDingRequest):
+    kind = (body.kind or "approval").strip().lower()
+    if kind not in {"approval", "done"}:
+        raise HTTPException(status_code=400, detail="kind must be 'approval' or 'done'")
+    if sys.platform == "darwin":
+        sound = "Glass.aiff" if kind == "approval" else "Pop.aiff"
+        sound_path = Path("/System/Library/Sounds") / sound
+        if sound_path.exists():
+            subprocess.Popen(["afplay", str(sound_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            return {"ok": True, "kind": kind, "method": "afplay", "sound": sound, "duration_seconds": _mission_control_audio_duration_seconds(sound_path)}
+    print("\a", end="", flush=True)
+    return {"ok": True, "kind": kind, "method": "terminal-bell"}
+
+
+@app.post("/api/mission-control/announce")
+async def play_mission_control_announcement(body: MissionControlAnnouncementRequest):
+    # Keep this endpoint non-fatal for dashboard UX. The browser has local clip fallbacks.
+    text = (body.text or "").strip()
+    kind = (body.kind or "done").strip().lower()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    return {"ok": True, "kind": kind, "method": "dashboard-noop", "file_path": "", "duration_seconds": None}
+
+
+@app.post("/api/mission-control/profiles/{profile}/messages")
+async def start_mission_control_profile_message(profile: str, payload: MissionControlProfileMessageCreate):
+    profile_name = (profile or "").strip()
+    message = (payload.message or "").strip()
+    if not profile_name:
+        raise HTTPException(status_code=400, detail="Profile is required")
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+    action_name = f"mission-control-profile-message-{profile_name}"
+    existing = _ACTION_PROCS.get(action_name)
+    if existing is not None and existing.poll() is None:
+        raise HTTPException(status_code=409, detail=f"{profile_name} is already handling a Mission Control message")
+    prompt = f"Mission Control message from Rory:\n\n{message}"
+    proc = _spawn_hermes_action(["-p", profile_name, "chat", "--source", "mission-control", "--quiet", "-q", prompt], action_name)
+    return {"ok": True, "profile": profile_name, "action_name": action_name, "pid": proc.pid, "message": f"Message sent to {profile_name} from Mission Control."}

@@ -94,9 +94,11 @@ export interface Translations {
       documentation: string;
       keys: string;
       logs: string;
+      missionControl?: string;
       models: string;
       profiles: string;
       plugins: string;
+      reminders?: string;
       sessions: string;
       skills: string;
     };
