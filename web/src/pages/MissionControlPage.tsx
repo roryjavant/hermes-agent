@@ -2685,7 +2685,7 @@ function ActiveOperationsBoard({
                               const buildFinalResearchOutputElement = () => (
                                 <span className="flex items-center">
                                   <span
-                                    className={cn("relative flex w-20 shrink-0 self-stretch items-center justify-center", finalOutputIsNew ? "text-[#ff3d00]/80" : "text-[#ff3d00]/60")}
+                                    className={cn("relative flex w-40 shrink-0 self-stretch items-center justify-center", finalOutputIsNew ? "text-[#ff3d00]/80" : "text-[#ff3d00]/60")}
                                     aria-hidden="true"
                                   >
                                     <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/30" />
@@ -2904,19 +2904,19 @@ function ActiveOperationsBoard({
                                   )}
 
                                   {isExpanded && (
-                                    <div className="flex flex-col items-center gap-4 px-3 py-4">
-                                      <div className="flex flex-wrap items-center justify-center gap-y-2">
+                                    <div className="overflow-x-auto overflow-y-visible px-3 py-4">
+                                      <div className="flex min-w-max items-center justify-start gap-y-2 pr-8">
                                         {orchestratorItem && (() => {
                                           const orch = orchestratorItem;
                                           const orchTc = toneColors[orch.tone] ?? toneColors.ready;
                                           return (
-                                            <span className="flex items-center">
+                                            <span className="flex shrink-0 items-center">
                                               <span className="flex flex-col items-center">
                                                 {buildLightElement(orch, { size: "xl", rowLabel: row.label })}
                                                 <span className="mt-1 font-mono-ui text-[0.48rem] uppercase tracking-[0.12em] text-muted-foreground">lead</span>
                                               </span>
                                               <span
-                                                className={cn("relative flex w-24 shrink-0 self-stretch items-center justify-center", orchTc.wire)}
+                                                className={cn("relative flex w-48 shrink-0 self-stretch items-center justify-center", orchTc.wire)}
                                                 aria-hidden="true"
                                               >
                                                 <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
@@ -2927,7 +2927,7 @@ function ActiveOperationsBoard({
                                           );
                                         })()}
 
-                                        <div className="flex flex-wrap items-center justify-center gap-y-3">
+                                        <div className="flex shrink-0 items-center justify-start gap-y-3">
                                           {workflowStages.map((stage, index, stages) => {
                                             const isLastStage = index === stages.length - 1;
                                             const shouldShowStageWire = !isLastStage || showsFinalResearchOutput;
@@ -2954,7 +2954,7 @@ function ActiveOperationsBoard({
                                                     // Fan SVG starts at py-1=4px, so midY (SVG coords) = (totalH/2+4) - 4 = totalH/2. ✓
                                                     const midY = totalH / 2;
                                                     const centers = Array.from({ length: n }, (_, i) => i * (nodeH + gapH) + nodeH / 2);
-                                                    const fanW = 64;
+                                                    const fanW = 128;
                                                     // Color each fan branch by the node it serves so a single active parallel worker
                                                     // lights only its own diagonals instead of tinting every branch.
                                                     const animBranchIndexes = n <= 2 ? centers.map((_, i) => i) : [0, n - 1];
@@ -3036,7 +3036,7 @@ function ActiveOperationsBoard({
                                                 </span>
                                                 {shouldShowStageWire && (
                                                   <span
-                                                    className={cn("relative flex w-24 shrink-0 self-stretch items-center justify-center", tc.wire)}
+                                                    className={cn("relative flex w-48 shrink-0 self-stretch items-center justify-center", tc.wire)}
                                                     aria-hidden="true"
                                                   >
                                                     <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
