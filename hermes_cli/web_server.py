@@ -13111,6 +13111,7 @@ _BUILTIN_DASHBOARD_THEMES = [
     {"name": "default",       "label": "Hermes Teal",         "description": "Classic dark teal — the canonical Hermes look"},
     {"name": "default-large", "label": "Hermes Teal (Large)", "description": "Hermes Teal with bigger fonts and roomier spacing"},
     {"name": "nous-blue",     "label": "Nous Blue",           "description": "Light mode — vivid Nous-blue accents on cream canvas"},
+    {"name": "mission-control", "label": "Mission Control",    "description": "Black/orange cockpit command center inspired by Mission Control"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
     {"name": "mono",      "label": "Mono",           "description": "Clean grayscale — minimal and focused"},
@@ -14134,7 +14135,6 @@ _mount_plugin_api_routes()
 from hermes_cli.dashboard_auth.routes import router as _dashboard_auth_router  # noqa: E402
 app.include_router(_dashboard_auth_router)
 
-mount_spa(app)
 
 
 def _read_bound_port(server: "uvicorn.Server", fallback: int) -> int:
@@ -14760,3 +14760,9 @@ async def start_mission_control_profile_message(profile: str, payload: MissionCo
     prompt = f"Mission Control message from Rory:\n\n{message}"
     proc = _spawn_hermes_action(["-p", profile_name, "chat", "--source", "mission-control", "--quiet", "-q", prompt], action_name)
     return {"ok": True, "profile": profile_name, "action_name": action_name, "pid": proc.pid, "message": f"Message sent to {profile_name} from Mission Control."}
+
+
+# Mount the SPA catch-all after every built-in API route above. FastAPI matches
+# routes in registration order, so mounting earlier would swallow late /api/*
+# routes such as Mission Control activity and return the SPA's JSON 404.
+mount_spa(app)
