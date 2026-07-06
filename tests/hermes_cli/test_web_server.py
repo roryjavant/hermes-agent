@@ -296,6 +296,212 @@ class TestWebServerEndpoints:
         assert resp.status_code == 404
         assert "Unknown launchpad project" in resp.json()["detail"]
 
+    def test_audio_library_defaults_to_profile_local_empty_library(self):
+        from hermes_constants import get_hermes_home
+
+        resp = self.client.get("/api/audio-library")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["root"] == str(get_hermes_home() / "audio_library")
+        assert data["assets"]
+        assert {asset["id"] for asset in data["assets"]} >= {
+            "bundled:mission-control-launch:1",
+            "bundled:juror-research-complete:1",
+            "bundled:dev-task-complete:1",
+        }
+        assert data["mappings"] == {}
+        assert {event["key"] for event in data["events"]} == {
+            "mission_control.launch",
+            "terminal.ready.juror_research",
+            "terminal.ready.dev_task",
+            "terminal.ready.default",
+            "terminal.review",
+        }
+
+    def test_audio_library_import_maps_and_serves_profile_asset(self, tmp_path):
+        source = tmp_path / "ding.mp3"
+        source.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00test-audio")
+
+        resp = self.client.post(
+            "/api/audio-library/import",
+            json={
+                "name": "Juror done",
+                "source_path": str(source),
+                "category": "completion",
+                "tags": ["juror", "done"],
+                "event_key": "terminal.ready.juror_research",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        asset = data["asset"]
+        assert asset["name"] == "Juror done"
+        assert asset["category"] == "completion"
+        assert asset["exists"] is True
+        assert data["library"]["mappings"]["terminal.ready.juror_research"]["asset_id"] == asset["id"]
+        served = self.client.get(asset["url"])
+        assert served.status_code == 200
+        assert served.content == source.read_bytes()
+
+    def test_audio_library_mapping_rejects_unknown_events(self):
+        resp = self.client.post(
+            "/api/audio-library/mappings",
+            json={"event_key": "not.a.real.event", "asset_id": None},
+        )
+
+        assert resp.status_code == 400
+        assert "Unknown event_key" in resp.json()["detail"]
+
+    def test_audio_library_mapping_accepts_team_task_completion_event(self, tmp_path):
+        source = tmp_path / "team-done.mp3"
+        source.write_bytes(b"ID3-team-done")
+        asset = self.client.post(
+            "/api/audio-library/import",
+            json={"name": "Team done", "source_path": str(source)},
+        ).json()["asset"]
+
+        resp = self.client.post(
+            "/api/audio-library/mappings",
+            json={"event_key": "team.agent-arena.task_complete", "asset_id": asset["id"]},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["library"]["mappings"]["team.agent-arena.task_complete"]["asset_id"] == asset["id"]
+
+    def test_audio_library_generate_uses_elevenlabs_and_stores_asset(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server, "_elevenlabs_key", lambda: "test-key")
+
+        def fake_request(url, *, key, payload=None):
+            assert key == "test-key"
+            assert "text-to-speech/21m00Tcm4TlvDq8ikWAM" in url
+            assert payload == {
+                "text": "Mission complete.",
+                "model_id": "eleven_turbo_v2_5",
+                "voice_settings": {
+                    "stability": 0.65,
+                    "similarity_boost": 0.8,
+                    "style": 0.2,
+                    "speed": 1.05,
+                    "use_speaker_boost": False,
+                },
+            }
+            return 200, b"fake-mp3-bytes", "audio/mpeg"
+
+        monkeypatch.setattr(web_server, "_elevenlabs_request", fake_request)
+
+        resp = self.client.post(
+            "/api/audio-library/generate",
+            json={
+                "name": "Mission complete",
+                "text": "Mission complete.",
+                "event_key": "terminal.ready.default",
+                "model_id": "eleven_turbo_v2_5",
+                "stability": 0.65,
+                "similarity_boost": 0.8,
+                "style": 0.2,
+                "speed": 1.05,
+                "use_speaker_boost": False,
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        asset = data["asset"]
+        assert asset["source"] == "elevenlabs"
+        assert asset["text"] == "Mission complete."
+        assert asset["model_id"] == "eleven_turbo_v2_5"
+        assert asset["voice_settings"]["stability"] == 0.65
+        assert data["library"]["mappings"]["terminal.ready.default"]["asset_id"] == asset["id"]
+        assert self.client.get(asset["url"]).content == b"fake-mp3-bytes"
+
+    def test_audio_library_generate_music_uses_elevenlabs_music_endpoint(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server, "_elevenlabs_key", lambda: "test-key")
+
+        def fake_request(url, *, key, payload=None):
+            assert key == "test-key"
+            assert url == "https://api.elevenlabs.io/v1/music?output_format=mp3_44100_128"
+            assert payload == {
+                "prompt": "A short synthwave Mission Control sting.",
+                "music_length_ms": 45000,
+            }
+            return 200, b"fake-music-mp3", "audio/mpeg"
+
+        monkeypatch.setattr(web_server, "_elevenlabs_request", fake_request)
+
+        resp = self.client.post(
+            "/api/audio-library/generate",
+            json={
+                "name": "Mission music",
+                "text": "A short synthwave Mission Control sting.",
+                "kind": "music",
+                "category": "music",
+                "tags": ["music", "mission-control"],
+                "music_length_ms": 45000,
+            },
+        )
+
+        assert resp.status_code == 200
+        asset = resp.json()["asset"]
+        assert asset["source"] == "elevenlabs_music"
+        assert asset["kind"] == "music"
+        assert asset["category"] == "music"
+        assert asset["music_length_ms"] == 45000
+        assert "voice_id" not in asset
+        assert self.client.get(asset["url"]).content == b"fake-music-mp3"
+
+    def test_audio_library_preview_returns_data_url(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server, "_elevenlabs_key", lambda: "test-key")
+
+        def fake_request(url, *, key, payload=None):
+            assert key == "test-key"
+            assert "text-to-speech/pNInz6obpgDQGcFmaJgB" in url
+            assert payload is not None
+            assert payload["text"] == "Test this voice."
+            assert payload["model_id"] == "eleven_flash_v2_5"
+            assert payload["voice_settings"]["speed"] == 1.1
+            return 200, b"preview-mp3", "audio/mpeg"
+
+        monkeypatch.setattr(web_server, "_elevenlabs_request", fake_request)
+
+        resp = self.client.post(
+            "/api/audio-library/preview",
+            json={"text": "Test this voice.", "voice_id": "pNInz6obpgDQGcFmaJgB", "model_id": "eleven_flash_v2_5", "speed": 1.1},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["data_url"].startswith("data:audio/mpeg;base64,")
+
+    def test_audio_library_delete_removes_asset_file_and_mappings(self, tmp_path):
+        source = tmp_path / "delete-me.mp3"
+        source.write_bytes(b"ID3-delete-me")
+        created = self.client.post(
+            "/api/audio-library/import",
+            json={"name": "Delete me", "source_path": str(source), "event_key": "terminal.review"},
+        ).json()["asset"]
+        stored_path = Path(created["file_path"])
+        assert stored_path.exists()
+
+        resp = self.client.delete(f"/api/audio-library/assets/{created['id']}")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["asset_id"] == created["id"]
+        assert data["library"]["assets"]
+        assert created["id"] not in {asset["id"] for asset in data["library"]["assets"]}
+        assert data["library"]["mappings"] == {}
+        assert not stored_path.exists()
+
     def test_knowledge_bases_seed_markdown_directories(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_KNOWLEDGE_BASE_ROOT", str(tmp_path / "kb"))
 
@@ -904,7 +1110,7 @@ class TestWebServerEndpoints:
 
         create = self.client.post(
             "/api/reminders",
-            json={"title": "Pay renewal", "notes": "Before trial ends", "due_at": "2026-07-01T09:00", "priority": True},
+            json={"title": "Pay renewal", "notes": "Before trial ends", "due_at": "2026-07-01T09:00", "priority": True, "category": "other"},
         )
 
         assert create.status_code == 200
@@ -912,12 +1118,13 @@ class TestWebServerEndpoints:
         assert reminder["title"] == "Pay renewal"
         assert reminder["completed"] is False
         assert reminder["priority"] is True
+        assert reminder["category"] == "other"
         assert reminder["order_index"] == 0
         assert reminder_store.exists()
 
         update = self.client.patch(
             f"/api/reminders/{reminder['id']}",
-            json={"title": "Pay annual renewal", "completed": True, "due_at": None, "priority": False},
+            json={"title": "Pay annual renewal", "completed": True, "due_at": None, "priority": False, "category": "work"},
         )
 
         assert update.status_code == 200
@@ -925,6 +1132,7 @@ class TestWebServerEndpoints:
         assert updated["title"] == "Pay annual renewal"
         assert updated["completed"] is True
         assert updated["priority"] is False
+        assert updated["category"] == "work"
         assert updated["due_at"] is None
 
         listed = self.client.get("/api/reminders")
@@ -943,6 +1151,7 @@ class TestWebServerEndpoints:
         monkeypatch.setattr(web_server, "_reminders_path", lambda: reminder_store)
 
         first = self.client.post("/api/reminders", json={"title": "First"}).json()["reminder"]
+        assert first["category"] == "work"
         second = self.client.post("/api/reminders", json={"title": "Second"}).json()["reminder"]
         third = self.client.post("/api/reminders", json={"title": "Third"}).json()["reminder"]
 

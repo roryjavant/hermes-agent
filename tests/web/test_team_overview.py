@@ -658,6 +658,26 @@ def test_mission_control_audio_visual_only_renders_while_sound_is_active():
     assert "<div className=\"flex justify-end\">" in source
     assert "onSoundEnded" in source
     assert "playMissionControlPromptAwayClip" in source
+    assert "MISSION_CONTROL_JUROR_RESEARCH_COMPLETE_CLIPS" in source
+    assert "MISSION_CONTROL_JUROR_RESEARCH_COMPLETE_CLIP_INDEX_KEY" in source
+    assert "nextMissionControlJurorResearchCompleteClipIndex" in source
+    assert "MISSION_CONTROL_DEV_TASK_COMPLETE_CLIPS" in source
+    assert "MISSION_CONTROL_DEV_TASK_COMPLETE_CLIP_INDEX_KEY" in source
+    assert "nextMissionControlDevTaskCompleteClipIndex" in source
+    assert "playMissionControlDevTaskCompleteClip" in source
+    assert "isDevTaskOperationsItem" in source
+    assert "hasNewDevTaskReadyLight" in source
+    assert "pendingDevTaskCompleteClipRef" in source
+    assert "stopCurrentMissionControlStaticClip" in source
+    assert "missionControlStaticClipAudio" in source
+    assert "playMissionControlJurorResearchCompleteClip" in source
+    assert "hasNewJurorResearchReadyLight" in source
+    assert "pendingJurorResearchCompleteClipRef" in source
+    assert "soundPlaybackQueueRef" in source
+    assert "const runSoundWithVisual = useCallback" in source
+    assert "soundPlaybackQueueRef.current" in source
+    assert ".then(() => runSoundWithVisual(label, fallbackDurationMs, player))" in source
+    assert "await new Promise<void>((resolve) =>" in source
 
 
 def test_mission_control_metric_cards_do_not_render_tone_badges():
@@ -784,11 +804,13 @@ def test_mission_control_collapsed_team_orbs_are_clickable_role_lights_not_fake_
     assert "w-full text-center" not in source
     assert "max-w-[8rem] text-center font-mono-ui text-[0.5rem] uppercase" not in source
     assert "top-full pt-1" not in source
-    assert "const fanW = 128;" in source
-    assert "relative flex w-48 shrink-0 self-stretch" in source
-    assert "relative flex w-24 shrink-0 self-stretch" not in source
-    assert "flex min-w-max items-center justify-start" in source
-    assert "flex shrink-0 items-center" in source
+    assert "const fanW = 64;" in source
+    assert "relative flex w-24 shrink-0 self-stretch" in source
+    assert "relative flex w-48 shrink-0 self-stretch" not in source
+    assert "overflow-x-auto overflow-y-visible px-3 py-4" not in source
+    assert "flex min-w-max items-center justify-start" not in source
+    assert "flex max-w-full flex-wrap items-center justify-center" in source
+    assert "<span className=\"flex shrink-0 items-center\">" not in source
     assert "relative flex h-12 w-px" not in source
     assert "agent-wire__dot--y" not in source
     assert "relative flex h-5 w-px" not in source

@@ -42,9 +42,10 @@ import {
 } from "@nous-research/ui/ui/components/card";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Switch } from "@nous-research/ui/ui/components/switch";
-import { api, HERMES_BASE_PATH } from "@/lib/api";
+import { api, authedFetch, HERMES_BASE_PATH } from "@/lib/api";
 import type {
   CronJob,
+  AudioLibraryResponse,
   KanbanBoardResponse,
   KanbanBoardsResponse,
   KanbanTaskDetailResponse,
@@ -177,10 +178,12 @@ type LightAgentProfileDetails = {
 
 const MISSION_CONTROL_ACTIVITY_REFRESH_MS = 1000;
 const MISSION_CONTROL_FULL_REFRESH_MS = 15000;
-const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 5000;
-const MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS = 6000;
+const MISSION_CONTROL_ACTIVITY_TIMEOUT_MS = 10000;
+const MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS = 10000;
 const MISSION_CONTROL_SOUND_SETTINGS_KEY = "missionControl.soundSettings";
 const MISSION_CONTROL_PROMPT_AWAY_CLIP_INDEX_KEY = "missionControl.promptAwayClipIndex";
+const MISSION_CONTROL_JUROR_RESEARCH_COMPLETE_CLIP_INDEX_KEY = "missionControl.jurorResearchCompleteClipIndex";
+const MISSION_CONTROL_DEV_TASK_COMPLETE_CLIP_INDEX_KEY = "missionControl.devTaskCompleteClipIndex";
 const MISSION_CONTROL_FINAL_OUTPUT_SEEN_KEY = "missionControl.finalOutputSeen";
 const ALL_TEAMS_FILTER = "all";
 const TEAM_FEED_RECENT_SESSION_SECONDS = 60 * 60;
@@ -188,6 +191,8 @@ const MISSION_QUEUE_ATTENTION_STATUSES = new Set(["blocked", "review", "running"
 
 type AudioContextConstructor = new () => AudioContext;
 let missionControlAudioContext: AudioContext | null = null;
+let missionControlStaticClipAudio: HTMLAudioElement | null = null;
+let missionControlStaticClipReject: ((error: Error) => void) | null = null;
 
 type MissionControlDing = "approval" | "done";
 
@@ -241,6 +246,34 @@ function nextMissionControlPromptAwayClipIndex(): number {
   const current = Number.parseInt(raw ?? "0", 10);
   const clipIndex = Number.isFinite(current) && current >= 0 ? current % clipCount : 0;
   window.localStorage.setItem(MISSION_CONTROL_PROMPT_AWAY_CLIP_INDEX_KEY, String((clipIndex + 1) % clipCount));
+  return clipIndex;
+}
+
+function nextMissionControlJurorResearchCompleteClipIndex(): number {
+  if (typeof window === "undefined") return 0;
+  const clipCount = MISSION_CONTROL_JUROR_RESEARCH_COMPLETE_CLIPS.length;
+  if (clipCount === 0) return 0;
+  const raw = window.localStorage.getItem(MISSION_CONTROL_JUROR_RESEARCH_COMPLETE_CLIP_INDEX_KEY);
+  const current = Number.parseInt(raw ?? "0", 10);
+  const clipIndex = Number.isFinite(current) && current >= 0 ? current % clipCount : 0;
+  window.localStorage.setItem(
+    MISSION_CONTROL_JUROR_RESEARCH_COMPLETE_CLIP_INDEX_KEY,
+    String((clipIndex + 1) % clipCount),
+  );
+  return clipIndex;
+}
+
+function nextMissionControlDevTaskCompleteClipIndex(): number {
+  if (typeof window === "undefined") return 0;
+  const clipCount = MISSION_CONTROL_DEV_TASK_COMPLETE_CLIPS.length;
+  if (clipCount === 0) return 0;
+  const raw = window.localStorage.getItem(MISSION_CONTROL_DEV_TASK_COMPLETE_CLIP_INDEX_KEY);
+  const current = Number.parseInt(raw ?? "0", 10);
+  const clipIndex = Number.isFinite(current) && current >= 0 ? current % clipCount : 0;
+  window.localStorage.setItem(
+    MISSION_CONTROL_DEV_TASK_COMPLETE_CLIP_INDEX_KEY,
+    String((clipIndex + 1) % clipCount),
+  );
   return clipIndex;
 }
 
@@ -532,16 +565,58 @@ const MISSION_CONTROL_PROMPT_AWAY_CLIPS = [
   "/audio/prompt-away/mission-control-prompt-away-5.mp3",
 ];
 
-async function playMissionControlPromptAwayClip(clipIndex: number): Promise<void> {
+const MISSION_CONTROL_JUROR_RESEARCH_COMPLETE_CLIPS = [
+  "/audio/juror-research-complete/juror-research-complete-1.mp3",
+  "/audio/juror-research-complete/juror-research-complete-2.mp3",
+  "/audio/juror-research-complete/juror-research-complete-3.mp3",
+  "/audio/juror-research-complete/juror-research-complete-4.mp3",
+];
+
+const MISSION_CONTROL_DEV_TASK_COMPLETE_CLIPS = [
+  "/audio/dev-task-complete/dev-task-complete-1.mp3",
+  "/audio/dev-task-complete/dev-task-complete-2.mp3",
+  "/audio/dev-task-complete/dev-task-complete-3.mp3",
+];
+
+function stopCurrentMissionControlStaticClip(): void {
+  const audio = missionControlStaticClipAudio;
+  const reject = missionControlStaticClipReject;
+  missionControlStaticClipAudio = null;
+  missionControlStaticClipReject = null;
+  if (!audio) return;
+  audio.pause();
+  try {
+    audio.currentTime = 0;
+  } catch {
+    // Some browsers reject seeking before metadata loads; pausing is enough to stop overlap.
+  }
+  reject?.(new Error("Mission Control static clip was interrupted by another sound."));
+}
+
+async function playStaticMissionControlClip(clipPath: string, failureMessage: string): Promise<void> {
   if (typeof window === "undefined") return;
-  const clipPath = MISSION_CONTROL_PROMPT_AWAY_CLIPS[clipIndex % MISSION_CONTROL_PROMPT_AWAY_CLIPS.length]
-    ?? "/audio/only-one-prompt-away.mp3";
-  const audio = new Audio(`${HERMES_BASE_PATH}${clipPath}`);
+  stopCurrentMissionControlStaticClip();
+  let objectUrl: string | null = null;
+  let src = `${HERMES_BASE_PATH}${clipPath}`;
+  if (clipPath.startsWith("/api/audio-library/")) {
+    const response = await authedFetch(clipPath);
+    if (!response.ok) throw new Error(`${failureMessage} (${response.status})`);
+    objectUrl = URL.createObjectURL(await response.blob());
+    src = objectUrl;
+  }
+  const audio = new Audio(src);
+  missionControlStaticClipAudio = audio;
   audio.volume = 1;
   await new Promise<void>((resolve, reject) => {
+    missionControlStaticClipReject = reject;
     const cleanup = () => {
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (missionControlStaticClipAudio === audio) {
+        missionControlStaticClipAudio = null;
+        missionControlStaticClipReject = null;
+      }
     };
     const handleEnded = () => {
       cleanup();
@@ -549,7 +624,7 @@ async function playMissionControlPromptAwayClip(clipIndex: number): Promise<void
     };
     const handleError = () => {
       cleanup();
-      reject(new Error("Prompt-away clip failed to play."));
+      reject(new Error(failureMessage));
     };
     audio.addEventListener("ended", handleEnded, { once: true });
     audio.addEventListener("error", handleError, { once: true });
@@ -560,9 +635,112 @@ async function playMissionControlPromptAwayClip(clipIndex: number): Promise<void
   });
 }
 
+async function playMissionControlPromptAwayClip(clipIndex: number): Promise<void> {
+  const clipPath = MISSION_CONTROL_PROMPT_AWAY_CLIPS[clipIndex % MISSION_CONTROL_PROMPT_AWAY_CLIPS.length]
+    ?? "/audio/only-one-prompt-away.mp3";
+  await playStaticMissionControlClip(clipPath, "Prompt-away clip failed to play.");
+}
+
+function configuredAudioClipPath(library: AudioLibraryResponse | null, eventKey: string): string | null {
+  const mapping = library?.mappings[eventKey];
+  if (!mapping?.enabled || !mapping.asset_id) return null;
+  const asset = library?.assets.find((candidate) => candidate.id === mapping.asset_id);
+  if (!asset?.exists) return null;
+  return asset.url;
+}
+
+function teamTaskCompleteAudioEventKey(boardSlug: string): string {
+  return `team.${boardSlug}.task_complete`;
+}
+
+function teamMemberTaskCompleteAudioEventKey(boardSlug: string, assignee?: string | null): string | null {
+  const profile = assignee?.trim();
+  return profile ? `team.${boardSlug}.member.${profile}.task_complete` : null;
+}
+
+async function playConfiguredMissionControlClip(
+  library: AudioLibraryResponse | null,
+  eventKey: string,
+  fallback: () => Promise<void>,
+): Promise<void> {
+  const clipPath = configuredAudioClipPath(library, eventKey);
+  if (!clipPath) {
+    await fallback();
+    return;
+  }
+  await playStaticMissionControlClip(clipPath, "Configured Mission Control audio clip failed to play.");
+}
+
+async function playMissionControlConfiguredLaunchClip(library: AudioLibraryResponse | null, clipIndex: number): Promise<void> {
+  await playConfiguredMissionControlClip(library, "mission_control.launch", () => playMissionControlPromptAwayClip(clipIndex));
+}
+
+async function playMissionControlConfiguredJurorResearchCompleteClip(library: AudioLibraryResponse | null): Promise<void> {
+  await playConfiguredMissionControlClip(library, "terminal.ready.juror_research", playMissionControlJurorResearchCompleteClip);
+}
+
+async function playMissionControlConfiguredDevTaskCompleteClip(library: AudioLibraryResponse | null): Promise<void> {
+  await playConfiguredMissionControlClip(library, "terminal.ready.dev_task", playMissionControlDevTaskCompleteClip);
+}
+
+async function playMissionControlConfiguredDefaultReadyClip(library: AudioLibraryResponse | null): Promise<void> {
+  await playConfiguredMissionControlClip(library, "terminal.ready.default", playMissionControlDoneDing);
+}
+
+async function playMissionControlConfiguredTeamTaskCompleteClip(
+  library: AudioLibraryResponse | null,
+  boardSlug: string,
+  assignee?: string | null,
+): Promise<void> {
+  const memberEventKey = teamMemberTaskCompleteAudioEventKey(boardSlug, assignee);
+  const memberClipPath = memberEventKey ? configuredAudioClipPath(library, memberEventKey) : null;
+  if (memberClipPath) {
+    await playStaticMissionControlClip(memberClipPath, "Configured Mission Control team-member audio clip failed to play.");
+    return;
+  }
+  await playConfiguredMissionControlClip(
+    library,
+    teamTaskCompleteAudioEventKey(boardSlug),
+    () => playMissionControlConfiguredDefaultReadyClip(library),
+  );
+}
+
+async function playMissionControlConfiguredReviewClip(library: AudioLibraryResponse | null): Promise<void> {
+  await playConfiguredMissionControlClip(library, "terminal.review", playMissionControlApprovalDing);
+}
+
+async function playMissionControlJurorResearchCompleteClip(): Promise<void> {
+  const clipIndex = nextMissionControlJurorResearchCompleteClipIndex();
+  const clipPath = MISSION_CONTROL_JUROR_RESEARCH_COMPLETE_CLIPS[
+    clipIndex % MISSION_CONTROL_JUROR_RESEARCH_COMPLETE_CLIPS.length
+  ] ?? "/audio/juror-research-complete/juror-research-complete-1.mp3";
+  await playStaticMissionControlClip(clipPath, "Juror research complete clip failed to play.");
+}
+
+async function playMissionControlDevTaskCompleteClip(): Promise<void> {
+  const clipIndex = nextMissionControlDevTaskCompleteClipIndex();
+  const clipPath = MISSION_CONTROL_DEV_TASK_COMPLETE_CLIPS[
+    clipIndex % MISSION_CONTROL_DEV_TASK_COMPLETE_CLIPS.length
+  ] ?? "/audio/dev-task-complete/dev-task-complete-1.mp3";
+  await playStaticMissionControlClip(clipPath, "Dev task complete clip failed to play.");
+}
+
+function isJurorResearchOperationsItem(item: OperationsItem): boolean {
+  const marker = `${item.title} ${item.detail} ${item.meta} ${item.projectPath ?? ""} ${item.currentTask?.title ?? ""} ${item.currentTask?.body ?? ""}`.toLowerCase();
+  return marker.includes("juror");
+}
+
+function isDevTaskOperationsItem(item: OperationsItem): boolean {
+  const marker = `${item.title} ${item.detail} ${item.meta} ${item.projectPath ?? ""} ${item.currentTask?.title ?? ""} ${item.currentTask?.body ?? ""}`.toLowerCase();
+  return marker.includes("/users/roryavant/dev")
+    || marker.includes(" dev · ")
+    || marker.includes("hermes-team-ui")
+    || marker.includes("mission control");
+}
+
 function terminalAnnouncementSubject(item: OperationsItem): string {
   const marker = `${item.title} ${item.detail} ${item.meta}`.toLowerCase();
-  if (marker.includes("juror")) return "Juror Research task";
+  if (isJurorResearchOperationsItem(item)) return "Juror Research task";
   if (marker.includes("hermes-team-ui") || marker.includes("hermes team ui") || marker.includes("mission control")) {
     return "Hermes Team UI task";
   }
@@ -1401,19 +1579,14 @@ function missionTaskStatusSnapshot(data: LoadState): Map<string, string> {
   return new Map(allTasks(data).map((task) => [`${task.boardSlug}:${task.id}`, task.status]));
 }
 
-function missionTaskDoneAnnouncements(data: LoadState, previousStatuses: Map<string, string> | null): string[] {
+function missionTaskDoneTasks(data: LoadState, previousStatuses: Map<string, string> | null): MissionTask[] {
   if (!previousStatuses) return [];
   return allTasks(data)
     .filter((task) => {
       const previous = previousStatuses.get(`${task.boardSlug}:${task.id}`);
       return task.status === "done" && previous !== undefined && previous !== "done";
     })
-    .slice(0, 2)
-    .map((task) => {
-      const owner = task.assignee?.trim() || task.boardName;
-      const title = task.title || task.id;
-      return `Mission Control: ${owner} finished ${title}.`;
-    });
+    .slice(0, 2);
 }
 
 function liveActivityByProfile(data: LoadState): Map<string, MissionControlActivity> {
@@ -2685,7 +2858,7 @@ function ActiveOperationsBoard({
                               const buildFinalResearchOutputElement = () => (
                                 <span className="flex items-center">
                                   <span
-                                    className={cn("relative flex w-40 shrink-0 self-stretch items-center justify-center", finalOutputIsNew ? "text-[#ff3d00]/80" : "text-[#ff3d00]/60")}
+                                    className={cn("relative flex w-20 shrink-0 self-stretch items-center justify-center", finalOutputIsNew ? "text-[#ff3d00]/80" : "text-[#ff3d00]/60")}
                                     aria-hidden="true"
                                   >
                                     <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/30" />
@@ -2904,19 +3077,19 @@ function ActiveOperationsBoard({
                                   )}
 
                                   {isExpanded && (
-                                    <div className="overflow-x-auto overflow-y-visible px-3 py-4">
-                                      <div className="flex min-w-max items-center justify-start gap-y-2 pr-8">
+                                    <div className="flex flex-col items-center gap-4 overflow-hidden px-3 py-4">
+                                      <div className="flex max-w-full flex-wrap items-center justify-center gap-y-2">
                                         {orchestratorItem && (() => {
                                           const orch = orchestratorItem;
                                           const orchTc = toneColors[orch.tone] ?? toneColors.ready;
                                           return (
-                                            <span className="flex shrink-0 items-center">
+                                            <span className="flex items-center">
                                               <span className="flex flex-col items-center">
                                                 {buildLightElement(orch, { size: "xl", rowLabel: row.label })}
                                                 <span className="mt-1 font-mono-ui text-[0.48rem] uppercase tracking-[0.12em] text-muted-foreground">lead</span>
                                               </span>
                                               <span
-                                                className={cn("relative flex w-48 shrink-0 self-stretch items-center justify-center", orchTc.wire)}
+                                                className={cn("relative flex w-24 shrink-0 self-stretch items-center justify-center", orchTc.wire)}
                                                 aria-hidden="true"
                                               >
                                                 <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
@@ -2927,7 +3100,7 @@ function ActiveOperationsBoard({
                                           );
                                         })()}
 
-                                        <div className="flex shrink-0 items-center justify-start gap-y-3">
+                                        <div className="flex flex-wrap items-center justify-center gap-y-3">
                                           {workflowStages.map((stage, index, stages) => {
                                             const isLastStage = index === stages.length - 1;
                                             const shouldShowStageWire = !isLastStage || showsFinalResearchOutput;
@@ -2954,7 +3127,7 @@ function ActiveOperationsBoard({
                                                     // Fan SVG starts at py-1=4px, so midY (SVG coords) = (totalH/2+4) - 4 = totalH/2. ✓
                                                     const midY = totalH / 2;
                                                     const centers = Array.from({ length: n }, (_, i) => i * (nodeH + gapH) + nodeH / 2);
-                                                    const fanW = 128;
+                                                    const fanW = 64;
                                                     // Color each fan branch by the node it serves so a single active parallel worker
                                                     // lights only its own diagonals instead of tinting every branch.
                                                     const animBranchIndexes = n <= 2 ? centers.map((_, i) => i) : [0, n - 1];
@@ -3036,7 +3209,7 @@ function ActiveOperationsBoard({
                                                 </span>
                                                 {shouldShowStageWire && (
                                                   <span
-                                                    className={cn("relative flex w-48 shrink-0 self-stretch items-center justify-center", tc.wire)}
+                                                    className={cn("relative flex w-24 shrink-0 self-stretch items-center justify-center", tc.wire)}
                                                     aria-hidden="true"
                                                   >
                                                     <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/25" />
@@ -3313,14 +3486,16 @@ function EmptySignal({
 
 export default function MissionControlPage() {
   const [data, setData] = useState<LoadState>(emptyState);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [spotlight, setSpotlight] = useState({ x: 72, y: 18 });
   const [selectedMetric, setSelectedMetric] = useState("gateway");
   const [soundSettings, setSoundSettings] = useState<MissionControlSoundSettings>(() => readCachedSoundSettings());
+  const [audioLibrary, setAudioLibrary] = useState<AudioLibraryResponse | null | undefined>(undefined);
   const [soundVisual, setSoundVisual] = useState<MissionSoundVisualState>({ active: false, label: "Audio playing" });
   const soundVisualTimerRef = useRef<number | null>(null);
+  const soundPlaybackQueueRef = useRef<Promise<void>>(Promise.resolve());
   const previousTerminalTonesRef = useRef<Map<string, ReadinessTone> | null>(null);
   const previousTaskStatusesRef = useRef<Map<string, string> | null>(null);
   const currentTerminalReviewIdsRef = useRef<Set<string>>(new Set());
@@ -3328,7 +3503,10 @@ export default function MissionControlPage() {
   const pendingLaunchClipRef = useRef(false);
   const pendingApprovalDingRef = useRef(false);
   const pendingDoneDingRef = useRef(false);
+  const pendingJurorResearchCompleteClipRef = useRef(false);
+  const pendingDevTaskCompleteClipRef = useRef(false);
   const lastKanbanActivityRefreshRef = useRef(0);
+  const activityRefreshInFlightRef = useRef(false);
 
   const updateSoundSetting = useCallback((kind: MissionControlSoundSetting, enabled: boolean) => {
     setSoundSettings((current) => {
@@ -3360,7 +3538,7 @@ export default function MissionControlPage() {
     setSoundVisual((current) => ({ ...current, active: false }));
   }, []);
 
-  const playWithSoundVisual = useCallback(
+  const runSoundWithVisual = useCallback(
     async (
       label: string,
       fallbackDurationMs: number,
@@ -3381,10 +3559,13 @@ export default function MissionControlPage() {
           setSoundVisual((current) => ({ ...current, active: false }));
           soundVisualTimerRef.current = null;
         } else {
-          soundVisualTimerRef.current = window.setTimeout(() => {
-            setSoundVisual((current) => ({ ...current, active: false }));
-            soundVisualTimerRef.current = null;
-          }, remainingMs);
+          await new Promise<void>((resolve) => {
+            soundVisualTimerRef.current = window.setTimeout(() => {
+              setSoundVisual((current) => ({ ...current, active: false }));
+              soundVisualTimerRef.current = null;
+              resolve();
+            }, remainingMs);
+          });
         }
       } catch (error) {
         if (soundVisualTimerRef.current !== null) {
@@ -3398,6 +3579,21 @@ export default function MissionControlPage() {
     [beginSoundVisual],
   );
 
+  const playWithSoundVisual = useCallback(
+    (
+      label: string,
+      fallbackDurationMs: number,
+      player: () => Promise<{ duration_seconds?: number } | void>,
+    ) => {
+      const queuedPlayback = soundPlaybackQueueRef.current
+        .catch(() => undefined)
+        .then(() => runSoundWithVisual(label, fallbackDurationMs, player));
+      soundPlaybackQueueRef.current = queuedPlayback.catch(() => undefined);
+      return queuedPlayback;
+    },
+    [runSoundWithVisual],
+  );
+
   useEffect(() => () => {
     if (soundVisualTimerRef.current !== null) {
       window.clearTimeout(soundVisualTimerRef.current);
@@ -3405,6 +3601,8 @@ export default function MissionControlPage() {
   }, []);
 
   const loadActivity = useCallback(async () => {
+    if (activityRefreshInFlightRef.current) return;
+    activityRefreshInFlightRef.current = true;
     try {
       const activity = await api.getMissionControlActivity({ timeoutMs: MISSION_CONTROL_ACTIVITY_TIMEOUT_MS });
       const activeTeamIds = new Set(
@@ -3446,6 +3644,8 @@ export default function MissionControlPage() {
     } catch {
       setError("Mission-control live activity failed to load.");
       setLoading(false);
+    } finally {
+      activityRefreshInFlightRef.current = false;
     }
   }, []);
 
@@ -3453,12 +3653,13 @@ export default function MissionControlPage() {
     setRefreshing(true);
     setError(null);
     const timeout = { timeoutMs: MISSION_CONTROL_FULL_SOURCE_TIMEOUT_MS };
-    const [status, sessions, cronJobs, profiles, kanbanBoards] = await Promise.allSettled([
+    const [status, sessions, cronJobs, profiles, kanbanBoards, audioLibraryResult] = await Promise.allSettled([
       api.getStatus(timeout),
       api.getSessions(30, 0, timeout),
       api.getCronJobs("all", timeout),
       api.getProfiles(timeout),
       api.getKanbanBoards(timeout),
+      api.getAudioLibrary(timeout),
     ]);
 
     const boardMetas = kanbanBoards.status === "fulfilled" ? kanbanBoards.value.boards : [];
@@ -3489,6 +3690,7 @@ export default function MissionControlPage() {
       activity: previous.activity,
       kanbanUnavailable: kanbanBoards.status === "rejected" || (boardMetas.length > 0 && Object.keys(kanbanByBoard).length === 0),
     }));
+    setAudioLibrary(audioLibraryResult.status === "fulfilled" ? audioLibraryResult.value : null);
     const hardFailures = [status, sessions, cronJobs, profiles].filter(
       (result) => result.status === "rejected",
     );
@@ -3507,17 +3709,17 @@ export default function MissionControlPage() {
   }, [load, loadActivity]);
 
   useEffect(() => {
-    if (launchClipPlayedRef.current || !soundSettings.launchClip) return;
+    if (audioLibrary === undefined || launchClipPlayedRef.current || !soundSettings.launchClip) return;
     launchClipPlayedRef.current = true;
     void playWithSoundVisual(
       "Prompt-away clip",
       5200,
-      () => playMissionControlPromptAwayClip(nextMissionControlPromptAwayClipIndex()),
-    ).catch(() => {
+      () => playMissionControlConfiguredLaunchClip(audioLibrary ?? null, nextMissionControlPromptAwayClipIndex()),
       // Browsers can block page-load audio before user activation. Try once on the next gesture.
+    ).catch(() => {
       pendingLaunchClipRef.current = true;
     });
-  }, [playWithSoundVisual, soundSettings.launchClip]);
+  }, [audioLibrary, playWithSoundVisual, soundSettings.launchClip]);
 
   useEffect(() => {
     const refreshVisible = () => {
@@ -3613,8 +3815,26 @@ export default function MissionControlPage() {
 
   useEffect(() => {
     const previousStatuses = previousTaskStatusesRef.current;
-    const announcements = missionTaskDoneAnnouncements(data, previousStatuses);
+    const doneTasks = missionTaskDoneTasks(data, previousStatuses);
+    const announcements = doneTasks.map((task) => {
+      const owner = task.assignee?.trim() || task.boardName;
+      const title = task.title || task.id;
+      return `Mission Control: ${owner} finished ${title}.`;
+    });
     previousTaskStatusesRef.current = missionTaskStatusSnapshot(data);
+
+    if (soundSettings.done && doneTasks.length > 0) {
+      for (const task of doneTasks) {
+        void playWithSoundVisual(
+          `${task.boardName || task.boardSlug} task complete`,
+          5200,
+          () => playMissionControlConfiguredTeamTaskCompleteClip(audioLibrary ?? null, task.boardSlug, task.assignee),
+        ).catch(() => {
+          void playWithSoundVisual("Done tone", 1300, () => playMissionControlConfiguredDefaultReadyClip(audioLibrary ?? null)).catch(() => undefined);
+        });
+      }
+    }
+
     if (!soundSettings.announce || announcements.length === 0) return;
 
     for (const announcement of announcements) {
@@ -3624,7 +3844,7 @@ export default function MissionControlPage() {
         }
       });
     }
-  }, [data, playWithSoundVisual, soundSettings.announce, soundSettings.done]);
+  }, [audioLibrary, data, playWithSoundVisual, soundSettings.announce, soundSettings.done]);
 
   useEffect(() => {
     const previousTones = previousTerminalTonesRef.current;
@@ -3635,21 +3855,54 @@ export default function MissionControlPage() {
     const hasNewReviewLight = [...terminalTones].some(
       ([id, tone]) => tone === "review" && previousTones?.get(id) !== "review",
     );
-    const hasNewReadyLight = [...terminalTones].some(([id, tone]) => {
-      const previousTone = previousTones?.get(id);
-      return tone === "ready" && (previousTone === "working" || previousTone === "review");
-    });
+    const readyEntries = [...terminalTones]
+      .filter(([, tone]) => tone === "ready")
+      .filter(([id]) => {
+        const previousTone = previousTones?.get(id);
+        return previousTone === "working" || previousTone === "review";
+      })
+      .map(([id]) => terminalItemsById.get(id))
+      .filter((item): item is OperationsItem => Boolean(item));
+    const hasNewReadyLight = readyEntries.length > 0;
+    const hasNewJurorResearchReadyLight = readyEntries.some(isJurorResearchOperationsItem);
+    const hasNewDevTaskReadyLight = readyEntries.some((item) => !isJurorResearchOperationsItem(item) && isDevTaskOperationsItem(item));
 
     if (hasNewReviewLight && soundSettings.approval) {
-      void playWithSoundVisual("Approval tone", 1500, playMissionControlApprovalDing).catch(() => {
+      void playWithSoundVisual(
+        "Approval tone",
+        1500,
+        () => playMissionControlConfiguredReviewClip(audioLibrary ?? null),
+      ).catch(() => {
         // Browsers can block audio before user activation. Retry once the user next clicks/presses a key.
         pendingApprovalDingRef.current = true;
       });
     }
     if (hasNewReadyLight && soundSettings.done) {
-      void playWithSoundVisual("Done tone", 1300, playMissionControlDoneDing).catch(() => {
-        pendingDoneDingRef.current = true;
-      });
+      if (hasNewJurorResearchReadyLight) {
+        void playWithSoundVisual(
+          "Juror research complete",
+          10_500,
+          () => playMissionControlConfiguredJurorResearchCompleteClip(audioLibrary ?? null),
+        ).catch(() => {
+          pendingJurorResearchCompleteClipRef.current = true;
+        });
+      } else if (hasNewDevTaskReadyLight) {
+        void playWithSoundVisual(
+          "Dev task complete",
+          5200,
+          () => playMissionControlConfiguredDevTaskCompleteClip(audioLibrary ?? null),
+        ).catch(() => {
+          pendingDevTaskCompleteClipRef.current = true;
+        });
+      } else {
+        void playWithSoundVisual(
+          "Done tone",
+          1300,
+          () => playMissionControlConfiguredDefaultReadyClip(audioLibrary ?? null),
+        ).catch(() => {
+          pendingDoneDingRef.current = true;
+        });
+      }
     }
     if (soundSettings.terminalAnnounce && previousTones) {
       const announcements = [...terminalTones]
@@ -3684,7 +3937,7 @@ export default function MissionControlPage() {
         });
       }
     }
-  }, [playWithSoundVisual, soundSettings.approval, soundSettings.done, soundSettings.terminalAnnounce, terminalItemsById, terminalReviewIds, terminalTones]);
+  }, [audioLibrary, playWithSoundVisual, soundSettings.approval, soundSettings.done, soundSettings.terminalAnnounce, terminalItemsById, terminalReviewIds, terminalTones]);
 
   useEffect(() => {
     const playPendingDing = () => {
@@ -3693,14 +3946,42 @@ export default function MissionControlPage() {
       });
       if (pendingApprovalDingRef.current && soundSettings.approval && currentTerminalReviewIdsRef.current.size > 0) {
         pendingApprovalDingRef.current = false;
-        void playWithSoundVisual("Approval tone", 1500, playMissionControlApprovalDing).catch(() => {
+        void playWithSoundVisual(
+          "Approval tone",
+          1500,
+          () => playMissionControlConfiguredReviewClip(audioLibrary ?? null),
+        ).catch(() => {
           pendingApprovalDingRef.current = true;
         });
       }
       if (pendingDoneDingRef.current && soundSettings.done) {
         pendingDoneDingRef.current = false;
-        void playWithSoundVisual("Done tone", 1300, playMissionControlDoneDing).catch(() => {
+        void playWithSoundVisual(
+          "Done tone",
+          1300,
+          () => playMissionControlConfiguredDefaultReadyClip(audioLibrary ?? null),
+        ).catch(() => {
           pendingDoneDingRef.current = true;
+        });
+      }
+      if (pendingJurorResearchCompleteClipRef.current && soundSettings.done) {
+        pendingJurorResearchCompleteClipRef.current = false;
+        void playWithSoundVisual(
+          "Juror research complete",
+          10_500,
+          () => playMissionControlConfiguredJurorResearchCompleteClip(audioLibrary ?? null),
+        ).catch(() => {
+          pendingJurorResearchCompleteClipRef.current = true;
+        });
+      }
+      if (pendingDevTaskCompleteClipRef.current && soundSettings.done) {
+        pendingDevTaskCompleteClipRef.current = false;
+        void playWithSoundVisual(
+          "Dev task complete",
+          5200,
+          () => playMissionControlConfiguredDevTaskCompleteClip(audioLibrary ?? null),
+        ).catch(() => {
+          pendingDevTaskCompleteClipRef.current = true;
         });
       }
       if (pendingLaunchClipRef.current && soundSettings.launchClip) {
@@ -3708,7 +3989,7 @@ export default function MissionControlPage() {
         void playWithSoundVisual(
           "Prompt-away clip",
           5200,
-          () => playMissionControlPromptAwayClip(nextMissionControlPromptAwayClipIndex()),
+          () => playMissionControlConfiguredLaunchClip(audioLibrary ?? null, nextMissionControlPromptAwayClipIndex()),
         ).catch(() => {
           pendingLaunchClipRef.current = true;
         });
@@ -3720,18 +4001,7 @@ export default function MissionControlPage() {
       window.removeEventListener("pointerdown", playPendingDing);
       window.removeEventListener("keydown", playPendingDing);
     };
-  }, [playWithSoundVisual, soundSettings.approval, soundSettings.done, soundSettings.launchClip]);
-
-  if (loading) {
-    return (
-      <div className="relative flex min-h-[60vh] items-center justify-center overflow-hidden border border-[#ff3d00]/20 bg-[#030303]">
-        <div className="relative flex flex-col items-center gap-3 text-muted-foreground">
-          <Spinner className="text-3xl text-primary" />
-          <p className="font-mondwest text-display text-xs uppercase tracking-[0.18em]">Booting mission control</p>
-        </div>
-      </div>
-    );
-  }
+  }, [audioLibrary, playWithSoundVisual, soundSettings.approval, soundSettings.done, soundSettings.launchClip]);
 
   return (
     <div className="mission-control-surface relative isolate flex flex-col gap-5">

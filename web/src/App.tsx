@@ -38,6 +38,7 @@ import {
   LayoutGrid,
   Menu,
   MessageSquare,
+  Music2,
   Network,
   Package,
   PanelLeftClose,
@@ -85,6 +86,7 @@ import LogsPage from "@/pages/LogsPage";
 import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 import LaunchpadPage from "@/pages/LaunchpadPage";
 import MarketingPage from "@/pages/MarketingPage";
+import AudioLibraryPage from "@/pages/AudioLibraryPage";
 import MissionControlPage from "@/pages/MissionControlPage";
 import ReposPage from "@/pages/ReposPage";
 import RemindersPage from "@/pages/RemindersPage";
@@ -150,6 +152,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/knowledge-base": KnowledgeBasePage,
   "/launchpad": LaunchpadPage,
   "/marketing": MarketingPage,
+  "/audio-library": AudioLibraryPage,
   "/research": ResearchPage,
   "/mission-control": MissionControlPage,
   "/repos": ReposPage,
@@ -212,6 +215,11 @@ const BUILTIN_NAV_REST: NavItem[] = [
     labelKey: "marketing",
     label: "Marketing",
     icon: Sparkles,
+  },
+  {
+    path: "/audio-library",
+    label: "Audio Library",
+    icon: Music2,
   },
   {
     path: "/research",
@@ -281,6 +289,7 @@ const PRIMARY_DASHBOARD_TAB_PATHS = new Set([
   "/team",
   "/knowledge-base",
   "/marketing",
+  "/audio-library",
   "/research",
   "/repos",
   "/reminders",
@@ -300,6 +309,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   KeyRound,
   LayoutGrid,
   MessageSquare,
+  Music2,
   Network,
   Package,
   Settings,

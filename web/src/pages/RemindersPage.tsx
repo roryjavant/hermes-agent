@@ -41,11 +41,14 @@ interface ReminderFormState {
   notes: string;
   due_at: string;
   priority: boolean;
+  category: ReminderCategory;
 }
+
+type ReminderCategory = "work" | "other";
 
 type ReminderTone = "overdue" | "soon" | "upcoming" | "none" | "done";
 
-const EMPTY_FORM: ReminderFormState = { title: "", notes: "", due_at: "", priority: false };
+const EMPTY_FORM: ReminderFormState = { title: "", notes: "", due_at: "", priority: false, category: "work" };
 
 const TONE_META: Record<ReminderTone, { label: string; className: string; glow: string; textClassName: string; icon: typeof CircleDot }> = {
   overdue: {
@@ -108,6 +111,10 @@ function toInputDateTime(value: string | null): string {
   if (Number.isNaN(date.getTime())) return "";
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function reminderCategory(reminder: ReminderItem): ReminderCategory {
+  return reminder.category === "other" ? "other" : "work";
 }
 
 function SummaryPill({ label, value, tone }: { label: string; value: number; tone: string }) {
@@ -189,6 +196,17 @@ function ReminderRow({
               className="min-h-20 rounded-xl border border-border/70 bg-background-base/70 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-midground/70"
               placeholder="Notes"
             />
+            <label className="grid gap-1 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground">
+              Section
+              <select
+                value={editForm.category}
+                onChange={(event) => onChangeEdit({ ...editForm, category: event.target.value as ReminderCategory })}
+                className="rounded-xl border border-border/70 bg-background-base/70 px-3 py-2 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] text-foreground outline-none focus:border-midground/70"
+              >
+                <option value="work">Work</option>
+                <option value="other">Everything else</option>
+              </select>
+            </label>
             <label className="inline-flex w-fit items-center gap-2 rounded-xl border border-warning/35 bg-warning/10 px-3 py-2 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] text-warning">
               <input type="checkbox" checked={editForm.priority} onChange={(event) => onChangeEdit({ ...editForm, priority: event.target.checked })} />
               Priority !
@@ -357,9 +375,20 @@ export default function RemindersPage() {
 
   const sortedReminders = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const filtered = needle ? reminders.filter((item) => `${item.title} ${item.notes} ${item.due_at ?? ""}`.toLowerCase().includes(needle)) : reminders;
+    const filtered = needle
+      ? reminders.filter((item) => `${item.title} ${item.notes} ${item.due_at ?? ""} ${reminderCategory(item) === "work" ? "work" : "everything else other"}`.toLowerCase().includes(needle))
+      : reminders;
     return [...filtered].sort((a, b) => a.order_index - b.order_index || a.created_at.localeCompare(b.created_at) || a.title.localeCompare(b.title));
   }, [query, reminders]);
+
+  const remindersByCategory = useMemo(() => {
+    const work = sortedReminders.filter((item) => reminderCategory(item) === "work");
+    const other = sortedReminders.filter((item) => reminderCategory(item) === "other");
+    return [
+      { key: "work" as const, title: "Work", description: "Job, client, deployment, and team follow-ups.", reminders: work },
+      { key: "other" as const, title: "Everything else", description: "Personal, household, errands, and non-work reminders.", reminders: other },
+    ];
+  }, [sortedReminders]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -406,7 +435,7 @@ export default function RemindersPage() {
     setSaving(true);
     setError(null);
     try {
-      const result = await api.createReminder({ title: form.title, notes: form.notes, due_at: form.due_at || null, priority: form.priority });
+      const result = await api.createReminder({ title: form.title, notes: form.notes, due_at: form.due_at || null, priority: form.priority, category: form.category });
       setReminders((prev) => [...prev, result.reminder]);
       setForm(EMPTY_FORM);
     } catch (err) {
@@ -418,14 +447,14 @@ export default function RemindersPage() {
 
   const startEdit = (reminder: ReminderItem) => {
     setEditingId(reminder.id);
-    setEditForm({ title: reminder.title, notes: reminder.notes, due_at: toInputDateTime(reminder.due_at), priority: reminder.priority });
+    setEditForm({ title: reminder.title, notes: reminder.notes, due_at: toInputDateTime(reminder.due_at), priority: reminder.priority, category: reminderCategory(reminder) });
   };
 
   const saveEdit = async (reminder: ReminderItem) => {
     setBusyId(reminder.id);
     setError(null);
     try {
-      const result = await api.updateReminder(reminder.id, { title: editForm.title, notes: editForm.notes, due_at: editForm.due_at || null, priority: editForm.priority });
+      const result = await api.updateReminder(reminder.id, { title: editForm.title, notes: editForm.notes, due_at: editForm.due_at || null, priority: editForm.priority, category: editForm.category });
       setReminders((prev) => prev.map((item) => (item.id === reminder.id ? result.reminder : item)));
       setEditingId(null);
     } catch (err) {
@@ -506,7 +535,7 @@ export default function RemindersPage() {
       </section>
 
       <section className="rounded-3xl border border-border/70 bg-background-base/35 p-4 shadow-2xl shadow-black/10">
-        <div className="grid gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(12rem,0.8fr)_minmax(9rem,0.45fr)_auto] lg:items-start">
+        <div className="grid gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(12rem,0.75fr)_minmax(9rem,0.45fr)_minmax(9rem,0.45fr)_auto] lg:items-start">
           <div className="grid gap-2">
             <input
               value={form.title}
@@ -527,6 +556,15 @@ export default function RemindersPage() {
             onChange={(event) => setForm({ ...form, due_at: event.target.value })}
             className="rounded-xl border border-border/70 bg-card/70 px-3 py-2 font-mono-ui text-sm text-foreground outline-none focus:border-midground/70"
           />
+          <select
+            value={form.category}
+            onChange={(event) => setForm({ ...form, category: event.target.value as ReminderCategory })}
+            aria-label="Reminder section"
+            className="min-h-10 rounded-xl border border-border/70 bg-card/70 px-3 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] text-foreground outline-none focus:border-midground/70"
+          >
+            <option value="work">Work</option>
+            <option value="other">Everything else</option>
+          </select>
           <label className={cn("inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border px-3 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em]", form.priority ? "border-warning/55 bg-warning/15 text-warning" : "border-border/70 bg-card/70 text-muted-foreground")}>
             <input type="checkbox" checked={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.checked })} />
             Priority !
@@ -561,22 +599,37 @@ export default function RemindersPage() {
           </div>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => void reorderReminders(event)}>
             <SortableContext items={sortedReminders.map((item) => item.id)} strategy={verticalListSortingStrategy}>
-              {sortedReminders.map((reminder) => (
-                <SortableReminderRow
-                  key={reminder.id}
-                  reminder={reminder}
-                  editing={editingId === reminder.id}
-                  editForm={editForm}
-                  busy={busyId === reminder.id}
-                  sortableDisabled={Boolean(query.trim())}
-                  onToggle={() => void toggleReminder(reminder)}
-                  onEdit={() => startEdit(reminder)}
-                  onChangeEdit={setEditForm}
-                  onSave={() => void saveEdit(reminder)}
-                  onCancel={() => setEditingId(null)}
-                  onDelete={() => void deleteReminder(reminder)}
-                  onPriorityToggle={() => void toggleReminderPriority(reminder)}
-                />
+              {remindersByCategory.map((section) => (
+                <div key={section.key} className="border-b border-border/60 last:border-b-0">
+                  <div className="flex flex-col gap-1 border-b border-border/50 bg-background-base/55 px-4 py-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <h2 className="font-expanded text-sm font-black uppercase tracking-[0.16em] text-foreground">{section.title}</h2>
+                      <p className="mt-1 text-xs text-muted-foreground">{section.description}</p>
+                    </div>
+                    <span className="font-mono-ui text-xs uppercase tracking-[0.14em] text-muted-foreground">{section.reminders.length} reminders</span>
+                  </div>
+                  {section.reminders.length > 0 ? (
+                    section.reminders.map((reminder) => (
+                      <SortableReminderRow
+                        key={reminder.id}
+                        reminder={reminder}
+                        editing={editingId === reminder.id}
+                        editForm={editForm}
+                        busy={busyId === reminder.id}
+                        sortableDisabled={Boolean(query.trim())}
+                        onToggle={() => void toggleReminder(reminder)}
+                        onEdit={() => startEdit(reminder)}
+                        onChangeEdit={setEditForm}
+                        onSave={() => void saveEdit(reminder)}
+                        onCancel={() => setEditingId(null)}
+                        onDelete={() => void deleteReminder(reminder)}
+                        onPriorityToggle={() => void toggleReminderPriority(reminder)}
+                      />
+                    ))
+                  ) : (
+                    <div className="px-4 py-5 text-sm text-muted-foreground">No {section.title.toLowerCase()} reminders.</div>
+                  )}
+                </div>
               ))}
             </SortableContext>
           </DndContext>

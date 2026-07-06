@@ -74,6 +74,8 @@ const PROFILE_SCOPED_PREFIXES = [
   "/api/model/set",
   "/api/model/auxiliary",
   "/api/model/options",
+  "/api/audio/elevenlabs",
+  "/api/audio-library",
 ];
 
 function withManagementProfile(url: string): string {
@@ -275,6 +277,7 @@ export async function authedFetch(
   url: string,
   init?: RequestInit,
 ): Promise<Response> {
+  url = withManagementProfile(url);
   const headers = new Headers(init?.headers);
   const token = window.__HERMES_SESSION_TOKEN__;
   if (token) {
@@ -334,6 +337,40 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, kind }),
+    }, options),
+  getAudioLibrary: (options?: FetchJSONOptions) =>
+    fetchJSON<AudioLibraryResponse>("/api/audio-library", undefined, options),
+  getAudioLibraryQuota: (options?: FetchJSONOptions) =>
+    fetchJSON<AudioLibraryQuotaResponse>("/api/audio-library/quota", undefined, options),
+  getElevenLabsVoices: (options?: FetchJSONOptions) =>
+    fetchJSON<AudioLibraryVoicesResponse>("/api/audio/elevenlabs/voices", undefined, options),
+  previewAudioLibraryVoice: (payload: AudioLibraryPreviewRequest, options?: FetchJSONOptions) =>
+    fetchJSON<AudioLibraryPreviewResponse>("/api/audio-library/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  generateAudioLibraryAsset: (payload: AudioLibraryGenerateRequest, options?: FetchJSONOptions) =>
+    fetchJSON<AudioLibraryMutationResponse>("/api/audio-library/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  importAudioLibraryAsset: (payload: AudioLibraryImportRequest, options?: FetchJSONOptions) =>
+    fetchJSON<AudioLibraryMutationResponse>("/api/audio-library/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  updateAudioLibraryMapping: (payload: AudioLibraryMappingUpdate, options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean; library: AudioLibraryResponse }>("/api/audio-library/mappings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  deleteAudioLibraryAsset: (assetId: string, options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean; asset_id: string; library: AudioLibraryResponse }>(`/api/audio-library/assets/${encodeURIComponent(assetId)}`, {
+      method: "DELETE",
     }, options),
   getDevRepos: (fetch = false, options?: FetchJSONOptions) => {
     const qs = fetch ? "?fetch=true" : "";
@@ -1484,6 +1521,115 @@ export interface MissionControlProfileMessageResponse {
   created_base?: KnowledgeBaseSummary | null;
 }
 
+export interface AudioLibraryAsset {
+  id: string;
+  name: string;
+  category: string;
+  tags: string[];
+  source: string;
+  kind?: "voice" | "music" | string;
+  event_key?: string;
+  file_path: string;
+  url: string;
+  exists: boolean;
+  bytes?: number;
+  duration_seconds?: number | null;
+  text?: string;
+  voice_id?: string;
+  model_id?: string;
+  music_length_ms?: number | null;
+  voice_settings?: Record<string, unknown>;
+  created_at?: string;
+}
+
+export interface AudioLibraryEvent {
+  key: string;
+  label: string;
+  description: string;
+}
+
+export interface AudioLibraryMapping {
+  asset_id?: string;
+  enabled?: boolean;
+}
+
+export interface AudioLibraryResponse {
+  assets: AudioLibraryAsset[];
+  events: AudioLibraryEvent[];
+  mappings: Record<string, AudioLibraryMapping>;
+  root: string;
+}
+
+export interface AudioLibraryVoice {
+  voice_id: string;
+  name: string;
+  label: string;
+  preview_url?: string;
+}
+
+export interface AudioLibraryVoicesResponse {
+  available: boolean;
+  voices: AudioLibraryVoice[];
+}
+
+export interface AudioLibraryGenerateRequest {
+  name: string;
+  text: string;
+  kind?: "voice" | "music";
+  category?: string;
+  tags?: string[];
+  event_key?: string;
+  voice_id?: string;
+  model_id?: string;
+  music_length_ms?: number;
+  stability?: number;
+  similarity_boost?: number;
+  style?: number;
+  speed?: number;
+  use_speaker_boost?: boolean;
+}
+
+export type AudioLibraryPreviewRequest = Omit<AudioLibraryGenerateRequest, "name" | "category" | "tags" | "event_key">;
+
+export interface AudioLibraryPreviewResponse {
+  ok: boolean;
+  mime_type: string;
+  data_url: string;
+}
+
+export interface AudioLibraryImportRequest {
+  name: string;
+  source_path: string;
+  category?: string;
+  tags?: string[];
+  event_key?: string;
+}
+
+export interface AudioLibraryMappingUpdate {
+  event_key: string;
+  asset_id?: string | null;
+  enabled?: boolean;
+}
+
+export interface AudioLibraryMutationResponse {
+  ok: boolean;
+  asset: AudioLibraryAsset;
+  library: AudioLibraryResponse;
+}
+
+export interface AudioLibraryQuotaResponse {
+  ok: boolean;
+  subscription: {
+    tier?: string;
+    character_count?: number;
+    character_limit?: number;
+    next_character_count_reset_unix?: number;
+    can_extend_character_limit?: boolean;
+    allowed_to_extend_character_limit?: boolean;
+    [key: string]: unknown;
+  };
+}
+
 export interface DebugShareResponse {
   ok: boolean;
   // label -> paste URL, e.g. { Report: "https://paste.rs/abc", "agent.log": "..." }
@@ -2070,6 +2216,8 @@ export interface DevRepoSyncResponse {
   repo: DevRepoInfo;
 }
 
+export type ReminderCategory = "work" | "other";
+
 export interface ReminderItem {
   id: string;
   title: string;
@@ -2077,6 +2225,7 @@ export interface ReminderItem {
   due_at: string | null;
   completed: boolean;
   priority: boolean;
+  category: ReminderCategory;
   order_index: number;
   created_at: string;
   updated_at: string;
@@ -2087,6 +2236,7 @@ export interface ReminderCreate {
   notes?: string;
   due_at?: string | null;
   priority?: boolean;
+  category?: ReminderCategory;
 }
 
 export interface ReminderUpdate {
@@ -2095,6 +2245,7 @@ export interface ReminderUpdate {
   due_at?: string | null;
   completed?: boolean;
   priority?: boolean;
+  category?: ReminderCategory;
 }
 
 export interface RemindersResponse {

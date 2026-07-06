@@ -100,6 +100,7 @@ class ReminderCreate(BaseModel):
     notes: str = ""
     due_at: Optional[str] = None
     priority: bool = False
+    category: str = "work"
 
 
 class ReminderUpdate(BaseModel):
@@ -108,6 +109,7 @@ class ReminderUpdate(BaseModel):
     due_at: Optional[str] = None
     completed: Optional[bool] = None
     priority: Optional[bool] = None
+    category: Optional[str] = None
 
 
 class ReminderReorder(BaseModel):
@@ -130,6 +132,48 @@ class MissionControlDingRequest(BaseModel):
 class MissionControlAnnouncementRequest(BaseModel):
     text: str
     kind: str = "done"
+
+
+class AudioLibraryGenerateRequest(BaseModel):
+    name: str
+    text: str
+    kind: str = "voice"
+    category: str = "voice"
+    tags: List[str] = []
+    event_key: Optional[str] = None
+    voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    model_id: str = "eleven_multilingual_v2"
+    music_length_ms: Optional[int] = None
+    stability: Optional[float] = None
+    similarity_boost: Optional[float] = None
+    style: Optional[float] = None
+    speed: Optional[float] = None
+    use_speaker_boost: Optional[bool] = None
+
+
+class AudioLibraryPreviewRequest(BaseModel):
+    text: str = "Testing this Mission Control voice."
+    voice_id: Optional[str] = None
+    model_id: str = "eleven_multilingual_v2"
+    stability: Optional[float] = None
+    similarity_boost: Optional[float] = None
+    style: Optional[float] = None
+    speed: Optional[float] = None
+    use_speaker_boost: Optional[bool] = None
+
+
+class AudioLibraryImportRequest(BaseModel):
+    name: str
+    source_path: str
+    category: str = "clip"
+    tags: List[str] = []
+    event_key: Optional[str] = None
+
+
+class AudioLibraryMappingUpdate(BaseModel):
+    event_key: str
+    asset_id: Optional[str] = None
+    enabled: bool = True
 
 
 class PrivateIdeaCreate(BaseModel):
@@ -3159,6 +3203,10 @@ def _write_reminders(reminders: List[Dict[str, Any]]) -> None:
     tmp.replace(path)
 
 
+def _normalize_reminder_category(value: Any) -> str:
+    return "other" if str(value or "").strip().lower() in {"other", "everything_else", "everything else", "personal"} else "work"
+
+
 def _serialize_reminder(item: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": str(item.get("id") or secrets.token_hex(8)),
@@ -3167,6 +3215,7 @@ def _serialize_reminder(item: Dict[str, Any]) -> Dict[str, Any]:
         "due_at": item.get("due_at") if item.get("due_at") else None,
         "completed": bool(item.get("completed")),
         "priority": bool(item.get("priority")),
+        "category": _normalize_reminder_category(item.get("category")),
         "order_index": int(item.get("order_index") or 0),
         "created_at": str(item.get("created_at") or _utc_now_iso()),
         "updated_at": str(item.get("updated_at") or _utc_now_iso()),
@@ -3322,6 +3371,7 @@ async def create_reminder(payload: ReminderCreate):
         "due_at": payload.due_at or None,
         "completed": False,
         "priority": bool(payload.priority),
+        "category": _normalize_reminder_category(payload.category),
         "order_index": len(reminders),
         "created_at": now,
         "updated_at": now,
@@ -3349,6 +3399,8 @@ async def update_reminder(reminder_id: str, payload: ReminderUpdate):
         reminder["completed"] = bool(updates["completed"])
     if "priority" in updates:
         reminder["priority"] = bool(updates["priority"])
+    if "category" in updates:
+        reminder["category"] = _normalize_reminder_category(updates["category"])
     reminder["updated_at"] = _utc_now_iso()
     reminders[index] = reminder
     _write_reminders(reminders)
@@ -4025,13 +4077,14 @@ def _elevenlabs_voice_label(voice: Dict[str, Any]) -> str:
 
 
 @app.get("/api/audio/elevenlabs/voices")
-async def get_elevenlabs_voices():
+async def get_elevenlabs_voices(profile: Optional[str] = None):
     """Return ElevenLabs voices when an API key is configured.
 
     The desktop UI uses this for the ``tts.elevenlabs.voice_id`` dropdown.
     Only non-secret voice metadata is returned; the API key stays server-side.
     """
-    api_key = (load_env().get("ELEVENLABS_API_KEY") or os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+    with _profile_scope(profile):
+        api_key = (load_env().get("ELEVENLABS_API_KEY") or os.environ.get("ELEVENLABS_API_KEY") or "").strip()
     if not api_key:
         return {"available": False, "voices": []}
 
@@ -4068,6 +4121,7 @@ async def get_elevenlabs_voices():
             "voice_id": voice_id,
             "name": str(voice.get("name") or voice_id),
             "label": _elevenlabs_voice_label(voice),
+            "preview_url": str(voice.get("preview_url") or ""),
         })
 
     voices.sort(key=lambda item: str(item.get("label") or "").lower())
@@ -13111,6 +13165,406 @@ def _audio_duration_seconds(path: Path) -> float | None:
             except (IndexError, ValueError):
                 return None
     return None
+
+
+_AUDIO_LIBRARY_EVENTS = [
+    {"key": "mission_control.launch", "label": "Mission Control launch clip", "description": "Played when the Mission Control launch clip toggle fires."},
+    {"key": "terminal.ready.juror_research", "label": "Juror Research terminal complete", "description": "Played when a visible Juror Research terminal/profile finishes."},
+    {"key": "terminal.ready.dev_task", "label": "Dev/Mission Control terminal complete", "description": "Played when a dev or Mission Control terminal finishes."},
+    {"key": "terminal.ready.default", "label": "Generic terminal complete", "description": "Fallback clip for other terminal completions."},
+    {"key": "terminal.review", "label": "Terminal needs approval", "description": "Played when a terminal moves into review/approval."},
+]
+def _is_team_task_complete_event_key(event_key: str) -> bool:
+    return bool(re.fullmatch(r"team\.[A-Za-z0-9_.-]+\.task_complete", event_key))
+
+
+def _known_audio_event_keys() -> set[str]:
+    return {event["key"] for event in _AUDIO_LIBRARY_EVENTS}
+
+
+def _is_known_audio_event_key(event_key: str) -> bool:
+    return event_key in _known_audio_event_keys() or _is_team_task_complete_event_key(event_key)
+
+
+_AUDIO_LIBRARY_ALLOWED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg"}
+_AUDIO_LIBRARY_BUNDLED_ASSETS = [
+    {"id": "bundled:mission-control-launch:1", "name": "Mission Control launch 1", "category": "launch", "event_key": "mission_control.launch", "url": "/audio/prompt-away/mission-control-prompt-away-1.mp3"},
+    {"id": "bundled:mission-control-launch:2", "name": "Mission Control launch 2", "category": "launch", "event_key": "mission_control.launch", "url": "/audio/prompt-away/mission-control-prompt-away-2.mp3"},
+    {"id": "bundled:mission-control-launch:3", "name": "Mission Control launch 3", "category": "launch", "event_key": "mission_control.launch", "url": "/audio/prompt-away/mission-control-prompt-away-3.mp3"},
+    {"id": "bundled:mission-control-launch:4", "name": "Mission Control launch 4", "category": "launch", "event_key": "mission_control.launch", "url": "/audio/prompt-away/mission-control-prompt-away-4.mp3"},
+    {"id": "bundled:mission-control-launch:5", "name": "Mission Control launch 5", "category": "launch", "event_key": "mission_control.launch", "url": "/audio/prompt-away/mission-control-prompt-away-5.mp3"},
+    {"id": "bundled:juror-research-complete:1", "name": "Juror Research complete 1", "category": "completion", "event_key": "terminal.ready.juror_research", "url": "/audio/juror-research-complete/juror-research-complete-1.mp3"},
+    {"id": "bundled:juror-research-complete:2", "name": "Juror Research complete 2", "category": "completion", "event_key": "terminal.ready.juror_research", "url": "/audio/juror-research-complete/juror-research-complete-2.mp3"},
+    {"id": "bundled:juror-research-complete:3", "name": "Juror Research complete 3", "category": "completion", "event_key": "terminal.ready.juror_research", "url": "/audio/juror-research-complete/juror-research-complete-3.mp3"},
+    {"id": "bundled:juror-research-complete:4", "name": "Juror Research complete 4", "category": "completion", "event_key": "terminal.ready.juror_research", "url": "/audio/juror-research-complete/juror-research-complete-4.mp3"},
+    {"id": "bundled:dev-task-complete:1", "name": "Dev task complete 1", "category": "completion", "event_key": "terminal.ready.dev_task", "url": "/audio/dev-task-complete/dev-task-complete-1.mp3"},
+    {"id": "bundled:dev-task-complete:2", "name": "Dev task complete 2", "category": "completion", "event_key": "terminal.ready.dev_task", "url": "/audio/dev-task-complete/dev-task-complete-2.mp3"},
+    {"id": "bundled:dev-task-complete:3", "name": "Dev task complete 3", "category": "completion", "event_key": "terminal.ready.dev_task", "url": "/audio/dev-task-complete/dev-task-complete-3.mp3"},
+]
+
+
+def _audio_library_home() -> Path:
+    root = get_hermes_home() / "audio_library"
+    (root / "assets").mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _audio_library_meta_path() -> Path:
+    return _audio_library_home() / "library.json"
+
+
+def _audio_library_config_path() -> Path:
+    return _audio_library_home() / "config.json"
+
+
+def _audio_slug(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", (value or "").strip().lower()).strip("-._")
+    return slug[:80] or "audio"
+
+
+def _read_audio_library() -> Dict[str, Any]:
+    path = _audio_library_meta_path()
+    if not path.exists():
+        return {"assets": []}
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return {"assets": []}
+    assets = data.get("assets") if isinstance(data, dict) else []
+    return {"assets": assets if isinstance(assets, list) else []}
+
+
+def _write_audio_library(data: Dict[str, Any]) -> None:
+    path = _audio_library_meta_path()
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+def _read_audio_library_config() -> Dict[str, Any]:
+    path = _audio_library_config_path()
+    if not path.exists():
+        return {"mappings": {}}
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return {"mappings": {}}
+    mappings = data.get("mappings") if isinstance(data, dict) else {}
+    return {"mappings": mappings if isinstance(mappings, dict) else {}}
+
+
+def _write_audio_library_config(data: Dict[str, Any]) -> None:
+    path = _audio_library_config_path()
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+def _audio_asset_payload(asset: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(asset)
+    asset_id = str(out.get("id") or "")
+    if str(out.get("source") or "") != "bundled":
+        out["url"] = f"/api/audio-library/assets/{urllib.parse.quote(asset_id)}/file"
+    file_path = Path(str(out.get("file_path") or ""))
+    out["exists"] = file_path.exists()
+    if file_path.exists():
+        out["bytes"] = file_path.stat().st_size
+    return out
+
+
+def _bundled_audio_assets() -> List[Dict[str, Any]]:
+    assets: List[Dict[str, Any]] = []
+    for item in _AUDIO_LIBRARY_BUNDLED_ASSETS:
+        file_path = WEB_DIST / str(item["url"]).lstrip("/")
+        assets.append({
+            **item,
+            "source": "bundled",
+            "tags": ["built-in", "mission-control"],
+            "file_path": str(file_path),
+            "deletable": False,
+        })
+    return assets
+
+
+def _audio_library_payload() -> Dict[str, Any]:
+    library = _read_audio_library()
+    config = _read_audio_library_config()
+    profile_assets = [_audio_asset_payload(asset) for asset in library.get("assets", [])]
+    bundled_assets = [_audio_asset_payload(asset) for asset in _bundled_audio_assets()]
+    return {
+        "assets": profile_assets + bundled_assets,
+        "events": _AUDIO_LIBRARY_EVENTS,
+        "mappings": config.get("mappings", {}),
+        "root": str(_audio_library_home()),
+    }
+
+
+def _lookup_audio_asset(asset_id: str) -> Dict[str, Any]:
+    for asset in _read_audio_library().get("assets", []):
+        if str(asset.get("id")) == asset_id:
+            return asset
+    for asset in _bundled_audio_assets():
+        if str(asset.get("id")) == asset_id:
+            return asset
+    raise HTTPException(status_code=404, detail="Audio asset not found")
+
+
+def _audio_library_voice_settings(body: Any) -> Dict[str, Any]:
+    voice_settings: Dict[str, Any] = {}
+    for key in ("stability", "similarity_boost", "style"):
+        value = getattr(body, key, None)
+        if value is not None:
+            voice_settings[key] = max(0, min(1, float(value)))
+    if getattr(body, "speed", None) is not None:
+        voice_settings["speed"] = max(0.7, min(1.2, float(body.speed)))
+    if getattr(body, "use_speaker_boost", None) is not None:
+        voice_settings["use_speaker_boost"] = bool(body.use_speaker_boost)
+    return voice_settings
+
+
+def _elevenlabs_tts_payload(body: Any, text: str) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"text": text, "model_id": getattr(body, "model_id", None) or "eleven_multilingual_v2"}
+    voice_settings = _audio_library_voice_settings(body)
+    if voice_settings:
+        payload["voice_settings"] = voice_settings
+    return payload
+
+
+def _elevenlabs_key() -> str:
+    key = (load_env().get("ELEVENLABS_API_KEY") or os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+    if not key:
+        raise HTTPException(status_code=503, detail="ELEVENLABS_API_KEY is not configured")
+    return key
+
+
+def _elevenlabs_request(url: str, *, key: str, payload: Optional[Dict[str, Any]] = None) -> tuple[int, bytes, str]:
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {"xi-api-key": key}
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method="GET" if payload is None else "POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.status, resp.read(), resp.headers.get("content-type", "")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")
+        try:
+            parsed = json.loads(detail)
+            detail = str(parsed.get("detail") or parsed)
+        except Exception:
+            pass
+        raise HTTPException(status_code=exc.code, detail=detail) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"ElevenLabs request failed: {exc}") from exc
+
+
+@app.get("/api/audio-library")
+async def get_audio_library(profile: Optional[str] = None):
+    with _profile_scope(profile):
+        return _audio_library_payload()
+
+
+@app.get("/api/audio-library/quota")
+async def get_audio_library_quota(profile: Optional[str] = None):
+    with _profile_scope(profile):
+        status, raw, _ = _elevenlabs_request("https://api.elevenlabs.io/v1/user/subscription", key=_elevenlabs_key())
+    try:
+        data = json.loads(raw.decode("utf-8", "replace"))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Could not parse ElevenLabs quota response") from exc
+    return {"ok": status == 200, "subscription": data}
+
+
+@app.post("/api/audio-library/preview")
+async def preview_audio_library_voice(body: AudioLibraryPreviewRequest, profile: Optional[str] = None):
+    with _profile_scope(profile):
+        text = (body.text or "Testing this Mission Control voice.").strip()[:500]
+        if not text:
+            text = "Testing this Mission Control voice."
+        voice_id = (body.voice_id or "21m00Tcm4TlvDq8ikWAM").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", voice_id):
+            raise HTTPException(status_code=400, detail="voice_id is invalid")
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
+        _, audio, content_type = _elevenlabs_request(url, key=_elevenlabs_key(), payload=_elevenlabs_tts_payload(body, text))
+        if not audio:
+            raise HTTPException(status_code=502, detail="ElevenLabs returned an empty audio preview")
+        mime = content_type if content_type.startswith("audio/") else "audio/mpeg"
+        return {"ok": True, "mime_type": mime, "data_url": f"data:{mime};base64,{base64.b64encode(audio).decode('ascii')}"}
+
+
+@app.post("/api/audio-library/generate")
+async def generate_audio_library_asset(body: AudioLibraryGenerateRequest, profile: Optional[str] = None):
+    with _profile_scope(profile):
+        return await _generate_audio_library_asset_scoped(body)
+
+
+async def _generate_audio_library_asset_scoped(body: AudioLibraryGenerateRequest):
+    name = (body.name or "").strip()
+    text = (body.text or "").strip()
+    kind = (body.kind or "voice").strip().lower()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    if kind not in {"voice", "music"}:
+        raise HTTPException(status_code=400, detail="kind must be 'voice' or 'music'")
+    max_text = 4100 if kind == "music" else 5000
+    if len(text) > max_text:
+        raise HTTPException(status_code=400, detail=f"text must be {max_text} characters or less")
+    asset_id = f"{_audio_slug(name)}-{secrets.token_hex(4)}"
+    output = _audio_library_home() / "assets" / f"{asset_id}.mp3"
+    voice_id = ""
+    payload: Dict[str, Any]
+    voice_settings: Dict[str, Any] = {}
+    if kind == "music":
+        payload = {"prompt": text}
+        if body.music_length_ms is not None:
+            payload["music_length_ms"] = max(3000, min(600000, int(body.music_length_ms)))
+        url = "https://api.elevenlabs.io/v1/music?output_format=mp3_44100_128"
+    else:
+        voice_id = (body.voice_id or "21m00Tcm4TlvDq8ikWAM").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", voice_id):
+            raise HTTPException(status_code=400, detail="voice_id is invalid")
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
+        payload = _elevenlabs_tts_payload(body, text)
+        voice_settings = payload.get("voice_settings", {})
+    _, audio, _ = _elevenlabs_request(
+        url,
+        key=_elevenlabs_key(),
+        payload=payload,
+    )
+    if not audio:
+        raise HTTPException(status_code=502, detail="ElevenLabs returned an empty audio file")
+    output.write_bytes(audio)
+    asset = {
+        "id": asset_id,
+        "name": name,
+        "category": (body.category or kind).strip() or kind,
+        "tags": [str(tag).strip() for tag in (body.tags or []) if str(tag).strip()],
+        "source": "elevenlabs_music" if kind == "music" else "elevenlabs",
+        "kind": kind,
+        "text": text,
+        "file_path": str(output),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "duration_seconds": _audio_duration_seconds(output),
+    }
+    if kind == "music":
+        asset["music_length_ms"] = payload.get("music_length_ms")
+    else:
+        asset["voice_id"] = voice_id
+        asset["model_id"] = payload["model_id"]
+        asset["voice_settings"] = voice_settings
+    library = _read_audio_library()
+    library.setdefault("assets", []).insert(0, asset)
+    _write_audio_library(library)
+    if body.event_key:
+        config = _read_audio_library_config()
+        config.setdefault("mappings", {})[body.event_key] = {"asset_id": asset_id, "enabled": True}
+        _write_audio_library_config(config)
+    return {"ok": True, "asset": _audio_asset_payload(asset), "library": _audio_library_payload()}
+
+
+@app.post("/api/audio-library/import")
+async def import_audio_library_asset(body: AudioLibraryImportRequest, profile: Optional[str] = None):
+    with _profile_scope(profile):
+        return _import_audio_library_asset_scoped(body)
+
+
+def _import_audio_library_asset_scoped(body: AudioLibraryImportRequest):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    source = Path((body.source_path or "").strip()).expanduser()
+    if not source.is_file():
+        raise HTTPException(status_code=404, detail="source_path does not exist")
+    if source.suffix.lower() not in _AUDIO_LIBRARY_ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="source_path must be an audio file")
+    asset_id = f"{_audio_slug(name)}-{secrets.token_hex(4)}"
+    target = _audio_library_home() / "assets" / f"{asset_id}{source.suffix.lower()}"
+    shutil.copy2(source, target)
+    asset = {
+        "id": asset_id,
+        "name": name,
+        "category": (body.category or "clip").strip() or "clip",
+        "tags": [str(tag).strip() for tag in (body.tags or []) if str(tag).strip()],
+        "source": "import",
+        "file_path": str(target),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "duration_seconds": _audio_duration_seconds(target),
+    }
+    library = _read_audio_library()
+    library.setdefault("assets", []).insert(0, asset)
+    _write_audio_library(library)
+    if body.event_key:
+        config = _read_audio_library_config()
+        config.setdefault("mappings", {})[body.event_key] = {"asset_id": asset_id, "enabled": True}
+        _write_audio_library_config(config)
+    return {"ok": True, "asset": _audio_asset_payload(asset), "library": _audio_library_payload()}
+
+
+@app.post("/api/audio-library/mappings")
+async def update_audio_library_mapping(body: AudioLibraryMappingUpdate, profile: Optional[str] = None):
+    with _profile_scope(profile):
+        return _update_audio_library_mapping_scoped(body)
+
+
+def _update_audio_library_mapping_scoped(body: AudioLibraryMappingUpdate):
+    event_key = (body.event_key or "").strip()
+    if not event_key:
+        raise HTTPException(status_code=400, detail="event_key is required")
+    if not _is_known_audio_event_key(event_key):
+        raise HTTPException(status_code=400, detail="Unknown event_key")
+    if body.asset_id:
+        _lookup_audio_asset(body.asset_id)
+    config = _read_audio_library_config()
+    mappings = config.setdefault("mappings", {})
+    if body.asset_id:
+        mappings[event_key] = {"asset_id": body.asset_id, "enabled": bool(body.enabled)}
+    else:
+        mappings.pop(event_key, None)
+    _write_audio_library_config(config)
+    return {"ok": True, "library": _audio_library_payload()}
+
+
+@app.delete("/api/audio-library/assets/{asset_id}")
+async def delete_audio_library_asset(asset_id: str, profile: Optional[str] = None):
+    with _profile_scope(profile):
+        return _delete_audio_library_asset_scoped(asset_id)
+
+
+def _delete_audio_library_asset_scoped(asset_id: str):
+    asset = _lookup_audio_asset(asset_id)
+    if str(asset.get("source") or "") == "bundled":
+        raise HTTPException(status_code=400, detail="Built-in bundled audio clips cannot be deleted")
+    library = _read_audio_library()
+    library["assets"] = [item for item in library.get("assets", []) if str(item.get("id")) != asset_id]
+    file_path = Path(str(asset.get("file_path") or ""))
+    root = (_audio_library_home() / "assets").resolve()
+    try:
+        resolved = file_path.resolve()
+    except Exception:
+        resolved = None
+    if resolved is not None and resolved.is_relative_to(root) and resolved.is_file():
+        resolved.unlink()
+    config = _read_audio_library_config()
+    mappings = config.setdefault("mappings", {})
+    for event_key, mapping in list(mappings.items()):
+        if isinstance(mapping, dict) and mapping.get("asset_id") == asset_id:
+            mappings.pop(event_key, None)
+    _write_audio_library(library)
+    _write_audio_library_config(config)
+    return {"ok": True, "asset_id": asset_id, "library": _audio_library_payload()}
+
+
+@app.get("/api/audio-library/assets/{asset_id}/file")
+async def get_audio_library_asset_file(asset_id: str, profile: Optional[str] = None):
+    with _profile_scope(profile):
+        asset = _lookup_audio_asset(asset_id)
+        file_path = Path(str(asset.get("file_path") or ""))
+        root = (_audio_library_home() / "assets").resolve()
+        try:
+            resolved = file_path.resolve()
+        except Exception:
+            raise HTTPException(status_code=404, detail="Audio file not found")
+        if not resolved.is_relative_to(root) or not resolved.is_file():
+            raise HTTPException(status_code=404, detail="Audio file not found")
+        return FileResponse(resolved)
 
 
 @app.post("/api/mission-control/ding")

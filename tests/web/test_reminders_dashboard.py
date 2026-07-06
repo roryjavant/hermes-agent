@@ -61,6 +61,12 @@ def test_reminders_page_supports_crud_and_due_date_light_language():
     assert "api.updateReminder" in source
     assert "api.deleteReminder" in source
     assert "Priority !" in source
+    assert "Work" in source
+    assert "Everything else" in source
+    assert "Reminder section" in source
+    assert "remindersByCategory" in source
+    assert "category: form.category" in source
+    assert "category: editForm.category" in source
     assert "Mark reminder priority" in source
     assert "Priority reminder" in source
     assert "priority: !reminder.priority" in source
@@ -81,4 +87,6 @@ def test_reminders_page_supports_crud_and_due_date_light_language():
     assert "ReminderCreate" in api_source
     assert "ReminderUpdate" in api_source
     assert "priority: boolean" in api_source
+    assert "category: ReminderCategory" in api_source
+    assert "category?: ReminderCategory" in api_source
     assert "order_index: number" in api_source

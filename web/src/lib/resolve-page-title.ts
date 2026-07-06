@@ -26,6 +26,7 @@ const BUILTIN: Record<string, keyof Translations["app"]["nav"]> = {
 };
 
 const EXTRA_BUILTIN_LABELS: Record<string, string> = {
+  "/audio-library": "Audio Library",
   "/flow": "Juror Research Flow",
   "/juror-research-map": "Juror Research Map",
 };

@@ -54,7 +54,12 @@ const TONE_BY_SLUG: Record<string, Tone> = {
   "hermes-marketing": "amber",
 };
 
-function KnowledgeBaseCard({
+function latestEntry(base: KnowledgeBaseSummary): KnowledgeBaseEntrySummary | null {
+  if (!base.entries.length) return null;
+  return [...base.entries].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0] ?? null;
+}
+
+function KnowledgeBaseRow({
   base,
   onOpen,
   onRequestDelete,
@@ -64,64 +69,67 @@ function KnowledgeBaseCard({
   onRequestDelete: (target: Exclude<DeleteTarget, null>) => void;
 }) {
   const tone = TONES[TONE_BY_SLUG[base.slug] ?? "cyan"];
+  const latest = latestEntry(base);
   return (
-    <article className="group relative overflow-hidden border border-border/70 bg-background-base/72 text-left shadow-2xl shadow-black/20 transition-all duration-200 hover:-translate-y-1 hover:border-border/90 hover:shadow-black/30">
+    <div className="group grid gap-3 border-b border-border/50 bg-card/45 px-3 py-3 transition-colors last:border-b-0 hover:bg-card/75 md:grid-cols-[minmax(15rem,1.35fr)_5rem_5rem_minmax(9rem,0.65fr)_minmax(14rem,1fr)_6.5rem] md:items-center md:px-4">
       <button
         type="button"
         onClick={onOpen}
         aria-label={`Open knowledge base: ${base.title}`}
-        className="block h-full w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/70"
+        className="flex min-w-0 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
       >
-        <div className={cn("relative overflow-hidden border-b bg-gradient-to-br p-5", tone.card)}>
-          <div className="pointer-events-none absolute -right-10 -top-10 size-36 rounded-full bg-current/10 blur-2xl transition-transform duration-500 group-hover:scale-150" />
-          <div className="relative flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="mb-2 font-mono-ui text-[10px] tracking-[0.2em] text-current/60 uppercase">{base.kicker}</p>
-              <h2 className={cn("font-expanded text-2xl font-black uppercase leading-none tracking-[0.08em]", tone.text)}>{base.title}</h2>
-            </div>
-            <span className={cn("grid size-11 shrink-0 place-items-center rounded-2xl border border-current/20 bg-black/28", tone.glow)}>
-              <BookOpen className="size-5" />
-            </span>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-4 p-5">
-          <p className="text-sm leading-6 text-text-secondary">{base.description}</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-border/60 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">
-              {base.entry_count} files
-            </span>
-            <span className="rounded-full border border-border/60 bg-black/20 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-text-tertiary">
-              {base.folder_count} folders
-            </span>
-            <span className={cn("ml-auto text-xs font-black text-text-tertiary transition-colors group-hover:text-foreground", base.deletable ? "mr-10" : "")}>
-              Open <span className="inline-block transition-transform group-hover:translate-x-0.5">→</span>
-            </span>
-          </div>
-        </div>
+        <span className={cn("h-3 w-3 shrink-0 rounded-full", tone.glow)} aria-hidden="true" />
+        <span className={cn("grid size-8 shrink-0 place-items-center rounded-xl border border-current/20 bg-black/28", tone.text)}>
+          <BookOpen className="size-4" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate font-expanded text-sm font-black uppercase tracking-[0.08em] text-foreground">{base.title}</span>
+          <span className="mt-0.5 block truncate font-mono-ui text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground">{base.kicker}</span>
+        </span>
       </button>
-      {base.deletable ? (
+
+      <div className="flex items-center gap-1.5 font-mono-ui text-sm text-text-secondary">
+        <FileText className="size-3.5 text-muted-foreground" /> {base.entry_count}
+      </div>
+      <div className="flex items-center gap-1.5 font-mono-ui text-sm text-text-secondary">
+        <FolderClosed className="size-3.5 text-muted-foreground" /> {base.folder_count}
+      </div>
+      <div className="min-w-0 text-xs text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-1.5 text-text-secondary">
+          <CalendarDays className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">{latest ? formatUpdatedAt(latest.updated_at) : "—"}</span>
+        </div>
+      </div>
+      <div className="min-w-0 text-xs">
+        <p className="truncate text-text-secondary">{base.description}</p>
+        <p className="mt-0.5 truncate font-mono-ui text-[0.68rem] text-muted-foreground">{base.path}</p>
+      </div>
+      <div className="flex items-center justify-end gap-2">
         <button
           type="button"
-          onClick={() => onRequestDelete({ path: base.path, slug: base.slug, label: base.title, kind: "base" })}
-          aria-label={`Delete knowledge base card: ${base.title}`}
-          className="absolute bottom-4 right-4 z-10 grid size-9 place-items-center rounded-full border border-border/60 bg-black/35 text-text-tertiary opacity-80 transition-colors hover:border-destructive/55 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
-          title={`Delete ${base.title}`}
+          onClick={onOpen}
+          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-border/70 bg-background-base/60 px-2 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] text-foreground transition-colors hover:border-midground/50 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
         >
-          <Trash2 className="size-4" />
+          Open
         </button>
-      ) : null}
-    </article>
+        {base.deletable ? (
+          <button
+            type="button"
+            onClick={() => onRequestDelete({ path: base.path, slug: base.slug, label: base.title, kind: "base" })}
+            aria-label={`Delete knowledge base card: ${base.title}`}
+            className="grid size-8 place-items-center rounded-full border border-border/60 bg-background-base/60 text-text-tertiary transition-colors hover:border-destructive/55 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+            title={`Delete ${base.title}`}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
 function folderPathFromRelativePath(relativePath: string) {
   return relativePath.split("/").slice(1).join("/");
-}
-
-function collectFolderPaths(node: KnowledgeBaseTreeNode): string[] {
-  if (node.type === "file") return [];
-  return [node.relative_path, ...node.children.flatMap((child) => collectFolderPaths(child))];
 }
 
 function formatBytes(size: number): string {
@@ -300,6 +308,7 @@ export default function KnowledgeBasePage() {
   const [newBaseTitle, setNewBaseTitle] = useState("");
   const [newBaseSlug, setNewBaseSlug] = useState("");
   const [newBaseDescription, setNewBaseDescription] = useState("");
+  const [baseQuery, setBaseQuery] = useState("");
   const [selectedEntry, setSelectedEntry] = useState<KnowledgeBaseEntrySummary | null>(null);
   const [entryDetail, setEntryDetail] = useState<KnowledgeBaseEntryDetail | null>(null);
   const [entryLoading, setEntryLoading] = useState(false);
@@ -308,6 +317,15 @@ export default function KnowledgeBasePage() {
   const [deletingPath, setDeletingPath] = useState("");
 
   const active = useMemo(() => data.find((base) => base.slug === activeSlug) ?? null, [data, activeSlug]);
+  const visibleBases = useMemo(() => {
+    const needle = baseQuery.trim().toLowerCase();
+    const source = needle
+      ? data.filter((base) =>
+          `${base.title} ${base.kicker} ${base.description} ${base.path} ${base.slug}`.toLowerCase().includes(needle),
+        )
+      : data;
+    return [...source].sort((a, b) => Number(a.deletable) - Number(b.deletable) || a.title.localeCompare(b.title));
+  }, [baseQuery, data]);
   const tone = TONES[TONE_BY_SLUG[active?.slug ?? ""] ?? "cyan"];
   const closeEntryModal = useCallback(() => {
     setSelectedEntry(null);
@@ -338,7 +356,7 @@ export default function KnowledgeBasePage() {
 
   useEffect(() => {
     if (!active?.tree) return;
-    setExpandedFolders(new Set(collectFolderPaths(active.tree).filter((path) => path !== active.tree.relative_path)));
+    setExpandedFolders(new Set());
     setFolder("research-briefs");
     setResearchStatus("");
     setResearchUseExistingBase(false);
@@ -686,62 +704,83 @@ export default function KnowledgeBasePage() {
         </div>
       ) : (
         /* List view */
-        <section className="grid gap-4 lg:grid-cols-3">
-          <div className="relative overflow-hidden border border-dashed border-border/70 bg-background-base/60 p-5 shadow-2xl shadow-black/15">
-            <div className="mb-4 flex items-start justify-between gap-3">
+        <section className="flex flex-col gap-4">
+          <div className="overflow-hidden rounded-3xl border border-dashed border-border/70 bg-background-base/55 shadow-2xl shadow-black/10">
+            <div className="grid gap-3 p-4 lg:grid-cols-[minmax(12rem,0.85fr)_minmax(14rem,1fr)_minmax(16rem,1.35fr)_auto] lg:items-end">
               <div>
-                <p className="mb-2 font-mono-ui text-[10px] uppercase tracking-[0.2em] text-text-tertiary">New workspace</p>
-                <h2 className="font-expanded text-xl font-black uppercase leading-tight tracking-[0.08em] text-foreground">
+                <p className="font-mono-ui text-[10px] uppercase tracking-[0.2em] text-text-tertiary">New workspace</p>
+                <h2 className="mt-1 font-expanded text-base font-black uppercase leading-tight tracking-[0.08em] text-foreground">
                   Create knowledge base
                 </h2>
               </div>
-              <span className="grid size-11 shrink-0 place-items-center rounded-2xl border border-border/60 bg-black/24 text-text-secondary">
-                <Plus className="size-5" />
-              </span>
-            </div>
-            <div className="flex flex-col gap-3">
               <input
                 value={newBaseTitle}
                 onChange={(e) => setNewBaseTitle(e.target.value)}
                 placeholder="Name, e.g. Client Intake Research"
-                className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                className="w-full rounded-xl border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
               />
-              <input
-                value={newBaseSlug}
-                onChange={(e) => setNewBaseSlug(e.target.value)}
-                placeholder="Optional slug"
-                className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
-              />
-              <textarea
-                value={newBaseDescription}
-                onChange={(e) => setNewBaseDescription(e.target.value)}
-                placeholder="Optional description for the card"
-                rows={3}
-                className="w-full resize-none border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm leading-5 text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
-              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <input
+                  value={newBaseSlug}
+                  onChange={(e) => setNewBaseSlug(e.target.value)}
+                  placeholder="Optional slug"
+                  className="w-full rounded-xl border border-border/60 bg-background-base/70 px-3.5 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                />
+                <input
+                  value={newBaseDescription}
+                  onChange={(e) => setNewBaseDescription(e.target.value)}
+                  placeholder="Optional description"
+                  className="w-full rounded-xl border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                />
+              </div>
               <Button
                 onClick={handleCreateBase}
                 disabled={creatingBase || !newBaseTitle.trim()}
-                className="w-full justify-center gap-2"
+                className="justify-center gap-2 whitespace-nowrap"
               >
                 {creatingBase ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                {creatingBase ? "Creating…" : "Create knowledge base"}
+                {creatingBase ? "Creating…" : "Create"}
               </Button>
             </div>
           </div>
+
+          <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-background-base/45 px-3 py-2">
+            <Search className="size-4 text-muted-foreground" />
+            <input
+              value={baseQuery}
+              onChange={(event) => setBaseQuery(event.target.value)}
+              placeholder="Filter knowledge bases, paths, descriptions…"
+              className="min-w-0 flex-1 bg-transparent py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+
           {loading ? (
-            <div className="flex items-center gap-2 border border-border/60 bg-card/70 p-5 text-sm text-text-secondary">
-              <Loader2 className="size-4 animate-spin" /> Loading…
+            <div className="flex items-center justify-center gap-2 rounded-3xl border border-border/70 bg-card/70 p-10 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> Loading knowledge bases…
             </div>
+          ) : visibleBases.length > 0 ? (
+            <section className="overflow-hidden rounded-3xl border border-border/70 bg-background-base/35 shadow-2xl shadow-black/10">
+              <div className="hidden border-b border-border/70 bg-card/70 px-4 py-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground md:grid md:grid-cols-[minmax(15rem,1.35fr)_5rem_5rem_minmax(9rem,0.65fr)_minmax(14rem,1fr)_6.5rem]">
+                <span>Knowledge base</span>
+                <span>Files</span>
+                <span>Folders</span>
+                <span>Updated</span>
+                <span>Description / path</span>
+                <span>Actions</span>
+              </div>
+              {visibleBases.map((base) => (
+                <KnowledgeBaseRow
+                  key={base.slug}
+                  base={base}
+                  onOpen={() => setActiveSlug(base.slug)}
+                  onRequestDelete={setDeleteTarget}
+                />
+              ))}
+            </section>
           ) : (
-            data.map((base) => (
-              <KnowledgeBaseCard
-                key={base.slug}
-                base={base}
-                onOpen={() => setActiveSlug(base.slug)}
-                onRequestDelete={setDeleteTarget}
-              />
-            ))
+            <div className="rounded-3xl border border-border/70 bg-card/70 p-10 text-center text-sm text-muted-foreground">
+              No knowledge bases matched.
+            </div>
           )}
         </section>
       )}

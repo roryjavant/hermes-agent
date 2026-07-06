@@ -66,10 +66,17 @@ def test_knowledge_base_page_is_markdown_first_and_seeded_with_research_bases():
     assert "Delete knowledge base card" in source
     assert "api.deleteKnowledgeBase(deleteTarget.slug)" in source
     assert "base.deletable ?" in source
+    assert "setExpandedFolders(new Set())" in source
     assert "This removes the entire custom Knowledge Base card" in source
     assert "This removes the" in source
     assert "Create knowledge base" in source
     assert "New workspace" in source
+    list_view_source = source[source.index("/* List view */") : source.index("{loading ?")]
+    assert "baseSummary" not in source
+    assert ">Bases<" not in list_view_source
+    assert ">Files<" not in list_view_source
+    assert ">Folders<" not in list_view_source
+    assert ">Custom<" not in list_view_source
     assert 'fetchJSON<KnowledgeBasesResponse>("/api/knowledge-bases")' in api_source
     assert "createKnowledgeBase" in api_source
     assert "deleteKnowledgeBase" in api_source
