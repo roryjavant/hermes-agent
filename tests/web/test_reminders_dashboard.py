@@ -50,7 +50,6 @@ def test_reminders_page_supports_crud_and_due_date_light_language():
     source = read("web/src/pages/RemindersPage.tsx")
     api_source = read("web/src/lib/api.ts")
 
-    assert "Personal reminder lights" in source
     assert "Past due" in source
     assert "Due soon" in source
     assert "Upcoming" in source
@@ -69,6 +68,11 @@ def test_reminders_page_supports_crud_and_due_date_light_language():
     assert "category: editForm.category" in source
     assert "Mark reminder priority" in source
     assert "Priority reminder" in source
+    assert "Notify me" in source
+    assert "Voice it" in source
+    assert "speechSynthesis" in source
+    assert "new Notification" in source
+    assert "notified_at" in source
     assert "priority: !reminder.priority" in source
     assert "priority: form.priority" in source
     assert 'aria-label={reminder.completed ? "Mark reminder not done" : "Mark reminder done"}' in source
@@ -80,8 +84,13 @@ def test_reminders_page_supports_crud_and_due_date_light_language():
     assert "Drag to reorder reminder" in source
     assert "api.reorderReminders" in source
     assert "order_index" in source
-    assert "_10rem" in source
     assert "rounded-full" in source
+
+    # Status counts double as clickable filters; reorder is disabled while filtering.
+    assert "STATUS_FILTERS" in source
+    assert "statusFilter" in source
+    assert "filtersActive" in source
+    assert "sortableDisabled={filtersActive}" in source
     assert 'fetchJSON<RemindersResponse>("/api/reminders"' in api_source
     assert 'fetchJSON<RemindersResponse>("/api/reminders/reorder"' in api_source
     assert "ReminderCreate" in api_source

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@nous-research/ui/ui/components/badge";
 import { Button } from "@nous-research/ui/ui/components/button";
-import { Loader2, Music2, Play, Trash2, Volume2 } from "lucide-react";
+import { ChevronRight, Loader2, Music2, Play, Trash2, Volume2 } from "lucide-react";
 import { api, authedFetch, HERMES_BASE_PATH } from "@/lib/api";
 import type {
   AudioLibraryAsset,
@@ -32,9 +32,13 @@ const PRESET_VOICES: AudioLibraryVoice[] = [
   { voice_id: "D38z5RcWu1voky8WS1ja", name: "Fin", label: "Fin" },
 ];
 const FIELD_CLASS = "rounded border border-border/80 bg-black/25 px-3 py-2 text-sm outline-none focus:border-[#ff3d00]";
+const SELECT_CLASS = "w-full min-w-0 rounded border border-border/70 bg-black/30 px-2 py-1.5 text-sm outline-none focus:border-[#ff3d00]";
 const CARD_CLASS = "overflow-hidden rounded-xl border border-[#ff3d00]/20 border-l-[#ff3d00]/60 bg-black/50";
-const SECTION_HEADER_CLASS = "border-b border-[#ff3d00]/15 bg-[#ff3d00]/[0.045] px-4 py-3";
-const SECTION_BODY_CLASS = "p-4";
+const GROUP_HEADER_CLASS = "flex flex-wrap items-center justify-between gap-2 border-b border-[#ff3d00]/15 bg-[#ff3d00]/[0.045] px-3 py-2";
+const GROUP_TITLE_CLASS = "font-mono-ui text-xs uppercase tracking-[0.18em] text-[#ff3d00]";
+const EVENT_ROW_CLASS = "grid items-center gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,18rem)_2.75rem]";
+
+type TabId = "events" | "generate" | "clips";
 
 interface GenerateFormState {
   name: string;
@@ -155,6 +159,14 @@ function builtInSummary(clips: AudioLibraryAsset[]): string {
   return `${clips.length} rotating built-ins`;
 }
 
+function clipOptions(groups: { label: string; clips: AudioLibraryAsset[] }[]) {
+  return groups.filter((group) => group.clips.length > 0).map((group) => (
+    <optgroup key={group.label} label={group.label}>
+      {group.clips.map((clip) => <option key={clip.id} value={clip.id}>{clip.name}</option>)}
+    </optgroup>
+  ));
+}
+
 export default function AudioLibraryPage() {
   const [library, setLibrary] = useState<AudioLibraryResponse | null>(null);
   const [quota, setQuota] = useState<AudioLibraryQuotaResponse | null>(null);
@@ -172,8 +184,10 @@ export default function AudioLibraryPage() {
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const [playingAssetId, setPlayingAssetId] = useState<string | null>(null);
   const [playingDefaultToneId, setPlayingDefaultToneId] = useState<string | null>(null);
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const activeObjectUrlRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const generateRef = useRef<HTMLElement | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>("events");
 
   const assetsById = useMemo(() => {
     const map = new Map<string, AudioLibraryAsset>();
@@ -374,29 +388,47 @@ export default function AudioLibraryPage() {
     ?? defaultCompletionAsset()
   );
 
+  const stopActiveAudio = useCallback(() => {
+    const audio = activeAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.src = "";
+      activeAudioRef.current = null;
+    }
+    if (activeObjectUrlRef.current) {
+      URL.revokeObjectURL(activeObjectUrlRef.current);
+      activeObjectUrlRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => stopActiveAudio(), [stopActiveAudio]);
+
   const play = async (asset: AudioLibraryAsset) => {
+    stopActiveAudio();
     setPlayingAssetId(asset.id);
     setError(null);
-    let objectUrl: string | null = null;
     try {
       let src = audioUrl(asset);
       if (asset.source !== "bundled") {
         const response = await authedFetch(asset.url);
         if (!response.ok) throw new Error(`Could not load audio clip (${response.status})`);
-        objectUrl = URL.createObjectURL(await response.blob());
-        src = objectUrl;
+        activeObjectUrlRef.current = URL.createObjectURL(await response.blob());
+        src = activeObjectUrlRef.current;
       }
       const audio = new Audio(src);
+      activeAudioRef.current = audio;
       audio.volume = 1;
       const cleanup = () => {
-        if (objectUrl) URL.revokeObjectURL(objectUrl);
-        setPlayingAssetId((current) => current === asset.id ? null : current);
+        if (activeAudioRef.current === audio) {
+          stopActiveAudio();
+          setPlayingAssetId((current) => current === asset.id ? null : current);
+        }
       };
       audio.addEventListener("ended", cleanup, { once: true });
       audio.addEventListener("error", cleanup, { once: true });
       await audio.play();
     } catch (err) {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      stopActiveAudio();
       setPlayingAssetId((current) => current === asset.id ? null : current);
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -425,10 +457,6 @@ export default function AudioLibraryPage() {
     }
   };
 
-  const focusGenerate = () => {
-    generateRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
   const renderPlayButton = (asset: AudioLibraryAsset, label: string) => (
     <Button outlined size="sm" onClick={() => void play(asset)} aria-label={label}>
       {playingAssetId === asset.id ? <Volume2 className="h-3.5 w-3.5 text-[#ff3d00]" /> : <Play className="h-3.5 w-3.5" />}
@@ -443,19 +471,28 @@ export default function AudioLibraryPage() {
     )
   );
 
+  const tabs: { id: TabId; label: string; count?: number }[] = [
+    { id: "events", label: "Events", count: eventCount },
+    { id: "generate", label: "Generate" },
+    { id: "clips", label: "Clips", count: library?.assets.length ?? 0 },
+  ];
+
+  const statsSummary = [
+    `${customAssets.length} custom`,
+    `${bundledAssets.length} built-in`,
+    `${mappedCount}/${eventCount} mapped`,
+    ...(quota ? [quotaSummary(quota)] : []),
+  ].join(" · ");
+
   return (
-    <div className="flex min-h-full flex-col gap-5 p-4 lg:p-6">
-      <section className="rounded-xl border border-[#ff3d00]/25 bg-black/70 p-5 shadow-[0_0_32px_rgba(255,61,0,0.06)]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="mb-2 font-mono-ui text-xs uppercase tracking-[0.22em] text-[#ff3d00]">Audio control</div>
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">Audio Library</h1>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 lg:p-6">
+      <header className="rounded-xl border border-[#ff3d00]/25 bg-black/70 shadow-[0_0_32px_rgba(255,61,0,0.06)]">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pt-3">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="text-lg font-semibold tracking-tight text-foreground">Audio Library</h1>
+            <span className="font-mono-ui text-xs text-muted-foreground">{statsSummary}</span>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="secondary">{customAssets.length} custom</Badge>
-            <Badge tone="outline">{bundledAssets.length} built-in</Badge>
-            <Badge tone="outline">{mappedCount}/{eventCount} mapped</Badge>
-            <Badge tone="outline">{quotaSummary(quota)}</Badge>
+          <div className="flex items-center gap-2">
             <Button outlined size="sm" onClick={checkQuota} disabled={quotaLoading}>
               {quotaLoading ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
               Check quota
@@ -463,155 +500,177 @@ export default function AudioLibraryPage() {
             <Button outlined size="sm" onClick={refresh} disabled={loading}>Refresh</Button>
           </div>
         </div>
+        <nav role="tablist" className="mt-1 flex items-center gap-1 px-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`relative px-3 py-2 font-mono-ui text-xs uppercase tracking-[0.18em] transition-colors ${
+                activeTab === tab.id
+                  ? "text-[#ff3d00] after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-[#ff3d00]"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab.label}
+              {typeof tab.count === "number" && <span className="ml-1.5 opacity-60">{tab.count}</span>}
+            </button>
+          ))}
+        </nav>
         {error && (
-          <div className="mt-4 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="mx-4 mb-3 mt-1 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </div>
         )}
-      </section>
+      </header>
 
-      <section className={CARD_CLASS}>
-        <div className={`${SECTION_HEADER_CLASS} flex flex-wrap items-center justify-between gap-3`}>
-          <div>
-            <div className="font-mono-ui text-xs uppercase tracking-[0.2em] text-[#ff3d00]">1 · Event sounds</div>
-            <h2 className="mt-1 text-xl font-semibold">Events</h2>
-          </div>
-          <Button outlined size="sm" onClick={focusGenerate}>Generate custom clip</Button>
-        </div>
-        <div className={SECTION_BODY_CLASS}>{loading ? (
-          <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading audio routes</div>
-        ) : (
-          <div className="grid gap-3 lg:grid-cols-2">
-            {library?.events.map((event) => {
-              const mapping = library.mappings[event.key];
-              const selected = mapping?.enabled === false ? "" : mapping?.asset_id ?? "";
-              const selectedAsset = selected ? assetsById.get(selected) : null;
-              const eventBuiltIns = bundledAssets.filter((clip) => clip.event_key === event.key);
-              const otherBuiltIns = bundledAssets.filter((clip) => clip.event_key !== event.key);
-              return (
-                <article key={event.key} className="rounded-lg border border-border/70 bg-black/20 p-3">
-                  <div className="flex items-start justify-between gap-3">
+      {activeTab === "events" && (loading ? (
+        <div className="flex items-center gap-2 p-4 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading audio routes</div>
+      ) : (
+        <>
+          <section className={CARD_CLASS}>
+            <div className={GROUP_HEADER_CLASS}>
+              <span className={GROUP_TITLE_CLASS}>System events · {library?.events.length ?? 0}</span>
+              <Button outlined size="sm" onClick={() => setActiveTab("generate")}>Generate custom clip</Button>
+            </div>
+            <div className="divide-y divide-border/40">
+              {library?.events.map((event) => {
+                const mapping = library.mappings[event.key];
+                const selected = mapping?.enabled === false ? "" : mapping?.asset_id ?? "";
+                const selectedAsset = selected ? assetsById.get(selected) : null;
+                const eventBuiltIns = bundledAssets.filter((clip) => clip.event_key === event.key);
+                const otherBuiltIns = bundledAssets.filter((clip) => clip.event_key !== event.key);
+                return (
+                  <div key={event.key} className={`${EVENT_ROW_CLASS} px-3 py-2.5 transition-colors hover:bg-[#ff3d00]/[0.03]`}>
                     <div className="min-w-0">
-                      <h3 className="font-medium">{event.label}</h3>
-                      <p className="mt-1 text-xs text-muted-foreground">{selectedAsset ? selectedAsset.name : builtInSummary(eventBuiltIns)}</p>
-                    </div>
-                    {savingEvent === event.key ? <Loader2 className="h-4 w-4 animate-spin text-[#ff3d00]" /> : <Badge tone={selectedAsset ? "secondary" : "outline"}>{selectedAsset ? "Override" : "Built-in"}</Badge>}
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <select className={`${FIELD_CLASS} min-w-0 flex-1`} value={selected} onChange={(e) => updateMapping(event.key, e.target.value)}>
-                      <option value="">Current built-in audio</option>
-                      {eventBuiltIns.length > 0 && (
-                        <optgroup label="For this event">
-                          {eventBuiltIns.map((clip) => <option key={clip.id} value={clip.id}>{clip.name}</option>)}
-                        </optgroup>
-                      )}
-                      {otherBuiltIns.length > 0 && (
-                        <optgroup label="Other built-ins">
-                          {otherBuiltIns.map((clip) => <option key={clip.id} value={clip.id}>{clip.name}</option>)}
-                        </optgroup>
-                      )}
-                      {customAssets.length > 0 && (
-                        <optgroup label="Custom clips">
-                          {customAssets.map((clip) => <option key={clip.id} value={clip.id}>{clip.name}</option>)}
-                        </optgroup>
-                      )}
-                    </select>
-                    {selectedAsset ? renderPlayButton(selectedAsset, `Preview ${selectedAsset.name}`) : eventBuiltIns[0] ? renderPlayButton(eventBuiltIns[0], `Preview ${eventBuiltIns[0].name}`) : null}
-                  </div>
-                </article>
-              );
-            })}
-            {teamEvents.map((event) => {
-              const board = teams.find((candidate) => teamTaskCompleteEventKey(candidate.slug) === event.key);
-              const boardSlug = board?.slug ?? event.key.replace(/^team\./, "").replace(/\.task_complete$/, "");
-              const profileTeam = profileTeamByBoardSlug.get(boardSlug);
-              const mapping = library?.mappings[event.key];
-              const selected = mapping?.enabled === false ? "" : mapping?.asset_id ?? "";
-              const selectedAsset = selected ? assetsById.get(selected) : null;
-              const teamFallbackAsset = selectedAsset ?? defaultCompletionAsset();
-              return (
-                <article key={event.key} className="rounded-lg border border-[#ff3d00]/25 bg-[#ff3d00]/[0.035] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-mono-ui text-[0.65rem] uppercase tracking-[0.18em] text-[#ff3d00]">Team completion</div>
-                      <h3 className="mt-1 font-medium">{event.label}</h3>
-                      <p className="mt-1 text-xs text-muted-foreground">{selectedAsset ? selectedAsset.name : "Use default completion audio"}</p>
-                    </div>
-                    {savingEvent === event.key ? <Loader2 className="h-4 w-4 animate-spin text-[#ff3d00]" /> : <Badge tone={selectedAsset ? "secondary" : "outline"}>{selectedAsset ? "Override" : "Default"}</Badge>}
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <select className={`${FIELD_CLASS} min-w-0 flex-1`} value={selected} onChange={(e) => updateMapping(event.key, e.target.value)}>
-                      <option value="">Default completion audio</option>
-                      {customAssets.length > 0 && (
-                        <optgroup label="Custom clips">
-                          {customAssets.map((clip) => <option key={clip.id} value={clip.id}>{clip.name}</option>)}
-                        </optgroup>
-                      )}
-                      {bundledAssets.length > 0 && (
-                        <optgroup label="Built-in clips">
-                          {bundledAssets.map((clip) => <option key={clip.id} value={clip.id}>{clip.name}</option>)}
-                        </optgroup>
-                      )}
-                    </select>
-                    {renderEffectivePlayButton(teamFallbackAsset, event.key, `Preview ${event.label}`)}
-                  </div>
-                  {profileTeam && profileTeam.agents.length > 0 && (
-                    <details className="mt-3 rounded border border-[#ff3d00]/15 bg-black/20 px-3 py-2">
-                      <summary className="cursor-pointer select-none font-mono-ui text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground">
-                        Team member clips · {profileTeam.agents.length}
-                      </summary>
-                      <div className="mt-3 space-y-2">
-                        {profileTeam.agents.map((agent) => {
-                          const memberEventKey = teamMemberTaskCompleteEventKey(boardSlug, agent.profile);
-                          const memberMapping = library?.mappings[memberEventKey];
-                          const memberSelected = memberMapping?.enabled === false ? "" : memberMapping?.asset_id ?? "";
-                          const memberSelectedAsset = memberSelected ? assetsById.get(memberSelected) : null;
-                          const effectiveAsset = effectiveTeamMemberAsset(boardSlug, agent.profile);
-                          return (
-                            <div key={memberEventKey} className="grid gap-2 rounded border border-border/50 bg-black/20 p-2 md:grid-cols-[minmax(9rem,13rem)_1fr_auto] md:items-center">
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-medium">{agentLabel(agent)}</div>
-                                <div className="mt-0.5 text-[0.68rem] text-muted-foreground">
-                                  {memberSelectedAsset ? "Member override" : selectedAsset ? "Uses team clip" : "Uses default clip"}
-                                </div>
-                              </div>
-                              <select className={`${FIELD_CLASS} min-w-0`} value={memberSelected} onChange={(e) => updateMapping(memberEventKey, e.target.value)}>
-                                <option value="">Inherit team/default</option>
-                                {customAssets.length > 0 && (
-                                  <optgroup label="Custom clips">
-                                    {customAssets.map((clip) => <option key={clip.id} value={clip.id}>{clip.name}</option>)}
-                                  </optgroup>
-                                )}
-                                {bundledAssets.length > 0 && (
-                                  <optgroup label="Built-in clips">
-                                    {bundledAssets.map((clip) => <option key={clip.id} value={clip.id}>{clip.name}</option>)}
-                                  </optgroup>
-                                )}
-                              </select>
-                              <div className="flex items-center justify-between gap-2 md:justify-end">
-                                {savingEvent === memberEventKey ? <Loader2 className="h-4 w-4 animate-spin text-[#ff3d00]" /> : <Badge tone={memberSelectedAsset ? "secondary" : "outline"}>{memberSelectedAsset ? "Override" : "Inherited"}</Badge>}
-                                {renderEffectivePlayButton(effectiveAsset, memberEventKey, `Test ${agent.profile} completion audio`)}
-                              </div>
-                            </div>
-                          );
-                        })}
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-sm font-medium">{event.label}</h3>
+                        {selectedAsset && <Badge tone="secondary">Custom</Badge>}
                       </div>
-                    </details>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        )}</div>
-      </section>
+                      <p className={`mt-0.5 truncate text-xs ${selectedAsset ? "text-[#ff3d00]/90" : "text-muted-foreground"}`}>{selectedAsset ? selectedAsset.name : builtInSummary(eventBuiltIns)}</p>
+                    </div>
+                    <select className={SELECT_CLASS} value={selected} onChange={(e) => updateMapping(event.key, e.target.value)}>
+                      <option value="">Current built-in audio</option>
+                      {clipOptions([
+                        { label: "For this event", clips: eventBuiltIns },
+                        { label: "Other built-ins", clips: otherBuiltIns },
+                        { label: "Custom clips", clips: customAssets },
+                      ])}
+                    </select>
+                    <div className="flex items-center justify-end">
+                      {savingEvent === event.key
+                        ? <Loader2 className="h-4 w-4 animate-spin text-[#ff3d00]" />
+                        : selectedAsset ? renderPlayButton(selectedAsset, `Preview ${selectedAsset.name}`) : eventBuiltIns[0] ? renderPlayButton(eventBuiltIns[0], `Preview ${eventBuiltIns[0].name}`) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
 
-      <section ref={generateRef} className={CARD_CLASS}>
-        <div className={SECTION_HEADER_CLASS}>
-          <div className="font-mono-ui text-xs uppercase tracking-[0.2em] text-[#ff3d00]">2 · Generate</div>
-          <h2 className="mt-1 text-xl font-semibold">Generate</h2>
+          {teamEvents.length > 0 && (
+            <section className={CARD_CLASS}>
+              <div className={GROUP_HEADER_CLASS}>
+                <span className={GROUP_TITLE_CLASS}>Team completion · {teamEvents.length}</span>
+                <span className="text-xs text-muted-foreground">Unset events fall back to the default completion audio</span>
+              </div>
+              <div className="divide-y divide-border/40">
+                {teamEvents.map((event) => {
+                  const board = teams.find((candidate) => teamTaskCompleteEventKey(candidate.slug) === event.key);
+                  const boardSlug = board?.slug ?? event.key.replace(/^team\./, "").replace(/\.task_complete$/, "");
+                  const profileTeam = profileTeamByBoardSlug.get(boardSlug);
+                  const mapping = library?.mappings[event.key];
+                  const selected = mapping?.enabled === false ? "" : mapping?.asset_id ?? "";
+                  const selectedAsset = selected ? assetsById.get(selected) : null;
+                  const teamFallbackAsset = selectedAsset ?? defaultCompletionAsset();
+                  return (
+                    <div key={event.key} className="px-3 py-2.5">
+                      <div className={EVENT_ROW_CLASS}>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h3 className="truncate text-sm font-medium">{event.label}</h3>
+                            {selectedAsset && <Badge tone="secondary">Custom</Badge>}
+                          </div>
+                          <p className={`mt-0.5 truncate text-xs ${selectedAsset ? "text-[#ff3d00]/90" : "text-muted-foreground"}`}>{selectedAsset ? selectedAsset.name : "Default completion audio"}</p>
+                        </div>
+                        <select className={SELECT_CLASS} value={selected} onChange={(e) => updateMapping(event.key, e.target.value)}>
+                          <option value="">Default completion audio</option>
+                          {clipOptions([
+                            { label: "Custom clips", clips: customAssets },
+                            { label: "Built-in clips", clips: bundledAssets },
+                          ])}
+                        </select>
+                        <div className="flex items-center justify-end">
+                          {savingEvent === event.key
+                            ? <Loader2 className="h-4 w-4 animate-spin text-[#ff3d00]" />
+                            : renderEffectivePlayButton(teamFallbackAsset, event.key, `Preview ${event.label}`)}
+                        </div>
+                      </div>
+                      {profileTeam && profileTeam.agents.length > 0 && (() => {
+                        const overrideCount = profileTeam.agents.filter((agent) => {
+                          const memberMapping = library?.mappings[teamMemberTaskCompleteEventKey(boardSlug, agent.profile)];
+                          return Boolean(memberMapping?.asset_id) && memberMapping?.enabled !== false;
+                        }).length;
+                        return (
+                        <details open={overrideCount > 0} className="group mt-2 overflow-hidden rounded-md border border-border/50 bg-black/20 transition-colors open:border-[#ff3d00]/35 open:bg-[#ff3d00]/[0.04]">
+                          <summary className="flex cursor-pointer select-none items-center gap-2 px-2.5 py-1.5 font-mono-ui text-[0.68rem] uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground group-open:text-[#ff3d00] list-none [&::-webkit-details-marker]:hidden">
+                            <ChevronRight className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" />
+                            Per-member overrides · {profileTeam.agents.length}
+                            <span className="ml-auto normal-case tracking-normal">{overrideCount > 0 ? `${overrideCount} custom` : "all inherit"}</span>
+                          </summary>
+                          <div className="ml-4 border-l border-[#ff3d00]/25 pl-3 pr-2.5 pb-1 divide-y divide-[#ff3d00]/10 border-t border-t-[#ff3d00]/20">
+                            {profileTeam.agents.map((agent) => {
+                              const memberEventKey = teamMemberTaskCompleteEventKey(boardSlug, agent.profile);
+                              const memberMapping = library?.mappings[memberEventKey];
+                              const memberSelected = memberMapping?.enabled === false ? "" : memberMapping?.asset_id ?? "";
+                              const memberSelectedAsset = memberSelected ? assetsById.get(memberSelected) : null;
+                              const effectiveAsset = effectiveTeamMemberAsset(boardSlug, agent.profile);
+                              return (
+                                <div key={memberEventKey} className={`${EVENT_ROW_CLASS} py-2`}>
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm">{agentLabel(agent)}</div>
+                                    <div className={`mt-0.5 text-[0.68rem] ${memberSelectedAsset ? "text-[#ff3d00]/90" : "text-muted-foreground"}`}>
+                                      {memberSelectedAsset ? `Override · ${memberSelectedAsset.name}` : selectedAsset ? "Uses team clip" : "Uses default clip"}
+                                    </div>
+                                  </div>
+                                  <select className={SELECT_CLASS} value={memberSelected} onChange={(e) => updateMapping(memberEventKey, e.target.value)}>
+                                    <option value="">Inherit team/default</option>
+                                    {clipOptions([
+                                      { label: "Custom clips", clips: customAssets },
+                                      { label: "Built-in clips", clips: bundledAssets },
+                                    ])}
+                                  </select>
+                                  <div className="flex items-center justify-end">
+                                    {savingEvent === memberEventKey
+                                      ? <Loader2 className="h-4 w-4 animate-spin text-[#ff3d00]" />
+                                      : renderEffectivePlayButton(effectiveAsset, memberEventKey, `Test ${agent.profile} completion audio`)}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </details>
+                        );
+                      })()}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+        </>
+      ))}
+
+      {activeTab === "generate" && (
+      <section className={CARD_CLASS}>
+        <div className={GROUP_HEADER_CLASS}>
+          <span className={GROUP_TITLE_CLASS}>Generate a clip</span>
+          <span className="text-xs text-muted-foreground">ElevenLabs voice &amp; music</span>
         </div>
-        <div className={SECTION_BODY_CLASS}>
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="p-4">
+        <div className="grid gap-3 md:grid-cols-3">
           <label className="flex flex-col gap-1 text-sm">
             Clip name
             <input className={FIELD_CLASS} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Mission complete" />
@@ -652,7 +711,7 @@ export default function AudioLibraryPage() {
               )}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm lg:col-span-2">
+          <label className="flex flex-col gap-1 text-sm md:col-span-3">
             {form.kind === "music" ? "Music prompt" : "Prompt"}
             <textarea className={`${FIELD_CLASS} min-h-24`} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} placeholder={form.kind === "music" ? "A short Mission Control synthwave sting: tense analog bass, warm orange cockpit ambience, clean heroic resolve, no vocals." : "Juror research complete. Democracy survives another spreadsheet."} />
           </label>
@@ -747,69 +806,63 @@ export default function AudioLibraryPage() {
         </Button>
         </div>
       </section>
+      )}
 
-      <section className={CARD_CLASS}>
-        <div className={`${SECTION_HEADER_CLASS} flex flex-wrap items-center justify-between gap-3`}>
-          <div>
-            <div className="font-mono-ui text-xs uppercase tracking-[0.2em] text-[#ff3d00]">3 · Clips</div>
-            <h2 className="mt-1 text-xl font-semibold">Clips</h2>
-          </div>
-        </div>
-        <div className={SECTION_BODY_CLASS}>{loading ? (
-          <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading audio library</div>
-        ) : library && library.assets.length > 0 ? (
-          <div className="space-y-5">
-            <div>
-              <h3 className="mb-2 text-sm font-semibold">Custom</h3>
-              {customAssets.length > 0 ? (
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {customAssets.map((asset) => (
-                    <article key={asset.id} className="rounded-lg border border-[#ff3d00]/30 bg-black/20 p-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h4 className="truncate font-medium">{asset.name}</h4>
-                          <p className="mt-1 text-xs text-muted-foreground">{clipSourceLabel(asset)} · {formatDuration(asset.duration_seconds)} · {formatBytes(asset.bytes)}</p>
-                        </div>
-                        <div className="flex shrink-0 gap-2">
-                          {renderPlayButton(asset, `Play ${asset.name}`)}
-                          <Button outlined size="sm" onClick={() => deleteAsset(asset)} disabled={deletingAssetId === asset.id} aria-label={`Delete ${asset.name}`}>
-                            {deletingAssetId === asset.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                          </Button>
-                        </div>
-                      </div>
-                      {(eventLabelsByAssetId.get(asset.id) ?? []).length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1">
-                          {(eventLabelsByAssetId.get(asset.id) ?? []).map((label) => <Badge key={label} tone="secondary">→ {label}</Badge>)}
-                        </div>
-                      )}
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded border border-dashed border-border p-5 text-sm text-muted-foreground">No custom clips yet.</div>
-              )}
+      {activeTab === "clips" && (loading ? (
+        <div className="flex items-center gap-2 p-4 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading audio library</div>
+      ) : (
+        <>
+          <section className={CARD_CLASS}>
+            <div className={GROUP_HEADER_CLASS}>
+              <span className={GROUP_TITLE_CLASS}>Custom clips · {customAssets.length}</span>
             </div>
-            <div>
-              <h3 className="mb-2 text-sm font-semibold">Built-in</h3>
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {bundledAssets.map((asset) => (
-                  <article key={asset.id} className="flex items-center justify-between gap-3 rounded border border-border/60 bg-black/15 p-2">
-                    <div className="min-w-0">
-                      <h4 className="truncate text-sm font-medium">{asset.name}</h4>
-                      <p className="text-xs text-muted-foreground">{asset.event_key ? eventShortLabel(eventsByKey.get(asset.event_key)) : "Built-in"}</p>
+            {customAssets.length > 0 ? (
+              <div className="divide-y divide-border/40">
+                {customAssets.map((asset) => (
+                  <div key={asset.id} className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[#ff3d00]/[0.03]">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <h4 className="truncate text-sm font-medium">{asset.name}</h4>
+                        {(eventLabelsByAssetId.get(asset.id) ?? []).map((label) => <Badge key={label} tone="secondary">→ {label}</Badge>)}
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{clipSourceLabel(asset)} · {formatDuration(asset.duration_seconds)} · {formatBytes(asset.bytes)}</p>
                     </div>
                     {renderPlayButton(asset, `Play ${asset.name}`)}
-                  </article>
+                    <Button outlined size="sm" onClick={() => deleteAsset(asset)} disabled={deletingAssetId === asset.id} aria-label={`Delete ${asset.name}`}>
+                      {deletingAssetId === asset.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
                 ))}
               </div>
+            ) : (
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                No custom clips yet.{" "}
+                <button type="button" className="text-[#ff3d00] underline-offset-2 hover:underline" onClick={() => setActiveTab("generate")}>
+                  Generate one
+                </button>{" "}
+                and map it to a Mission Control event.
+              </div>
+            )}
+          </section>
+
+          <section className={CARD_CLASS}>
+            <div className={GROUP_HEADER_CLASS}>
+              <span className={GROUP_TITLE_CLASS}>Built-in clips · {bundledAssets.length}</span>
             </div>
-          </div>
-        ) : (
-          <div className="rounded border border-dashed border-border p-8 text-center text-muted-foreground">
-            No clips yet. Generate one above, then map it to a Mission Control event.
-          </div>
-        )}</div>
-      </section>
+            <div className="divide-y divide-border/40">
+              {bundledAssets.map((asset) => (
+                <div key={asset.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div className="min-w-0">
+                    <h4 className="truncate text-sm font-medium">{asset.name}</h4>
+                    <p className="truncate text-xs text-muted-foreground">{asset.event_key ? eventShortLabel(eventsByKey.get(asset.event_key)) : "Built-in"}</p>
+                  </div>
+                  {renderPlayButton(asset, `Play ${asset.name}`)}
+                </div>
+              ))}
+            </div>
+          </section>
+        </>
+      ))}
     </div>
   );
 }

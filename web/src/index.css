@@ -528,7 +528,11 @@ code { font-size: 0.875rem; }
 /* ── Glass cards (metric, board, segment, strip) ─ */
 .mission-metric-card {
   border-radius: 10px;
-  transition: border-color 0.18s ease, background-color 0.18s ease;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.mission-metric-card:hover {
+  transform: translateY(-2px);
 }
 
 .mission-metric-card,
@@ -708,5 +712,131 @@ code { font-size: 0.875rem; }
   height: 1px;
   flex: 1 1 auto;
   background: rgba(255, 61, 0, 0.28);
+}
+
+/* ── Mission log — idle hero telemetry feed ─────── */
+@keyframes mission-log-cursor {
+  0%, 48%   { opacity: 1; }
+  52%, 100% { opacity: 0; }
+}
+
+@keyframes mission-attention-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 18, 0, 0.45); }
+  60%      { box-shadow: 0 0 0 6px rgba(255, 18, 0, 0); }
+}
+
+.mission-log {
+  border: 1px solid rgba(255, 61, 0, 0.22);
+  background: rgba(3, 3, 3, 0.88);
+  padding: 0.6rem 0.8rem 0.55rem;
+}
+
+.mission-log__head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid rgba(255, 61, 0, 0.14);
+  color: rgba(255, 61, 0, 0.8);
+  font-family: var(--theme-font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.mission-log__beacon {
+  width: 0.42rem;
+  height: 0.42rem;
+  border: 1px solid rgba(255, 61, 0, 0.62);
+  background: rgba(255, 61, 0, 0.32);
+}
+
+.mission-log__body {
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.mission-log__line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  font-family: var(--theme-font-mono);
+  font-size: 0.62rem;
+  line-height: 1.35;
+  color: rgba(255, 247, 237, 0.55);
+  transition: color 140ms ease;
+}
+
+a.mission-log__line:hover {
+  color: rgba(255, 247, 237, 0.9);
+}
+
+.mission-log__line--quiet {
+  color: rgba(255, 247, 237, 0.32);
+  letter-spacing: 0.08em;
+}
+
+.mission-log__stamp {
+  flex: 0 0 auto;
+  max-width: 6.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 61, 0, 0.62);
+}
+
+.mission-log__tag {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 0.08rem 0.3rem;
+  font-size: 0.52rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.mission-log__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mission-log__cursor {
+  color: rgba(255, 61, 0, 0.75);
+  font-size: 0.6rem;
+  line-height: 1;
+  animation: mission-log-cursor 1.1s step-end infinite;
+}
+
+.mission-attention-beacon {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 18, 0, 0.85);
+  background: rgba(255, 18, 0, 0.55);
+  animation: mission-attention-pulse 1.6s ease-out infinite;
+}
+
+/* Slow rotation on the orb's dashed reference ring — cockpit idle motion. */
+.mission-orb__dashes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mission-orb-rotate 48s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mission-log__cursor,
+  .mission-attention-beacon,
+  .mission-orb__dashes {
+    animation: none;
+  }
+
+  .mission-metric-card:hover {
+    transform: none;
+  }
 }
 

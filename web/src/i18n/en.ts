@@ -74,6 +74,7 @@ export const en: Translations = {
       chat: "Chat",
       config: "Config",
       cron: "Cron",
+      devSpend: "Dev Spend",
       documentation: "Documentation",
       keys: "Keys",
       knowledgeBase: "Knowledge Base",

@@ -1791,6 +1791,60 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
   return [...runtimeItems, ...terminalItems, ...processItems, ...subagentItems, ...sessionItems];
 }
 
+function MissionLog({ items, clock }: { items: TimelineItem[]; clock: string }) {
+  const entries = items.slice(0, 4);
+  return (
+    <div className="mission-log w-full max-w-[26rem]" aria-label="Mission log">
+      <div className="mission-log__head">
+        <span className="mission-log__beacon" aria-hidden="true" />
+        <span>Mission log</span>
+        <span className="ml-auto tabular-nums normal-case tracking-[0.14em]">{clock}</span>
+      </div>
+      <div className="mission-log__body">
+        {entries.length === 0 ? (
+          <p className="mission-log__line mission-log__line--quiet">all quiet — no live signals on deck</p>
+        ) : (
+          entries.map((item) => (
+            <Link key={item.id} to={item.href} className="mission-log__line">
+              <span className="mission-log__stamp">{item.meta}</span>
+              <span className="mission-log__tag">{item.category}</span>
+              <span className="mission-log__text">{item.title}</span>
+            </Link>
+          ))
+        )}
+        <span className="mission-log__cursor" aria-hidden="true">▮</span>
+      </div>
+    </div>
+  );
+}
+
+function TrendSparkline({ values }: { values: number[] }) {
+  if (values.length < 2) return null;
+  const width = 72;
+  const height = 22;
+  const max = Math.max(...values, 1);
+  const stepX = (width - 6) / (values.length - 1);
+  const yFor = (value: number) => height - 3 - (value / max) * (height - 6);
+  const points = values
+    .map((value, index) => `${(3 + index * stepX).toFixed(1)},${yFor(value).toFixed(1)}`)
+    .join(" ");
+  const last = values[values.length - 1];
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="shrink-0 text-[#ff3d00]" aria-hidden="true">
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity="0.5"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <circle cx={width - 3} cy={yFor(last)} r="2" fill="currentColor" fillOpacity="0.9" />
+    </svg>
+  );
+}
+
 const MISSION_ORB_SECTION_LINKS: Array<{ href: string; label: string; icon: LucideIcon; className: string }> = [
   { href: "#mission-live-activity", label: "Lights", icon: Radio, className: "left-1/2 top-0 -translate-x-1/2" },
   { href: "#mission-queue", label: "Queue", icon: Gauge, className: "right-0 top-1/2 -translate-y-1/2" },
@@ -1815,14 +1869,14 @@ function MissionOrb({
     <div className="mission-orb relative ml-auto flex aspect-square w-full max-w-[16.5rem] 2xl:max-w-[18rem] items-center justify-center">
       <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 240 240" aria-hidden="true">
         <circle cx="120" cy="120" r="96" fill="none" stroke="#ff3d00" strokeOpacity="0.22" strokeWidth="1" />
-        <circle cx="120" cy="120" r="84" fill="none" stroke="#22d3ee" strokeOpacity="0.32" strokeWidth="1" strokeDasharray="22 18" />
+        <circle className="mission-orb__dashes" cx="120" cy="120" r="84" fill="none" stroke="#22d3ee" strokeOpacity="0.32" strokeWidth="1" strokeDasharray="22 18" />
         <circle cx="120" cy="120" r={radius} fill="none" stroke="#ff3d00" strokeOpacity="0.22" strokeWidth="8" />
         <circle
           cx="120"
           cy="120"
           r={radius}
           fill="none"
-          stroke="#ff3d00"
+          stroke={score < 70 ? "#ff1200" : "#ff3d00"}
           strokeLinecap="round"
           strokeWidth="8"
           strokeDasharray={circumference}
@@ -1912,10 +1966,12 @@ function MetricCard({
   metric,
   selected,
   onSelect,
+  trend,
 }: {
   metric: MissionMetric;
   selected: boolean;
   onSelect: () => void;
+  trend?: number[];
 }) {
   const Icon = metric.icon;
   const accent = METRIC_ACCENTS[metric.id] ?? METRIC_ACCENTS.gateway;
@@ -1938,6 +1994,11 @@ function MetricCard({
           <p className="text-[0.58rem] font-semibold uppercase tracking-[0.3em] text-white/30">
             {metric.label}
           </p>
+          {trend && trend.length > 1 && (
+            <span className="-mt-1 ml-auto" title="Last few minutes">
+              <TrendSparkline values={trend} />
+            </span>
+          )}
         </div>
         <div>
           <p className="font-mono-ui text-[3.2rem] leading-none text-white">{metric.value}</p>
@@ -2326,6 +2387,25 @@ function MissionQueue({
   const [selectedTaskDetail, setSelectedTaskDetail] = useState<KanbanTaskDetailResponse | null>(null);
   const [selectedTaskLoading, setSelectedTaskLoading] = useState(false);
   const [selectedTaskError, setSelectedTaskError] = useState<string | null>(null);
+  const [quickActionTaskId, setQuickActionTaskId] = useState<string | null>(null);
+  const [quickActionError, setQuickActionError] = useState<string | null>(null);
+
+  const runQuickAction = async (task: MissionTask) => {
+    setQuickActionTaskId(task.id);
+    setQuickActionError(null);
+    try {
+      if (task.status === "review") {
+        await api.updateKanbanTask(task.id, { status: "done", summary: "Accepted from Mission Control." }, task.boardSlug);
+      } else {
+        await api.updateKanbanTask(task.id, { status: "ready" }, task.boardSlug);
+      }
+      await onRefresh();
+    } catch (err) {
+      setQuickActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setQuickActionTaskId(null);
+    }
+  };
   const tasks = allTasks(data, teamFilter);
   const visibleTasks = (filter === "attention"
     ? tasks.filter((task) => MISSION_QUEUE_ATTENTION_STATUSES.has(task.status))
@@ -2409,33 +2489,72 @@ function MissionQueue({
             body="No running, blocked, or review task needs attention right now. Ready work is available under All."
           />
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {visibleTasks.map((task) => (
-              <button
+          <div className="space-y-3">
+            {quickActionError && (
+              <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {quickActionError}
+              </div>
+            )}
+            <div className="grid gap-3 md:grid-cols-2">
+            {visibleTasks.map((task) => {
+              const quickAction = task.status === "review"
+                ? { label: "Accept", title: `Accept ${task.id} as done` }
+                : task.status === "blocked"
+                  ? { label: "Unblock", title: `Move ${task.id} back to ready` }
+                  : null;
+              return (
+              <div
                 key={task.id}
-                type="button"
-                onClick={() => setSelectedTask(task)}
-                className="group relative overflow-hidden border border-border bg-background-base/30 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-current/25 hover:bg-card/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={`Open ${task.id} details`}
+                className="group relative overflow-hidden border border-border bg-background-base/30 transition-all hover:-translate-y-0.5 hover:border-current/25 hover:bg-card/60"
               >
                 <div className="absolute inset-x-0 top-0 h-px bg-current/20" />
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{task.title || task.id}</p>
-                    <p className="mt-1 text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground">
-                      {task.boardName} · {task.column}{task.assignee ? ` · ${task.assignee}` : ""}
-                    </p>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTask(task)}
+                  className="block w-full p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`Open ${task.id} details`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{task.title || task.id}</p>
+                      <p className="mt-1 text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground">
+                        {task.boardName} · {task.column}{task.assignee ? ` · ${task.assignee}` : ""}
+                      </p>
+                    </div>
+                    <Badge tone={taskTone(task)}>{task.status}</Badge>
                   </div>
-                  <Badge tone={taskTone(task)}>{task.status}</Badge>
-                </div>
-                <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                  {task.latest_summary || task.body || "No worker summary captured yet."}
-                </p>
-                <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
-                  Open details <ChevronRight className="h-3.5 w-3.5" />
-                </div>
-              </button>
-            ))}
+                  <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                    {task.latest_summary || task.body || "No worker summary captured yet."}
+                  </p>
+                  <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
+                    Open details <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </button>
+                {quickAction && (
+                  <button
+                    type="button"
+                    onClick={() => void runQuickAction(task)}
+                    disabled={quickActionTaskId === task.id}
+                    title={quickAction.title}
+                    className={cn(
+                      "absolute bottom-3 right-3 z-10 inline-flex h-7 items-center gap-1.5 border px-2.5 font-mono-ui text-[0.6rem] uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-1 disabled:cursor-wait disabled:opacity-50",
+                      task.status === "review"
+                        ? "border-[#22d3ee]/45 bg-[#22d3ee]/[0.06] text-[#22d3ee]/90 hover:border-[#22d3ee]/70 hover:bg-[#22d3ee]/[0.12] focus-visible:ring-[#22d3ee]/60"
+                        : "border-[#ff3d00]/45 bg-[#ff3d00]/[0.05] text-[#ff3d00]/90 hover:border-[#ff3d00]/70 hover:bg-[#ff3d00]/[0.1] focus-visible:ring-[#ff3d00]/60",
+                    )}
+                  >
+                    {quickActionTaskId === task.id
+                      ? <Spinner />
+                      : task.status === "review"
+                        ? <CheckCircle2 className="h-3 w-3" />
+                        : <Zap className="h-3 w-3" />}
+                    {quickAction.label}
+                  </button>
+                )}
+              </div>
+              );
+            })}
+            </div>
           </div>
         )}
       </CardContent>
@@ -2465,9 +2584,9 @@ function SoundToggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-1.5 border border-[#ff3d00]/18 bg-transparent px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-[#ff3d00]/30 hover:text-foreground">
-      <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
+    <label className="flex w-full items-center justify-between gap-3 border border-[#ff3d00]/18 bg-transparent px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-[#ff3d00]/30 hover:text-foreground">
       <span className="font-mondwest text-display uppercase tracking-[0.12em]">{label}</span>
+      <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
     </label>
   );
 }
@@ -2511,6 +2630,26 @@ function ActiveOperationsBoard({
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<MissionTask | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [deleteTaskError, setDeleteTaskError] = useState<string | null>(null);
+  const [audioMenuOpen, setAudioMenuOpen] = useState(false);
+  const audioMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!audioMenuOpen) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (audioMenuRef.current && !audioMenuRef.current.contains(event.target as Node)) {
+        setAudioMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAudioMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [audioMenuOpen]);
 
   const toggleTeamRow = useCallback((rowKey: string) => {
     setExpandedTeamRows((current) => {
@@ -2656,57 +2795,84 @@ function ActiveOperationsBoard({
             <span className="border border-[#22d3ee]/30 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[#22d3ee]/80">{counts.ready} ready</span>
             <span className="border border-[#ff3d00]/35 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[#ff3d00]/90">{counts.working} working</span>
             <span className="border border-[#ff1200]/55 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[#ff1200] shadow-[0_0_12px_rgba(255,18,0,0.22)]">{counts.review} review</span>
-            <SoundToggle
-              label="Approval ding"
-              checked={soundSettings.approval}
-              onChange={(checked) => onSoundSettingChange("approval", checked)}
-            />
-            <SoundToggle
-              label="Done ding"
-              checked={soundSettings.done}
-              onChange={(checked) => onSoundSettingChange("done", checked)}
-            />
-            <SoundToggle
-              label="Voice task updates"
-              checked={soundSettings.announce}
-              onChange={(checked) => onSoundSettingChange("announce", checked)}
-            />
-            <SoundToggle
-              label="Announce terminal results"
-              checked={soundSettings.terminalAnnounce}
-              onChange={(checked) => onSoundSettingChange("terminalAnnounce", checked)}
-            />
-            <SoundToggle
-              label="Launch clip"
-              checked={soundSettings.launchClip}
-              onChange={(checked) => onSoundSettingChange("launchClip", checked)}
-            />
-            <Button
-              type="button"
-              ghost
-              size="sm"
-              disabled={testAnnounceState === "playing"}
-              onClick={testAnnouncement}
-            >
-              {testAnnounceState === "playing" ? <Spinner /> : null}
-              {testAnnounceState === "ok"
-                ? "Announce sent"
-                : testAnnounceState === "error"
-                  ? "Announce failed"
-                  : "Test announce"}
-            </Button>
-            <Button
-              type="button"
-              ghost
-              size="sm"
-              className="px-2"
-              aria-label="Play it's only one prompt away clip"
-              title={promptAwayState === "error" ? "Clip failed" : "Play: It's only one prompt away"}
-              disabled={promptAwayState === "playing"}
-              onClick={playPromptAwayClip}
-            >
-              {promptAwayState === "playing" ? <Spinner /> : <Volume2 className="h-3.5 w-3.5" />}
-            </Button>
+            <div className="relative" ref={audioMenuRef}>
+              <button
+                type="button"
+                onClick={() => setAudioMenuOpen((open) => !open)}
+                aria-expanded={audioMenuOpen}
+                aria-haspopup="true"
+                className={cn(
+                  "inline-flex h-6 items-center gap-1.5 border px-2.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/60",
+                  audioMenuOpen
+                    ? "border-[#ff3d00]/60 bg-[#ff3d00]/[0.06] text-[#ff3d00]"
+                    : "border-[#ff3d00]/25 bg-transparent text-[#ff3d00]/80 hover:border-[#ff3d00]/50 hover:text-[#ff3d00]",
+                )}
+              >
+                <Volume2 className="h-3 w-3" />
+                Audio
+                <ChevronRight className={cn("h-3 w-3 transition-transform", audioMenuOpen && "rotate-90")} />
+              </button>
+              {audioMenuOpen && (
+                <div className="absolute right-0 top-full z-50 mt-2 w-72 border border-[#ff3d00]/30 bg-[#050505]/[0.98] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.6)] backdrop-blur-md">
+                  <p className="mb-2 font-mono-ui text-[0.58rem] uppercase tracking-[0.18em] text-white/35">Sound alerts</p>
+                  <div className="grid gap-1.5">
+                    <SoundToggle
+                      label="Approval ding"
+                      checked={soundSettings.approval}
+                      onChange={(checked) => onSoundSettingChange("approval", checked)}
+                    />
+                    <SoundToggle
+                      label="Done ding"
+                      checked={soundSettings.done}
+                      onChange={(checked) => onSoundSettingChange("done", checked)}
+                    />
+                    <SoundToggle
+                      label="Voice task updates"
+                      checked={soundSettings.announce}
+                      onChange={(checked) => onSoundSettingChange("announce", checked)}
+                    />
+                    <SoundToggle
+                      label="Announce terminal results"
+                      checked={soundSettings.terminalAnnounce}
+                      onChange={(checked) => onSoundSettingChange("terminalAnnounce", checked)}
+                    />
+                    <SoundToggle
+                      label="Launch clip"
+                      checked={soundSettings.launchClip}
+                      onChange={(checked) => onSoundSettingChange("launchClip", checked)}
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#ff3d00]/15 pt-3">
+                    <Button
+                      type="button"
+                      ghost
+                      size="sm"
+                      disabled={testAnnounceState === "playing"}
+                      onClick={testAnnouncement}
+                    >
+                      {testAnnounceState === "playing" ? <Spinner /> : null}
+                      {testAnnounceState === "ok"
+                        ? "Announce sent"
+                        : testAnnounceState === "error"
+                          ? "Announce failed"
+                          : "Test announce"}
+                    </Button>
+                    <Button
+                      type="button"
+                      ghost
+                      size="sm"
+                      className="px-2"
+                      aria-label="Play it's only one prompt away clip"
+                      title={promptAwayState === "error" ? "Clip failed" : "Play: It's only one prompt away"}
+                      disabled={promptAwayState === "playing"}
+                      onClick={playPromptAwayClip}
+                    >
+                      {promptAwayState === "playing" ? <Spinner /> : <Volume2 className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </CardHeader>
@@ -3507,6 +3673,16 @@ export default function MissionControlPage() {
   const pendingDevTaskCompleteClipRef = useRef(false);
   const lastKanbanActivityRefreshRef = useRef(0);
   const activityRefreshInFlightRef = useRef(false);
+  const trendSamplesRef = useRef<Array<{ t: number; sessions: number; team: number }>>([]);
+  const [trends, setTrends] = useState<{ sessions: number[]; team: number[] }>({ sessions: [], team: [] });
+  const [clockText, setClockText] = useState(() => new Date().toLocaleTimeString("en-US", { hour12: false }));
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setClockText(new Date().toLocaleTimeString("en-US", { hour12: false }));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const updateSoundSetting = useCallback((kind: MissionControlSoundSetting, enabled: boolean) => {
     setSoundSettings((current) => {
@@ -3795,6 +3971,29 @@ export default function MissionControlPage() {
     return profiles;
   }, [data.activity, operations]);
   const score = useMemo(() => computeMissionScore(data), [data]);
+  const attention = useMemo(() => ({
+    reviewLights: operations.filter((item) => item.tone === "review").length,
+    blockedTasks: allTasks(data).filter((task) => task.status === "blocked").length,
+  }), [operations, data]);
+
+  // Client-side metric history for the hero card sparklines — one sample every
+  // ~5s, capped at ~4 minutes so trends reflect the current working session.
+  useEffect(() => {
+    const now = Date.now();
+    const last = trendSamplesRef.current[trendSamplesRef.current.length - 1];
+    if (last && now - last.t < 5000) return;
+    const sample = {
+      t: now,
+      sessions: operations.filter((item) => activitySegment(item) === "terminals").length,
+      team: allTasks(data).filter((task) => task.status === "running").length,
+    };
+    trendSamplesRef.current = [...trendSamplesRef.current, sample].slice(-48);
+    setTrends({
+      sessions: trendSamplesRef.current.map((entry) => entry.sessions),
+      team: trendSamplesRef.current.map((entry) => entry.team),
+    });
+  }, [operations, data]);
+
   const readiness = useMemo(() => {
     if (data.status?.gateway_exit_reason) {
       return { tone: "destructive" as BadgeTone, label: "Gateway needs attention" };
@@ -4033,6 +4232,9 @@ export default function MissionControlPage() {
             <span className="font-mono text-[0.62rem] uppercase tracking-[0.2em] text-white/25">
               {readiness.label} · Config v{data.status?.config_version ?? "—"}
             </span>
+            <span className="font-mono-ui text-[0.62rem] tabular-nums tracking-[0.2em] text-[#ff3d00]/70">
+              {clockText}
+            </span>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[minmax(21rem,0.8fr)_minmax(14rem,0.75fr)_minmax(15rem,18rem)] xl:items-center 2xl:grid-cols-[minmax(28rem,0.86fr)_minmax(18rem,1fr)_22rem]">
@@ -4049,20 +4251,29 @@ export default function MissionControlPage() {
               {/* Inline HUD metrics */}
               <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2">
                 {[
-                  { label: "Platforms", value: Object.keys(data.status?.gateway_platforms ?? {}).length },
-                  { label: "Profiles", value: data.profiles.length },
-                  { label: "Cron jobs", value: data.cronJobs.length },
-                  { label: "Signals", value: timeline.length },
-                ].map((stat) => (
-                  <div key={stat.label} className="flex items-baseline gap-2">
-                    <span className="font-mono-ui text-xl leading-none text-white/70">{stat.value}</span>
-                    <span className="text-[0.58rem] uppercase tracking-[0.2em] text-white/25">{stat.label}</span>
-                  </div>
-                ))}
+                  { label: "Platforms", value: Object.keys(data.status?.gateway_platforms ?? {}).length, href: "/channels" },
+                  { label: "Profiles", value: data.profiles.length, href: "/profiles" },
+                  { label: "Cron jobs", value: data.cronJobs.length, href: "/cron" },
+                  { label: "Signals", value: timeline.length, href: "#mission-team-signals" },
+                ].map((stat) => {
+                  const statBody = (
+                    <>
+                      <span className="font-mono-ui text-xl leading-none text-white/70 transition-colors group-hover/stat:text-[#ff3d00]">{stat.value}</span>
+                      <span className="text-[0.58rem] uppercase tracking-[0.2em] text-white/25 transition-colors group-hover/stat:text-white/50">{stat.label}</span>
+                    </>
+                  );
+                  const statClass = "group/stat flex items-baseline gap-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/60";
+                  return stat.href.startsWith("#") ? (
+                    <a key={stat.label} href={stat.href} className={statClass}>{statBody}</a>
+                  ) : (
+                    <Link key={stat.label} to={stat.href} className={statClass}>{statBody}</Link>
+                  );
+                })}
               </div>
             </div>
             <div className="mission-sound-bridge-slot hidden min-h-[9rem] xl:flex xl:items-center xl:justify-center">
               <MissionSoundBridge active={soundVisual.active} label={soundVisual.label} />
+              {!soundVisual.active && <MissionLog items={timeline} clock={clockText} />}
             </div>
             <div className="flex justify-end">
               <MissionOrb
@@ -4082,6 +4293,29 @@ export default function MissionControlPage() {
         </div>
       )}
 
+      {(attention.reviewLights > 0 || attention.blockedTasks > 0) && (
+        <div className="flex flex-wrap items-center gap-3 border border-[#ff1200]/45 bg-[#ff1200]/[0.05] px-4 py-2.5 text-sm">
+          <span className="mission-attention-beacon" aria-hidden="true" />
+          <span className="font-mono-ui text-[0.66rem] uppercase tracking-[0.18em] text-[#ff1200]">Attention</span>
+          <span className="text-[#fff7ed]/80">
+            {[
+              attention.reviewLights > 0
+                ? `${attention.reviewLights} light${attention.reviewLights === 1 ? "" : "s"} waiting on approval`
+                : null,
+              attention.blockedTasks > 0
+                ? `${attention.blockedTasks} task${attention.blockedTasks === 1 ? "" : "s"} blocked`
+                : null,
+            ].filter(Boolean).join(" · ")}
+          </span>
+          <a
+            href={attention.reviewLights > 0 ? "#mission-live-activity" : "#mission-queue"}
+            className="ml-auto inline-flex items-center gap-1.5 border border-[#ff1200]/40 px-2.5 py-1 font-mono-ui text-[0.62rem] uppercase tracking-[0.14em] text-[#ff1200]/90 transition-colors hover:border-[#ff1200]/70 hover:text-[#ff1200] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff1200]/60"
+          >
+            Jump to it <ArrowRight className="h-3 w-3" />
+          </a>
+        </div>
+      )}
+
 
       {/* ── Bento metric grid ─────────────────────── */}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr_1fr]">
@@ -4091,6 +4325,7 @@ export default function MissionControlPage() {
             metric={metric}
             selected={selectedMetric === metric.id}
             onSelect={() => setSelectedMetric(metric.id)}
+            trend={metric.id === "sessions" ? trends.sessions : metric.id === "team" ? trends.team : undefined}
           />
         ))}
       </div>

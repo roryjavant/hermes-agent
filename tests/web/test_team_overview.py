@@ -540,7 +540,7 @@ def test_team_page_condenses_roster_into_meet_the_team_orbs_with_modal_details()
     source = (REPO_ROOT / "web" / "src" / "pages" / "TeamPage.tsx").read_text()
 
     assert "Meet the Team" in source
-    assert "Blue profile-agent circles keep the roster compact" in source
+    assert "Click an agent for dossier, workload, SOUL.md, and current assignment." in source
     assert source.index("Meet the Team") < source.index("Pipeline status")
     assert "setSelectedTeamMemberKey(member.role.key)" in source
     assert "selectedTeamMember &&" in source

@@ -16,7 +16,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { Button } from "@nous-research/ui/ui/components/button";
 import { api } from "@/lib/api";
 import type { KnowledgeBaseEntryDetail, KnowledgeBaseEntrySummary, KnowledgeBaseSummary, KnowledgeBaseTreeNode } from "@/lib/api";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
@@ -71,59 +70,40 @@ function KnowledgeBaseRow({
   const tone = TONES[TONE_BY_SLUG[base.slug] ?? "cyan"];
   const latest = latestEntry(base);
   return (
-    <div className="group grid gap-3 border-b border-border/50 bg-card/45 px-3 py-3 transition-colors last:border-b-0 hover:bg-card/75 md:grid-cols-[minmax(15rem,1.35fr)_5rem_5rem_minmax(9rem,0.65fr)_minmax(14rem,1fr)_6.5rem] md:items-center md:px-4">
+    <div className="group flex items-center gap-3 px-3 py-3 transition-colors hover:bg-white/[0.03] sm:px-4">
       <button
         type="button"
         onClick={onOpen}
         aria-label={`Open knowledge base: ${base.title}`}
-        className="flex min-w-0 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
+        className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground/60"
       >
-        <span className={cn("h-3 w-3 shrink-0 rounded-full", tone.glow)} aria-hidden="true" />
-        <span className={cn("grid size-8 shrink-0 place-items-center rounded-xl border border-current/20 bg-black/28", tone.text)}>
+        <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl bg-black/25", tone.text)}>
           <BookOpen className="size-4" />
         </span>
         <span className="min-w-0">
-          <span className="block truncate font-expanded text-sm font-black uppercase tracking-[0.08em] text-foreground">{base.title}</span>
-          <span className="mt-0.5 block truncate font-mono-ui text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground">{base.kicker}</span>
+          <span className="block truncate text-sm font-bold text-foreground">{base.title}</span>
+          <span className="mt-0.5 block truncate text-xs text-text-tertiary">{base.description || base.kicker}</span>
         </span>
       </button>
-
-      <div className="flex items-center gap-1.5 font-mono-ui text-sm text-text-secondary">
-        <FileText className="size-3.5 text-muted-foreground" /> {base.entry_count}
-      </div>
-      <div className="flex items-center gap-1.5 font-mono-ui text-sm text-text-secondary">
-        <FolderClosed className="size-3.5 text-muted-foreground" /> {base.folder_count}
-      </div>
-      <div className="min-w-0 text-xs text-muted-foreground">
-        <div className="flex min-w-0 items-center gap-1.5 text-text-secondary">
-          <CalendarDays className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{latest ? formatUpdatedAt(latest.updated_at) : "—"}</span>
+      <div className="hidden shrink-0 text-right font-mono-ui text-[0.68rem] leading-5 text-text-tertiary md:block" title={base.path}>
+        <div>{base.entry_count} files · {base.folder_count} folders</div>
+        <div className="flex items-center justify-end gap-1.5 text-text-tertiary/70">
+          <CalendarDays className="size-3 shrink-0" />
+          {latest ? formatUpdatedAt(latest.updated_at) : "—"}
         </div>
       </div>
-      <div className="min-w-0 text-xs">
-        <p className="truncate text-text-secondary">{base.description}</p>
-        <p className="mt-0.5 truncate font-mono-ui text-[0.68rem] text-muted-foreground">{base.path}</p>
-      </div>
-      <div className="flex items-center justify-end gap-2">
+      {base.deletable ? (
         <button
           type="button"
-          onClick={onOpen}
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-xl border border-border/70 bg-background-base/60 px-2 font-expanded text-[0.65rem] font-bold uppercase tracking-[0.14em] text-foreground transition-colors hover:border-midground/50 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
+          onClick={() => onRequestDelete({ path: base.path, slug: base.slug, label: base.title, kind: "base" })}
+          aria-label={`Delete knowledge base card: ${base.title}`}
+          title={`Delete ${base.title}`}
+          className="grid size-7 shrink-0 place-items-center rounded-md text-text-tertiary opacity-0 transition-opacity hover:bg-white/8 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
         >
-          Open
+          <Trash2 className="size-3.5" />
         </button>
-        {base.deletable ? (
-          <button
-            type="button"
-            onClick={() => onRequestDelete({ path: base.path, slug: base.slug, label: base.title, kind: "base" })}
-            aria-label={`Delete knowledge base card: ${base.title}`}
-            className="grid size-8 place-items-center rounded-full border border-border/60 bg-background-base/60 text-text-tertiary transition-colors hover:border-destructive/55 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
-            title={`Delete ${base.title}`}
-          >
-            <Trash2 className="size-3.5" />
-          </button>
-        ) : null}
-      </div>
+      ) : null}
+      <ChevronRight className="size-4 shrink-0 text-text-tertiary/40 transition-colors group-hover:text-midground" aria-hidden="true" />
     </div>
   );
 }
@@ -172,31 +152,24 @@ function FileTree({
   if (node.type === "file") {
     return (
       <div
-        className="group grid w-full grid-cols-[auto_1fr_auto_auto] items-center gap-3 border-b border-border/40 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-midground/8"
+        className="group flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-white/[0.03]"
         style={{ paddingLeft: `${12 + depth * 16}px` }}
       >
         <FileText className="size-3.5 shrink-0 text-text-tertiary transition-colors group-hover:text-midground" />
         <button
           type="button"
           onClick={() => onOpenEntry(node.entry)}
-          className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
+          className="min-w-0 flex-1 truncate text-left text-[13px] font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground/60"
         >
-          <div className="truncate text-[13px] font-semibold text-foreground">{node.entry.title}</div>
-        </button>
-        <button
-          type="button"
-          onClick={() => onOpenEntry(node.entry)}
-          className="rounded-full border border-border/50 bg-black/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-text-tertiary transition-colors hover:border-midground/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-midground/60"
-        >
-          Open
+          {node.entry.title}
         </button>
         <button
           type="button"
           onClick={() => onRequestDelete({ path: node.entry.relative_path, label: node.entry.title, kind: "file" })}
           aria-label={`Delete knowledge file: ${node.entry.title}`}
-          className="grid size-7 place-items-center rounded-full border border-border/50 bg-black/20 text-text-tertiary opacity-70 transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-text-tertiary opacity-0 transition-opacity hover:bg-white/8 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
         >
-          <Trash2 className="size-3.5" />
+          <Trash2 className="size-3" />
         </button>
       </div>
     );
@@ -208,11 +181,11 @@ function FileTree({
   const isSelected = Boolean(folderPath) && selectedFolder === folderPath;
 
   return (
-    <div className={isRoot ? "" : "border-b border-border/40 last:border-b-0"}>
+    <div>
       {!isRoot ? (
         <div
           className={cn(
-            "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-midground/8",
+            "group flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.03]",
             isSelected ? "bg-midground/10" : "",
           )}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
@@ -248,9 +221,9 @@ function FileTree({
             type="button"
             onClick={() => onRequestDelete({ path: node.relative_path, label: node.name, kind: "folder" })}
             aria-label={`Delete knowledge folder: ${node.name}`}
-            className="grid size-7 shrink-0 place-items-center rounded-full border border-border/50 bg-black/20 text-text-tertiary opacity-70 transition-colors hover:border-destructive/50 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+            className="grid size-6 shrink-0 place-items-center rounded-md text-text-tertiary opacity-0 transition-opacity hover:bg-white/8 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
           >
-            <Trash2 className="size-3.5" />
+            <Trash2 className="size-3" />
           </button>
         </div>
       ) : null}
@@ -509,23 +482,23 @@ export default function KnowledgeBasePage() {
           </>
         ) : (
           <div>
-            <h1 className="font-expanded text-3xl font-black uppercase tracking-[0.08em] text-foreground sm:text-4xl">
+            <h1 className="font-expanded text-2xl font-black uppercase tracking-[0.08em] text-foreground">
               Knowledge Base
             </h1>
-            <p className="mt-2 text-sm text-text-secondary">Organized Markdown files for research handoff and reusable notes.</p>
+            <p className="mt-1.5 text-sm leading-6 text-text-secondary">Organized Markdown files for research handoff and reusable notes.</p>
           </div>
         )}
       </div>
 
       {error ? (
-        <div className="rounded border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+        <div role="alert" className="rounded-xl bg-destructive/10 px-4 py-3 text-xs leading-5 text-destructive">{error}</div>
       ) : null}
 
       {active ? (
         /* Detail view */
         <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
           {/* Left: file tree */}
-          <div className="flex flex-col gap-0 overflow-hidden border border-border/60 bg-card/72 shadow-2xl shadow-black/15">
+          <div className="flex flex-col gap-0 overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-lg shadow-black/10">
             {/* KB identity strip */}
             <div className={cn("flex items-center gap-3 border-b bg-gradient-to-r p-4", tone.card)}>
               <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl border border-current/20 bg-black/28", tone.glow)}>
@@ -558,34 +531,36 @@ export default function KnowledgeBasePage() {
           </div>
 
           {/* Right: tabbed actions */}
-          <div className="flex flex-col overflow-hidden border border-border/60 bg-card/72 shadow-2xl shadow-black/15">
+          <div className="flex flex-col overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-lg shadow-black/10">
             {/* Tab bar */}
-            <div className="flex border-b border-border/60">
+            <div className="flex items-center gap-1 border-b border-border/40 px-2" role="tablist" aria-label="Knowledge base actions">
               <button
                 type="button"
+                role="tab"
+                aria-selected={rightTab === "research"}
                 onClick={() => setRightTab("research")}
                 className={cn(
-                  "flex flex-1 items-center justify-center gap-2 border-r border-border/60 py-3.5 text-xs font-black uppercase tracking-[0.14em] transition-colors",
-                  rightTab === "research"
-                    ? "bg-midground/8 text-foreground"
-                    : "text-text-tertiary hover:bg-midground/5 hover:text-text-secondary",
+                  "relative flex items-center gap-2 px-3.5 py-3 text-xs font-semibold transition-colors focus-visible:outline-none",
+                  rightTab === "research" ? "text-foreground" : "text-text-tertiary hover:text-text-secondary",
                 )}
               >
-                <Search className="size-3.5" />
+                <Search className={cn("size-3.5", rightTab === "research" && "text-midground")} />
                 Research
+                {rightTab === "research" ? <span className="absolute inset-x-3 -bottom-px h-[2px] rounded-full bg-midground" /> : null}
               </button>
               <button
                 type="button"
+                role="tab"
+                aria-selected={rightTab === "add"}
                 onClick={() => setRightTab("add")}
                 className={cn(
-                  "flex flex-1 items-center justify-center gap-2 py-3.5 text-xs font-black uppercase tracking-[0.14em] transition-colors",
-                  rightTab === "add"
-                    ? "bg-midground/8 text-foreground"
-                    : "text-text-tertiary hover:bg-midground/5 hover:text-text-secondary",
+                  "relative flex items-center gap-2 px-3.5 py-3 text-xs font-semibold transition-colors focus-visible:outline-none",
+                  rightTab === "add" ? "text-foreground" : "text-text-tertiary hover:text-text-secondary",
                 )}
               >
-                <Plus className="size-3.5" />
+                <Plus className={cn("size-3.5", rightTab === "add" && "text-midground")} />
                 Add Note
+              {rightTab === "add" ? <span className="absolute inset-x-3 -bottom-px h-[2px] rounded-full bg-midground" /> : null}
               </button>
             </div>
 
@@ -607,23 +582,23 @@ export default function KnowledgeBasePage() {
                       value={researchSubject}
                       onChange={(e) => setResearchSubject(e.target.value)}
                       placeholder="What should the agent research?"
-                      className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                      className="w-full rounded-lg border border-transparent bg-black/25 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
                     />
                     <textarea
                       value={researchInstructions}
                       onChange={(e) => setResearchInstructions(e.target.value)}
                       placeholder="Optional: sources to check, questions to answer, depth, constraints…"
                       rows={5}
-                      className="w-full resize-none border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                      className="w-full resize-none rounded-lg border border-transparent bg-black/25 px-3.5 py-2.5 text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
                     />
-                    <div className="flex select-none items-center gap-2 border border-border/60 bg-background-base/60 px-3 py-2 text-xs text-text-secondary">
+                    <div className="flex select-none items-center gap-2 rounded-lg bg-black/20 px-3 py-2 text-xs text-text-secondary">
                       <FolderClosed className="size-3 shrink-0 text-text-tertiary" />
                       <span className="text-text-tertiary">Folder hint:</span>
-                      <code className="ml-1 rounded border border-border/60 bg-card/80 px-2 py-0.5 font-mono text-midground shadow-inner shadow-black/20">
+                      <code className="ml-1 rounded bg-black/30 px-2 py-0.5 font-mono text-midground">
                         {folder || "agent decides"}
                       </code>
                     </div>
-                    <label className="flex cursor-pointer select-none items-start gap-3 border border-border/60 bg-background-base/60 px-3 py-3 text-xs leading-5 text-text-secondary transition-colors hover:border-midground/35 hover:bg-midground/5">
+                    <label className="flex cursor-pointer select-none items-start gap-3 rounded-lg bg-black/20 px-3 py-3 text-xs leading-5 text-text-secondary transition-colors hover:bg-black/30">
                       <input
                         type="checkbox"
                         checked={researchUseExistingBase}
@@ -631,16 +606,17 @@ export default function KnowledgeBasePage() {
                         className="mt-0.5 size-4 accent-midground"
                       />
                       <span>
-                        <span className="block font-black uppercase tracking-[0.12em] text-foreground">File into existing bucket</span>
+                        <span className="block font-bold text-foreground">File into existing bucket</span>
                         <span className="block text-text-tertiary">
                           Off by default. Turn this on only when the result belongs inside {active.title} instead of becoming a new Knowledge Base card.
                         </span>
                       </span>
                     </label>
-                    <Button
+                    <button
+                      type="button"
                       onClick={handleStartResearch}
                       disabled={launchingResearch || !researchSubject.trim()}
-                      className="w-full justify-center gap-2"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-midground/14 px-4 py-2.5 text-xs font-semibold text-midground transition-colors hover:bg-midground/20 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {launchingResearch ? (
                         <Loader2 className="size-4 animate-spin" />
@@ -648,9 +624,9 @@ export default function KnowledgeBasePage() {
                         <Sparkles className="size-4" />
                       )}
                       {launchingResearch ? "Starting…" : "Start research job"}
-                    </Button>
+                    </button>
                     {researchStatus ? (
-                      <div className="flex items-start gap-2.5 border border-emerald-300/25 bg-emerald-500/10 px-3.5 py-3 text-xs leading-5 text-emerald-100">
+                      <div className="flex items-start gap-2.5 rounded-lg bg-emerald-500/10 px-3.5 py-3 text-xs leading-5 text-emerald-100">
                         <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-400" />
                         {researchStatus}
                       </div>
@@ -673,29 +649,30 @@ export default function KnowledgeBasePage() {
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="Note title"
-                      className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                      className="w-full rounded-lg border border-transparent bg-black/25 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
                     />
                     <input
                       value={folder}
                       onChange={(e) => setFolder(e.target.value)}
                       placeholder="Folder path (e.g. research-briefs)"
-                      className="w-full border border-border/60 bg-background-base/70 px-3.5 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                      className="w-full rounded-lg border border-transparent bg-black/25 px-3.5 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
                     />
                     <textarea
                       value={body}
                       onChange={(e) => setBody(e.target.value)}
                       placeholder="Markdown body…"
                       rows={9}
-                      className="w-full resize-none border border-border/60 bg-background-base/70 px-3.5 py-2.5 font-mono text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                      className="w-full resize-none rounded-lg border border-transparent bg-black/25 px-3.5 py-2.5 font-mono text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
                     />
-                    <Button
+                    <button
+                      type="button"
                       onClick={handleSave}
                       disabled={saving || !title.trim() || !body.trim()}
-                      className="w-full justify-center gap-2"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-midground/14 px-4 py-2.5 text-xs font-semibold text-midground transition-colors hover:bg-midground/20 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {saving ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
                       {saving ? "Saving…" : "Save Markdown note"}
-                    </Button>
+                    </button>
                   </div>
                 </>
               )}
@@ -705,11 +682,11 @@ export default function KnowledgeBasePage() {
       ) : (
         /* List view */
         <section className="flex flex-col gap-4">
-          <div className="overflow-hidden rounded-3xl border border-dashed border-border/70 bg-background-base/55 shadow-2xl shadow-black/10">
-            <div className="grid gap-3 p-4 lg:grid-cols-[minmax(12rem,0.85fr)_minmax(14rem,1fr)_minmax(16rem,1.35fr)_auto] lg:items-end">
+          <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-lg shadow-black/10">
+            <div className="grid gap-3 p-4 lg:grid-cols-[minmax(11rem,0.7fr)_minmax(14rem,1fr)_minmax(16rem,1.35fr)_auto] lg:items-center">
               <div>
                 <p className="font-mono-ui text-[10px] uppercase tracking-[0.2em] text-text-tertiary">New workspace</p>
-                <h2 className="mt-1 font-expanded text-base font-black uppercase leading-tight tracking-[0.08em] text-foreground">
+                <h2 className="mt-1 text-sm font-bold text-foreground">
                   Create knowledge base
                 </h2>
               </div>
@@ -717,57 +694,50 @@ export default function KnowledgeBasePage() {
                 value={newBaseTitle}
                 onChange={(e) => setNewBaseTitle(e.target.value)}
                 placeholder="Name, e.g. Client Intake Research"
-                className="w-full rounded-xl border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                className="w-full rounded-lg border border-transparent bg-black/25 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
               />
               <div className="grid gap-3 sm:grid-cols-2">
                 <input
                   value={newBaseSlug}
                   onChange={(e) => setNewBaseSlug(e.target.value)}
                   placeholder="Optional slug"
-                  className="w-full rounded-xl border border-border/60 bg-background-base/70 px-3.5 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                  className="w-full rounded-lg border border-transparent bg-black/25 px-3.5 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
                 />
                 <input
                   value={newBaseDescription}
                   onChange={(e) => setNewBaseDescription(e.target.value)}
                   placeholder="Optional description"
-                  className="w-full rounded-xl border border-border/60 bg-background-base/70 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
+                  className="w-full rounded-lg border border-transparent bg-black/25 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/60 focus:border-midground/50"
                 />
               </div>
-              <Button
+              <button
+                type="button"
                 onClick={handleCreateBase}
                 disabled={creatingBase || !newBaseTitle.trim()}
-                className="justify-center gap-2 whitespace-nowrap"
+                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-midground/14 px-4 py-2.5 text-xs font-semibold text-midground transition-colors hover:bg-midground/20 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {creatingBase ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
                 {creatingBase ? "Creating…" : "Create"}
-              </Button>
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-background-base/45 px-3 py-2">
-            <Search className="size-4 text-muted-foreground" />
+          <div className="flex items-center gap-2.5 rounded-xl bg-black/20 px-3.5 py-1">
+            <Search className="size-4 shrink-0 text-text-tertiary" />
             <input
               value={baseQuery}
               onChange={(event) => setBaseQuery(event.target.value)}
               placeholder="Filter knowledge bases, paths, descriptions…"
-              className="min-w-0 flex-1 bg-transparent py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              className="min-w-0 flex-1 bg-transparent py-2 text-sm text-foreground outline-none placeholder:text-text-tertiary/70"
             />
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center gap-2 rounded-3xl border border-border/70 bg-card/70 p-10 text-sm text-muted-foreground">
+            <div className="flex items-center justify-center gap-2 rounded-2xl border border-border/50 bg-card/60 p-10 text-xs text-text-tertiary">
               <Loader2 className="size-4 animate-spin" /> Loading knowledge bases…
             </div>
           ) : visibleBases.length > 0 ? (
-            <section className="overflow-hidden rounded-3xl border border-border/70 bg-background-base/35 shadow-2xl shadow-black/10">
-              <div className="hidden border-b border-border/70 bg-card/70 px-4 py-2 text-[0.65rem] uppercase tracking-[0.14em] text-muted-foreground md:grid md:grid-cols-[minmax(15rem,1.35fr)_5rem_5rem_minmax(9rem,0.65fr)_minmax(14rem,1fr)_6.5rem]">
-                <span>Knowledge base</span>
-                <span>Files</span>
-                <span>Folders</span>
-                <span>Updated</span>
-                <span>Description / path</span>
-                <span>Actions</span>
-              </div>
+            <section className="divide-y divide-border/30 overflow-hidden rounded-2xl border border-border/50 bg-card/60 shadow-lg shadow-black/10">
               {visibleBases.map((base) => (
                 <KnowledgeBaseRow
                   key={base.slug}
@@ -778,9 +748,9 @@ export default function KnowledgeBasePage() {
               ))}
             </section>
           ) : (
-            <div className="rounded-3xl border border-border/70 bg-card/70 p-10 text-center text-sm text-muted-foreground">
+            <p className="rounded-2xl border border-border/50 bg-card/60 p-10 text-center text-xs text-text-tertiary">
               No knowledge bases matched.
-            </div>
+            </p>
           )}
         </section>
       )}
@@ -793,9 +763,9 @@ export default function KnowledgeBasePage() {
           aria-modal="true"
           aria-labelledby="knowledge-delete-title"
         >
-          <div className="w-full max-w-md border border-destructive/30 bg-card p-5 shadow-2xl shadow-black/45">
+          <div className="w-full max-w-md rounded-2xl border border-destructive/30 bg-card p-5 shadow-2xl shadow-black/45">
             <p className="font-mono-ui text-[10px] uppercase tracking-[0.2em] text-destructive/80">Delete {deleteTarget.kind}</p>
-            <h2 id="knowledge-delete-title" className="mt-2 font-expanded text-xl font-black uppercase tracking-[0.07em] text-foreground">
+            <h2 id="knowledge-delete-title" className="mt-2 text-lg font-bold text-foreground">
               {deleteTarget.label}
             </h2>
             <p className="mt-3 text-sm leading-6 text-text-secondary">
@@ -803,17 +773,27 @@ export default function KnowledgeBasePage() {
                 ? "This removes the entire custom Knowledge Base card and deletes its folder, including every Markdown file inside it. Built-in cards cannot be deleted."
                 : `This removes the ${deleteTarget.kind === "folder" ? "folder and everything inside it" : "Markdown file"} from this Knowledge Base.`}
             </p>
-            <div className="mt-3 break-all border border-border/60 bg-background-base/60 px-3 py-2 font-mono text-[11px] text-text-tertiary">
+            <div className="mt-3 break-all rounded-lg bg-black/25 px-3 py-2 font-mono text-[11px] text-text-tertiary">
               {deleteTarget.path}
             </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button onClick={() => setDeleteTarget(null)} disabled={Boolean(deletingPath)} className="border border-border/60 bg-background-base/70 text-text-secondary hover:text-foreground">
+            <div className="mt-5 flex justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={Boolean(deletingPath)}
+                className="rounded-lg px-3.5 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-white/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
                 Cancel
-              </Button>
-              <Button onClick={handleDeleteTarget} disabled={Boolean(deletingPath)} className="gap-2 border-destructive/40 bg-destructive/15 text-destructive hover:bg-destructive/25">
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteTarget}
+                disabled={Boolean(deletingPath)}
+                className="inline-flex items-center gap-2 rounded-lg bg-destructive/15 px-3.5 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/25 disabled:cursor-not-allowed disabled:opacity-40"
+              >
                 {deletingPath ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
                 {deletingPath ? "Deleting…" : "Delete"}
-              </Button>
+              </button>
             </div>
           </div>
         </div>
@@ -828,7 +808,7 @@ export default function KnowledgeBasePage() {
           aria-modal="true"
           aria-labelledby="knowledge-entry-title"
         >
-          <div className="relative flex h-[92vh] min-h-[32rem] w-full min-w-0 max-w-[96rem] resize flex-col overflow-hidden border border-border/70 bg-card shadow-2xl shadow-black/45 sm:min-w-[44rem]">
+          <div className="relative flex h-[92vh] min-h-[32rem] w-full min-w-0 max-w-[96rem] resize flex-col overflow-hidden rounded-2xl border border-border/50 bg-card shadow-2xl shadow-black/45 sm:min-w-[44rem]">
             <button
               type="button"
               onClick={closeEntryModal}
@@ -868,11 +848,11 @@ export default function KnowledgeBasePage() {
                 <div className="border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{entryError}</div>
               ) : (
                 <div className="grid min-h-full gap-4">
-                  <div className="rounded border border-border/60 bg-background-base/60 px-3 py-2 font-mono text-[11px] text-text-tertiary">
+                  <div className="rounded-lg bg-black/25 px-3 py-2 font-mono text-[11px] text-text-tertiary">
                     {(entryDetail ?? selectedEntry).relative_path}
                   </div>
                   {entryDetail?.content ? (
-                    <pre className="min-h-[28rem] overflow-auto whitespace-pre-wrap border border-border/60 bg-background-base/70 p-4 font-mono text-xs leading-6 text-text-secondary">
+                    <pre className="min-h-[28rem] overflow-auto whitespace-pre-wrap rounded-lg bg-black/25 p-4 font-mono text-xs leading-6 text-text-secondary">
                       {entryDetail.content}
                     </pre>
                   ) : selectedEntry.excerpt ? (

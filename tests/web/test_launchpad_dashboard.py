@@ -11,10 +11,10 @@ def read(path: str) -> str:
 def test_launchpad_cards_keep_title_and_card_heights_aligned():
     source = read("web/src/pages/LaunchpadPage.tsx")
 
-    assert "min-h-[23rem]" in source
-    assert "h-[7.75rem]" in source
-    assert "min-h-[3.35rem]" in source
-    assert "leading-[1.1]" in source
+    assert "min-h-[20rem]" in source
+    assert "h-[6.75rem]" in source
+    assert "min-h-[3.05rem]" in source
+    assert "leading-[1.08]" in source
 
 
 def test_launchpad_header_and_action_buttons_match_requested_polish():
@@ -27,6 +27,10 @@ def test_launchpad_header_and_action_buttons_match_requested_polish():
     assert "Start local projects" not in source
     assert "Each square starts the project" not in source
     assert "border border-border/70 bg-card/72" not in source
+    assert "[background-image:linear-gradient" not in source
+    assert "project.stats.map" not in source
+    assert "project.stats.join" in source
+    assert "bg-primary/5" not in source
     assert "Play" in source
     assert "Stop" in source
     assert "aria-label={running ? `Stop ${project.title}` : `Play ${project.title}`}" in source

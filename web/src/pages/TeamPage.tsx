@@ -337,11 +337,11 @@ function TeamMemberDetails({
   return (
     <div className="grid gap-4">
       <div className="grid gap-2 text-sm sm:grid-cols-3">
-        <div className="rounded-lg border border-border bg-background/70 p-3">
+        <div className="rounded-lg bg-black/20 p-3">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">Model / provider</div>
           <div className="mt-1 break-words font-medium text-foreground">{modelLabel(member.profile)}</div>
         </div>
-        <div className="rounded-lg border border-border bg-background/70 p-3">
+        <div className="rounded-lg bg-black/20 p-3">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">Skills</div>
           <div className="mt-1 text-foreground">
             {member.attachedSkills.length > 0
@@ -351,14 +351,14 @@ function TeamMemberDetails({
                 : "Unknown"}
           </div>
         </div>
-        <div className="rounded-lg border border-border bg-background/70 p-3">
+        <div className="rounded-lg bg-black/20 p-3">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">Health</div>
           <div className="mt-1 text-foreground">{readiness.reasons[0] ?? "No signal"}</div>
           {readiness.lastHeartbeatAt && <div className="mt-1 text-xs text-muted-foreground">heartbeat {timeAgo(readiness.lastHeartbeatAt)}</div>}
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-background/60 p-3">
+      <div className="rounded-lg bg-black/20 p-3">
         <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
           <Activity className="h-3.5 w-3.5" /> Workload strip
         </div>
@@ -377,7 +377,7 @@ function TeamMemberDetails({
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-background/60 p-3">
+      <div className="rounded-lg bg-black/20 p-3">
         <div className="mb-1 flex items-center justify-between gap-2 text-xs uppercase tracking-wide text-muted-foreground">
           <span>SOUL.md</span>
           {soul?.exists && <Badge tone="outline">profile identity</Badge>}
@@ -385,7 +385,7 @@ function TeamMemberDetails({
         <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-foreground/90">{soulPreviewLabel(soul)}</p>
       </div>
 
-      <div className="rounded-xl border border-border bg-background/70 p-3 text-sm shadow-sm">
+      <div className="rounded-xl bg-black/20 p-3 text-sm">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5" /> Current assignment
@@ -393,7 +393,7 @@ function TeamMemberDetails({
           <Badge tone="outline">{boardLabel}</Badge>
         </div>
         {member.latestTask ? (
-          <div className="mt-3 space-y-2 rounded-lg border border-border/70 bg-card/40 p-3">
+          <div className="mt-3 space-y-2 rounded-lg bg-black/15 p-3">
             <div className="font-medium text-foreground">{member.latestTask.title}</div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <Badge tone={statusTone(member.latestTask.status)}>{member.latestTask.status}</Badge>
@@ -425,7 +425,7 @@ function TeamMemberDetails({
                   <div className="font-semibold text-foreground">{userCue.title}</div>
                 </div>
                 <p className="mt-2 text-muted-foreground">{userCue.body}</p>
-                <div className="mt-3 rounded-md border border-border/70 bg-background/70 p-3">
+                <div className="mt-3 rounded-md bg-black/25 p-3">
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Worker note</div>
                   <p className="mt-1 line-clamp-4 text-foreground">{userCue.detail}</p>
                 </div>
@@ -655,21 +655,18 @@ export default function TeamPage() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
               <span>Meet the Team</span>
-              <Badge tone="outline">{team.length} role agents</Badge>
               <Badge tone={liveConnected ? "success" : liveError ? "warning" : "secondary"}>
                 {liveConnected ? "Live" : liveError ? "Reconnecting" : "Offline"}
               </Badge>
             </div>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              Blue profile-agent circles keep the roster compact and fixed at the top. Click an agent for dossier, workload, SOUL.md, and assignment.
+              Click an agent for dossier, workload, SOUL.md, and current assignment.
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 text-[0.68rem] text-muted-foreground">
-          <span className="rounded-md border border-border/70 bg-background/60 px-2 py-1 font-mono-ui text-foreground">{totals.profiles}/{team.length} profiles</span>
-          <span className="rounded-md border border-border/70 bg-background/60 px-2 py-1 font-mono-ui text-foreground">{activeWorkers.length} live</span>
-          <span className="rounded-md border border-border/70 bg-background/60 px-2 py-1 font-mono-ui text-foreground">{totals.blocked} blocked</span>
-        </div>
+        <span className="shrink-0 font-mono-ui text-[0.68rem] text-muted-foreground">
+          {totals.profiles}/{team.length} profiles · {activeWorkers.length} live · {totals.blocked} blocked
+        </span>
       </div>
 
       <div className="mt-3 flex flex-wrap items-start gap-x-4 gap-y-3">
@@ -727,16 +724,12 @@ export default function TeamPage() {
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="outline">Viewing board: {selectedBoardLabel}</Badge>
-              <Badge tone={liveConnected ? "success" : liveError ? "warning" : "secondary"}>
-                {liveConnected ? "Live" : liveError ? "Reconnecting" : "Offline"}
-              </Badge>
-              <Badge tone="secondary">Hermes agent-team roster</Badge>
-              <Link to="/team/present" className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30">
+              <Badge tone="outline">{selectedBoardLabel}</Badge>
+              <Link to="/team/present" className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30">
                 Presentation mode
               </Link>
               {currentBoard && currentBoard !== selectedBoard && (
-                <Badge tone="outline">dashboard current: {currentBoardLabel}</Badge>
+                <span className="font-mono-ui text-[0.68rem] text-muted-foreground">dashboard current: {currentBoardLabel}</span>
               )}
             </div>
             <div>
@@ -746,32 +739,32 @@ export default function TeamPage() {
               </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-              <div className="rounded-xl border border-border bg-background/60 p-2.5">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <div className="rounded-xl bg-black/20 p-2.5">
+                <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
                   <Users className="h-3.5 w-3.5" /> Profiles installed
                 </div>
                 <div className="mt-1 font-mono-ui text-xl text-foreground">{totals.profiles}/{team.length}</div>
               </div>
-              <div className="rounded-xl border border-warning/30 bg-background/60 p-2.5">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <div className="rounded-xl bg-black/20 p-2.5">
+                <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
                   <ShieldCheck className="h-3.5 w-3.5 text-warning" /> Auth ready
                 </div>
                 <div className="mt-1 font-mono-ui text-xl text-foreground">{totals.authReady}/{team.length}</div>
               </div>
-              <div className="rounded-xl border border-border bg-background/60 p-2.5">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <div className="rounded-xl bg-black/20 p-2.5">
+                <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
                   <Layers3 className="h-3.5 w-3.5" /> Assigned
                 </div>
                 <div className="mt-1 font-mono-ui text-xl text-foreground">{totals.assigned}</div>
               </div>
-              <div className="rounded-xl border border-success/30 bg-background/60 p-2.5">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <div className="rounded-xl bg-black/20 p-2.5">
+                <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
                   <RadioTower className="h-3.5 w-3.5 text-success" /> Workers live
                 </div>
                 <div className="mt-1 font-mono-ui text-xl text-foreground">{activeWorkers.length}</div>
               </div>
-              <div className="rounded-xl border border-destructive/30 bg-background/60 p-2.5">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <div className="rounded-xl bg-black/20 p-2.5">
+                <div className="flex items-center gap-2 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
                   <AlertTriangle className="h-3.5 w-3.5 text-destructive" /> Blocked / stale
                 </div>
                 <div className="mt-1 font-mono-ui text-xl text-foreground">{totals.blocked}/{totals.staleHeartbeat}</div>
@@ -779,58 +772,45 @@ export default function TeamPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-background/60 p-4 backdrop-blur-sm">
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recommended next step</div>
-                  <div className="mt-1 font-semibold text-foreground">{recommendedNextStep.title}</div>
-                </div>
-                <Badge tone={recommendedNextStep.tone}>{recommendedNextStep.tone === "outline" ? "status" : recommendedNextStep.tone}</Badge>
-              </div>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{recommendedNextStep.body}</p>
+          <div className="flex flex-col rounded-xl bg-black/20">
+            <div className="border-b border-border/40 p-3.5 text-sm">
+              <div className="text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">Recommended next step</div>
+              <div className="mt-1 font-semibold text-foreground">{recommendedNextStep.title}</div>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{recommendedNextStep.body}</p>
               <Link
                 to={recommendedNextStep.to}
-                className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30"
               >
                 {recommendedNextStep.label} <ExternalLink className="h-3 w-3" />
               </Link>
             </div>
-            <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground" htmlFor="team-board-select">
-              Active board
-            </label>
-            <select
-              id="team-board-select"
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30"
-              value={selectedBoard}
-              onChange={(event) => handleBoardChange(event.target.value)}
-            >
-              {boards.length === 0 && <option value="">No Kanban boards</option>}
-              {boards.map((b) => (
-                <option key={b.slug} value={b.slug}>
-                  {formatTeamBoardName(b, b.slug)}{b.is_current ? " (current)" : ""}
-                </option>
-              ))}
-            </select>
-            <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-              <div className="rounded-lg border border-border/70 bg-card/40 p-2">
-                <div className="uppercase tracking-wide">Tasks</div>
-                <div className="mt-1 font-mono-ui text-foreground">{selectedBoardMeta?.total ?? board?.columns.reduce((sum, column) => sum + column.tasks.length, 0) ?? 0}</div>
+            <div className="border-b border-border/40 p-3.5">
+              <label className="text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground" htmlFor="team-board-select">
+                Active board
+              </label>
+              <select
+                id="team-board-select"
+                className="mt-1.5 w-full rounded-lg border border-transparent bg-black/25 px-3 py-2 text-sm text-foreground focus:border-midground/30 focus:outline-none"
+                value={selectedBoard}
+                onChange={(event) => handleBoardChange(event.target.value)}
+              >
+                {boards.length === 0 && <option value="">No Kanban boards</option>}
+                {boards.map((b) => (
+                  <option key={b.slug} value={b.slug}>
+                    {formatTeamBoardName(b, b.slug)}{b.is_current ? " (current)" : ""}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 font-mono-ui text-[0.68rem] text-muted-foreground">
+                <span>{selectedBoardMeta?.total ?? board?.columns.reduce((sum, column) => sum + column.tasks.length, 0) ?? 0} tasks · {team.length} roles</span>
+                <span>cursor {eventCursor}</span>
               </div>
-              <div className="rounded-lg border border-border/70 bg-card/40 p-2">
-                <div className="uppercase tracking-wide">Cursor</div>
-                <div className="mt-1 font-mono-ui text-foreground">{eventCursor}</div>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-card/40 p-2">
-                <div className="uppercase tracking-wide">Roles</div>
-                <div className="mt-1 font-mono-ui text-foreground">{team.length}</div>
+              <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                <Link to="/profiles" className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30">Profiles</Link>
+                <Link to="/kanban" className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30">Kanban board <ExternalLink className="h-3 w-3" /></Link>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2 text-xs">
-              <Link to="/profiles" className="inline-flex items-center gap-1 text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30">Profiles</Link>
-              <Link to="/kanban" className="inline-flex items-center gap-1 text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30">Kanban board <ExternalLink className="h-3 w-3" /></Link>
-            </div>
-            <div id="safe-controls" className="rounded-lg border border-border/70 bg-card/40 p-3 text-xs text-muted-foreground">
+            <div id="safe-controls" className="p-3.5 text-xs text-muted-foreground">
               <div className="mb-2 flex items-center gap-2 font-medium uppercase tracking-wide text-foreground">
                 <Send className="h-3.5 w-3.5" /> Safe controls
               </div>
@@ -850,22 +830,22 @@ export default function TeamPage() {
               {dispatchPreview && (
                 <div className="mt-2 grid gap-1">
                   {(dispatchPreview.candidates ?? []).slice(0, 3).map((candidate) => (
-                    <div key={`candidate-${dispatchCandidateId(candidate)}`} className="rounded-md border border-success/20 bg-success/5 px-2 py-1 text-[11px] text-foreground">
+                    <div key={`candidate-${dispatchCandidateId(candidate)}`} className="rounded-md bg-success/10 px-2 py-1 text-[11px] text-foreground">
                       Candidate: {dispatchCandidateLabel(candidate)}
                     </div>
                   ))}
                   {(dispatchPreview.spawned ?? []).slice(0, 3).map((candidate) => (
-                    <div key={`spawned-${dispatchCandidateId(candidate)}`} className="rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-[11px] text-foreground">
+                    <div key={`spawned-${dispatchCandidateId(candidate)}`} className="rounded-md bg-primary/10 px-2 py-1 text-[11px] text-foreground">
                       Spawned: {dispatchCandidateLabel(candidate)}
                     </div>
                   ))}
                   {(dispatchPreview.skipped ?? []).slice(0, 2).map((candidate) => (
-                    <div key={`skipped-${dispatchCandidateId(candidate)}`} className="rounded-md border border-border bg-background/60 px-2 py-1 text-[11px]">
+                    <div key={`skipped-${dispatchCandidateId(candidate)}`} className="rounded-md bg-black/25 px-2 py-1 text-[11px]">
                       Skipped: {dispatchCandidateLabel(candidate)}{candidate.reason ? ` · ${candidate.reason}` : ""}
                     </div>
                   ))}
                   {(dispatchPreview.errors ?? []).slice(0, 2).map((error) => (
-                    <div key={error} className="rounded-md border border-destructive/20 bg-destructive/5 px-2 py-1 text-[11px] text-destructive">
+                    <div key={error} className="rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
                       Error: {error}
                     </div>
                   ))}
@@ -903,7 +883,7 @@ export default function TeamPage() {
                   const readiness = readinessByRole.get(stage.key) ?? computeMemberReadiness(member, now);
                   const isActive = stage.activeCount > 0 || readiness.state === "live";
                   return (
-                    <div key={stage.key} className="relative overflow-hidden rounded-xl border border-border bg-background/70 p-3">
+                    <div key={stage.key} className="relative overflow-hidden rounded-xl bg-black/20 p-3">
                       <div className={`absolute inset-x-0 top-0 h-1 ${stage.blockedCount > 0 ? "bg-destructive/70" : isActive ? "bg-success/70" : stage.queuedCount > 0 ? "bg-warning/70" : "bg-border"}`} />
                       <div className="flex items-start justify-between gap-3 pt-1">
                         <div className="min-w-0">
@@ -913,15 +893,18 @@ export default function TeamPage() {
                         </div>
                         <span className={`mt-1 h-3 w-3 shrink-0 rounded-full ${readinessDotClass(readiness)}`} aria-hidden="true" />
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-1.5">
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
                         <Badge tone={readiness.tone}>{readiness.label}</Badge>
-                        {isActive && <Badge tone="success">active</Badge>}
+                        {isActive && <span className="font-mono-ui text-[0.65rem] uppercase tracking-wide text-success">active</span>}
                       </div>
-                      <div className="mt-4 grid grid-cols-4 gap-1 text-center font-mono-ui text-xs text-muted-foreground">
-                        <div className="rounded-md border border-border/70 bg-card/40 px-1.5 py-1"><div>A</div><div className="text-foreground">{stage.activeCount}</div></div>
-                        <div className="rounded-md border border-border/70 bg-card/40 px-1.5 py-1"><div>Q</div><div className="text-foreground">{stage.queuedCount}</div></div>
-                        <div className="rounded-md border border-border/70 bg-card/40 px-1.5 py-1"><div>B</div><div className="text-foreground">{stage.blockedCount}</div></div>
-                        <div className="rounded-md border border-border/70 bg-card/40 px-1.5 py-1"><div>D</div><div className="text-foreground">{stage.doneCount}</div></div>
+                      <div className="mt-3 font-mono-ui text-[0.68rem] text-muted-foreground">
+                        <span className={stage.activeCount > 0 ? "text-success" : undefined}>{stage.activeCount} active</span>
+                        {" · "}
+                        <span className={stage.queuedCount > 0 ? "text-warning" : undefined}>{stage.queuedCount} queued</span>
+                        {" · "}
+                        <span className={stage.blockedCount > 0 ? "text-destructive" : undefined}>{stage.blockedCount} blocked</span>
+                        {" · "}
+                        <span>{stage.doneCount} done</span>
                       </div>
                       <div className="mt-3 min-h-[2.5rem] line-clamp-2 text-sm text-muted-foreground">
                         {stage.currentTask ? stage.currentTask.title : "Lane clear"}
@@ -952,12 +935,11 @@ export default function TeamPage() {
                   <Link
                     key={`${item.task.id}-${item.roleLabel}`}
                     to={`/kanban?task=${encodeURIComponent(item.task.id)}`}
-                    className="rounded-xl border border-border bg-background/70 p-3 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30"
+                    className="rounded-lg bg-black/15 p-3 transition-colors hover:bg-black/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30"
                   >
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <Badge tone={statusTone(item.task.status)}>{item.task.status}</Badge>
-                      {item.needsReview && <Badge tone="warning">review cue</Badge>}
-                      {!item.hasSummary && <Badge tone="outline">no summary yet</Badge>}
+                      {item.needsReview && <span className="font-mono-ui text-[0.65rem] uppercase tracking-wide text-warning">review cue</span>}
                       <span>{item.roleLabel}</span>
                       <span className="font-mono-ui">{item.task.id}</span>
                     </div>
@@ -966,10 +948,10 @@ export default function TeamPage() {
                   </Link>
                 ))
               ) : (
-                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                <div className="p-4 text-sm text-muted-foreground">
                   <div className="font-medium text-foreground">No current work summaries on this board yet.</div>
                   <div className="mt-1">Assign ready tasks to team profiles, then use Preview dispatch to start one worker at a time.</div>
-                  <Link to="/kanban" className="mt-2 inline-flex text-primary underline underline-offset-4">Open Kanban</Link>
+                  <Link to="/kanban" className="mt-2 inline-flex text-primary underline-offset-4 hover:underline">Open Kanban</Link>
                 </div>
               )}
             </div>
@@ -991,10 +973,10 @@ export default function TeamPage() {
                   <Link
                     key={item.id}
                     to={`/kanban?task=${encodeURIComponent(item.taskId)}`}
-                    className="group rounded-xl border border-border bg-background/70 p-3 text-sm transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 motion-safe:animate-in motion-safe:fade-in"
+                    className="group rounded-lg bg-black/15 p-3 text-sm transition-colors hover:bg-black/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 motion-safe:animate-in motion-safe:fade-in"
                   >
                     <div className="flex items-start gap-3">
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-card font-mono-ui text-xs text-foreground">
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/30 font-mono-ui text-xs text-foreground">
                         {activityIconGlyph(item.icon)}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -1011,7 +993,7 @@ export default function TeamPage() {
                   </Link>
                 ))
               ) : (
-                <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                <div className="p-4 text-sm text-muted-foreground">
                   No recent events loaded yet. The live stream will append new Kanban events when workers check in.
                 </div>
               )}

@@ -66,7 +66,7 @@ def test_audio_library_page_supports_generation_quota_playback_and_event_mapping
     assert "similarity_boost" in source
     assert "use_speaker_boost" in source
     assert "Team completion" in source
-    assert "Team member clips" in source
+    assert "Per-member overrides" in source
     assert "teamTaskCompleteEventKey" in source
     assert "teamMemberTaskCompleteEventKey" in source
     assert "Team task completion" in source
@@ -80,16 +80,16 @@ def test_audio_library_page_supports_generation_quota_playback_and_event_mapping
     assert "new Audio(src)" in source
     assert "HERMES_BASE_PATH" in source
     # Mapping dropdowns group clips: event-specific built-ins, other built-ins, then custom.
-    assert 'optgroup label="For this event"' in source
-    assert 'optgroup label="Other built-ins"' in source
-    assert 'optgroup label="Custom clips"' in source
+    assert 'label: "For this event"' in source
+    assert 'label: "Other built-ins"' in source
+    assert 'label: "Custom clips"' in source
     # Bundled clips render in a separate, non-deletable library group.
     assert "Built-in" in source
     assert "Custom" in source
-    assert "SECTION_HEADER_CLASS" in source
-    assert "1 · Event sounds" in source
-    assert "2 · Generate" in source
-    assert "3 · Clips" in source
+    assert "GROUP_HEADER_CLASS" in source
+    assert "System events" in source
+    assert "Generate a clip" in source
+    assert "Custom clips" in source
 
 
 def test_mission_control_uses_configurable_audio_library_event_mappings_with_fallbacks():

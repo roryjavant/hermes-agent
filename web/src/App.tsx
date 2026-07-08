@@ -20,6 +20,7 @@ import {
   Activity,
   BarChart3,
   BellRing,
+  CircleDollarSign,
   BookOpen,
   Brain,
   Clock,
@@ -90,6 +91,7 @@ import AudioLibraryPage from "@/pages/AudioLibraryPage";
 import MissionControlPage from "@/pages/MissionControlPage";
 import ReposPage from "@/pages/ReposPage";
 import RemindersPage from "@/pages/RemindersPage";
+import DevSpendPage from "@/pages/DevSpendPage";
 import PrivateIdeasPage from "@/pages/PrivateIdeasPage";
 import ResearchPage from "@/pages/ResearchPage";
 import JurorResearchMapPage from "@/pages/JurorResearchMapPage";
@@ -157,6 +159,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/mission-control": MissionControlPage,
   "/repos": ReposPage,
   "/reminders": RemindersPage,
+  "/dev-spend": DevSpendPage,
   "/rory": PrivateIdeasPage,
   "/flow": JurorResearchMapPage,
   "/juror-research-map": JurorResearchMapPage,
@@ -240,6 +243,12 @@ const BUILTIN_NAV_REST: NavItem[] = [
     icon: BellRing,
   },
   {
+    path: "/dev-spend",
+    labelKey: "devSpend",
+    label: "Dev Spend",
+    icon: CircleDollarSign,
+  },
+  {
     path: "/flow",
     label: "Juror Research Flow",
     icon: Network,
@@ -293,6 +302,7 @@ const PRIMARY_DASHBOARD_TAB_PATHS = new Set([
   "/research",
   "/repos",
   "/reminders",
+  "/dev-spend",
   "/flow",
   "/rory",
 ]);
@@ -301,6 +311,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Activity,
   BarChart3,
   BellRing,
+  CircleDollarSign,
   Brain,
   Clock,
   Cpu,

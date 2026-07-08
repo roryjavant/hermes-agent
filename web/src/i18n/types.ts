@@ -91,6 +91,8 @@ export interface Translations {
       chat: string;
       config: string;
       cron: string;
+      /** Optional — fall back to the nav item's label until translated. */
+      devSpend?: string;
       documentation: string;
       keys: string;
       /** Optional — fall back to the nav item's label until translated. */

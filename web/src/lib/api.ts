@@ -76,6 +76,7 @@ const PROFILE_SCOPED_PREFIXES = [
   "/api/model/options",
   "/api/audio/elevenlabs",
   "/api/audio-library",
+  "/api/dev-spend",
 ];
 
 function withManagementProfile(url: string): string {
@@ -378,6 +379,21 @@ export const api = {
   },
   syncDevRepo: (repoName: string, options?: FetchJSONOptions) =>
     fetchJSON<DevRepoSyncResponse>(`/api/dev-repos/${encodeURIComponent(repoName)}/sync`, { method: "POST" }, options),
+  getDevSpend: (options?: FetchJSONOptions) => fetchJSON<DevSpendResponse>("/api/dev-spend", undefined, options),
+  createDevSpendItem: (payload: DevSpendItemCreate, options?: FetchJSONOptions) =>
+    fetchJSON<DevSpendMutationResponse>("/api/dev-spend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  updateDevSpendItem: (itemId: string, payload: DevSpendItemUpdate, options?: FetchJSONOptions) =>
+    fetchJSON<DevSpendMutationResponse>(`/api/dev-spend/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }, options),
+  deleteDevSpendItem: (itemId: string, options?: FetchJSONOptions) =>
+    fetchJSON<{ ok: boolean }>(`/api/dev-spend/${encodeURIComponent(itemId)}`, { method: "DELETE" }, options),
   getReminders: (options?: FetchJSONOptions) => fetchJSON<RemindersResponse>("/api/reminders", undefined, options),
   createReminder: (payload: ReminderCreate, options?: FetchJSONOptions) =>
     fetchJSON<ReminderMutationResponse>("/api/reminders", {
@@ -2216,6 +2232,72 @@ export interface DevRepoSyncResponse {
   repo: DevRepoInfo;
 }
 
+export type DevSpendCadence = "monthly" | "annual" | "usage" | "one-time";
+export type DevSpendStatus = "active" | "watching" | "cancelled";
+
+export interface DevSpendItem {
+  id: string;
+  vendor: string;
+  category: string;
+  kind: string;
+  cadence: DevSpendCadence;
+  amount: number;
+  currency: string;
+  next_due: string | null;
+  status: DevSpendStatus;
+  source: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DevSpendItemCreate {
+  vendor: string;
+  category?: string;
+  kind?: string;
+  cadence?: DevSpendCadence;
+  amount?: number;
+  currency?: string;
+  next_due?: string | null;
+  status?: DevSpendStatus;
+  source?: string;
+  notes?: string;
+}
+
+export interface DevSpendItemUpdate {
+  vendor?: string;
+  category?: string;
+  kind?: string;
+  cadence?: DevSpendCadence;
+  amount?: number;
+  currency?: string;
+  next_due?: string | null;
+  status?: DevSpendStatus;
+  source?: string;
+  notes?: string;
+}
+
+export interface DevSpendDiscoverySource {
+  id: string;
+  label: string;
+  status: "available" | "not_configured";
+  detail: string;
+}
+
+export interface DevSpendDiscovery {
+  email_scan_available: boolean;
+  sources: DevSpendDiscoverySource[];
+}
+
+export interface DevSpendResponse {
+  items: DevSpendItem[];
+  discovery: DevSpendDiscovery;
+}
+
+export interface DevSpendMutationResponse {
+  item: DevSpendItem;
+}
+
 export type ReminderCategory = "work" | "other";
 
 export interface ReminderItem {
@@ -2226,6 +2308,9 @@ export interface ReminderItem {
   completed: boolean;
   priority: boolean;
   category: ReminderCategory;
+  notify_enabled: boolean;
+  voice_enabled: boolean;
+  notified_at: string | null;
   order_index: number;
   created_at: string;
   updated_at: string;
@@ -2237,6 +2322,8 @@ export interface ReminderCreate {
   due_at?: string | null;
   priority?: boolean;
   category?: ReminderCategory;
+  notify_enabled?: boolean;
+  voice_enabled?: boolean;
 }
 
 export interface ReminderUpdate {
@@ -2246,6 +2333,9 @@ export interface ReminderUpdate {
   completed?: boolean;
   priority?: boolean;
   category?: ReminderCategory;
+  notify_enabled?: boolean;
+  voice_enabled?: boolean;
+  notified_at?: string | null;
 }
 
 export interface RemindersResponse {

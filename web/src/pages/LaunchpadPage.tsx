@@ -14,7 +14,6 @@ import {
   Square,
 } from "lucide-react";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
-import { Badge } from "@nous-research/ui/ui/components/badge";
 import { api } from "@/lib/api";
 import type { LaunchpadProjectStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -123,53 +122,47 @@ function ProjectSquare({
   const running = status?.running ?? false;
 
   return (
-    <Card className="group relative flex min-h-[23rem] overflow-hidden border-primary/20 bg-[#030303]/90 shadow-none transition-colors duration-150 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-primary/55 before:to-transparent hover:border-primary/45">
+    <Card className="group relative flex min-h-[20rem] overflow-hidden border-white/10 bg-[#050505]/92 shadow-none transition-colors duration-150 hover:border-primary/35">
       <CardContent className="relative flex h-full flex-col p-0">
         <button
           type="button"
           onClick={() => onLaunch(project)}
           disabled={launching || !installed}
-          className="flex h-full min-h-[23rem] w-full flex-col items-stretch text-left disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/80"
+          className="flex h-full min-h-[20rem] w-full flex-col items-stretch text-left disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/80"
           aria-label={`${project.launchLabel}: ${project.title}`}
         >
-          <div className={cn("relative h-[7.75rem] overflow-hidden border-b bg-gradient-to-br p-4", project.accent)}>
-            <div className="pointer-events-none absolute inset-0 opacity-[0.22] [background-image:linear-gradient(rgba(255,61,0,0.24)_1px,transparent_1px),linear-gradient(90deg,rgba(255,61,0,0.18)_1px,transparent_1px)] [background-size:22px_22px]" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#030303] to-transparent" />
-            <div className="pointer-events-none absolute right-4 top-4 h-14 w-14 border border-primary/25 bg-primary/5" />
-            <div className="relative flex items-start justify-between gap-3">
+          <div className={cn("relative h-[6.75rem] overflow-hidden border-b border-white/10 bg-gradient-to-br p-4", project.accent)}>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#050505] to-transparent" />
+            <div className="relative flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <Badge className="mb-3 max-w-full truncate rounded-sm border border-primary/20 bg-black/45 px-2 font-mono text-[0.62rem] font-semibold uppercase tracking-[0.22em] text-orange-100/80 shadow-none">
+                <div className="mb-3 max-w-full truncate font-mono text-[0.62rem] font-semibold uppercase tracking-[0.2em] text-orange-100/55">
                   {project.kicker}
-                </Badge>
-                <h2 className="min-h-[3.35rem] font-expanded text-xl font-black uppercase leading-[1.1] tracking-[0.1em] text-orange-50">
+                </div>
+                <h2 className="min-h-[3.05rem] font-expanded text-xl font-black uppercase leading-[1.08] tracking-[0.08em] text-orange-50">
                   {project.title}
                 </h2>
               </div>
-              <span className="grid size-12 shrink-0 place-items-center rounded-lg border border-primary/35 bg-black/55 text-primary shadow-none">
-                {launching ? <Loader2 className="size-6 animate-spin" /> : <Icon className="size-6" />}
+              <span className="grid size-10 shrink-0 place-items-center rounded-md border border-white/10 bg-black/35 text-primary/85 shadow-none">
+                {launching ? <Loader2 className="size-5 animate-spin" /> : <Icon className="size-5" />}
               </span>
             </div>
           </div>
 
           <div className="flex flex-1 flex-col gap-4 p-4">
-            <p className="min-h-[3.75rem] text-sm leading-6 text-text-secondary">{project.description}</p>
-            <div className="flex flex-wrap gap-2">
-              {project.stats.map((stat) => (
-                <span key={stat} className="rounded-sm border border-primary/20 bg-black/30 px-2.5 py-1 font-mono text-[10px] font-black uppercase tracking-[0.16em] text-text-tertiary">
-                  {stat}
-                </span>
-              ))}
+            <p className="min-h-[3.25rem] text-sm leading-6 text-text-secondary">{project.description}</p>
+            <div className="min-w-0 truncate font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-tertiary/85">
+              {project.stats.join(" · ")}
             </div>
-            <div className="rounded-lg border border-primary/15 bg-black/30 px-3 py-2 font-mono text-xs text-text-tertiary">
+            <div className="rounded-md border border-white/10 bg-black/25 px-3 py-2 font-mono text-xs text-text-tertiary">
               <div className="flex min-w-0 items-center justify-between gap-2">
                 <span className="min-w-0 truncate">{url.replace("http://", "")}</span>
-                <span className={cn("shrink-0 font-bold", running ? "text-success" : installed ? "text-primary" : "text-destructive")}>
+                <span className={cn("shrink-0 text-[10px] font-bold uppercase tracking-[0.16em]", running ? "text-success" : installed ? "text-primary" : "text-destructive")}>
                   {running ? "running" : installed ? "ready" : "missing"}
                 </span>
               </div>
               {error ? <div className="mt-1 line-clamp-2 text-destructive">{error}</div> : null}
             </div>
-            <div className="mt-auto flex items-center justify-between border-t border-primary/15 pb-1 pr-12 pt-4 text-sm font-bold text-midground">
+            <div className="mt-auto flex items-center justify-between border-t border-white/10 pb-1 pr-12 pt-4 text-sm font-bold text-midground">
               <span>{launching ? "Starting…" : running ? "Open localhost" : project.launchLabel}</span>
               {running ? <ExternalLink className="size-4" /> : <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />}
             </div>

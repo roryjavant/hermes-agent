@@ -101,6 +101,8 @@ class ReminderCreate(BaseModel):
     due_at: Optional[str] = None
     priority: bool = False
     category: str = "work"
+    notify_enabled: bool = False
+    voice_enabled: bool = False
 
 
 class ReminderUpdate(BaseModel):
@@ -110,10 +112,39 @@ class ReminderUpdate(BaseModel):
     completed: Optional[bool] = None
     priority: Optional[bool] = None
     category: Optional[str] = None
+    notify_enabled: Optional[bool] = None
+    voice_enabled: Optional[bool] = None
+    notified_at: Optional[str] = None
 
 
 class ReminderReorder(BaseModel):
     ordered_ids: List[str]
+
+
+class DevSpendItemCreate(BaseModel):
+    vendor: str
+    category: str = "AI API"
+    kind: str = "subscription"
+    cadence: str = "monthly"
+    amount: float = 0.0
+    currency: str = "USD"
+    next_due: Optional[str] = None
+    status: str = "watching"
+    source: str = "manual"
+    notes: str = ""
+
+
+class DevSpendItemUpdate(BaseModel):
+    vendor: Optional[str] = None
+    category: Optional[str] = None
+    kind: Optional[str] = None
+    cadence: Optional[str] = None
+    amount: Optional[float] = None
+    currency: Optional[str] = None
+    next_due: Optional[str] = None
+    status: Optional[str] = None
+    source: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class PrivateIdeasPasswordCheck(BaseModel):
@@ -3170,6 +3201,122 @@ def _sync_dev_repo(repo: Path) -> Dict[str, Any]:
     return {"ok": True, "message": message, "operations": operations, "repo": final}
 
 
+_DEV_SPEND_ALLOWED_CADENCES = {"monthly", "annual", "usage", "one-time"}
+_DEV_SPEND_ALLOWED_STATUSES = {"active", "watching", "cancelled"}
+_DEV_SPEND_SEED_ITEMS: List[Dict[str, Any]] = [
+    {"vendor": "OpenAI API", "category": "AI API", "kind": "usage", "cadence": "usage", "source": "seed", "notes": "Usage-based API calls; confirm from billing/email."},
+    {"vendor": "ChatGPT / OpenAI subscription", "category": "AI subscription", "kind": "subscription", "cadence": "monthly", "source": "seed", "notes": "Personal OpenAI subscription candidate."},
+    {"vendor": "Claude", "category": "AI subscription", "kind": "subscription", "cadence": "monthly", "source": "seed", "notes": "Anthropic Claude subscription candidate."},
+    {"vendor": "ElevenLabs", "category": "Voice / audio", "kind": "subscription", "cadence": "monthly", "source": "seed", "notes": "Voice generation subscription or credit usage."},
+    {"vendor": "Supabase", "category": "Backend / database", "kind": "subscription", "cadence": "monthly", "source": "seed", "notes": "Project hosting/database subscription candidate."},
+    {"vendor": "AWS", "category": "Cloud hosting", "kind": "usage", "cadence": "usage", "source": "seed", "notes": "AWS invoices/usage; confirm current monthly run rate."},
+    {"vendor": "Gemini / Google AI", "category": "AI API", "kind": "usage", "cadence": "usage", "source": "seed", "notes": "Gemini API or Google AI Studio usage candidate."},
+]
+
+
+def _dev_spend_path() -> Path:
+    return get_hermes_home() / "dashboard_dev_spend.json"
+
+
+def _normalize_dev_spend_text(value: Any, default: str = "") -> str:
+    text = str(value or "").strip()
+    return text or default
+
+
+def _normalize_dev_spend_amount(value: Any) -> float:
+    try:
+        amount = float(value or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    return round(max(amount, 0.0), 2)
+
+
+def _normalize_dev_spend_cadence(value: Any) -> str:
+    cadence = str(value or "monthly").strip().lower()
+    return cadence if cadence in _DEV_SPEND_ALLOWED_CADENCES else "monthly"
+
+
+def _normalize_dev_spend_status(value: Any) -> str:
+    status = str(value or "watching").strip().lower()
+    return status if status in _DEV_SPEND_ALLOWED_STATUSES else "watching"
+
+
+def _serialize_dev_spend_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    now = _utc_now_iso()
+    return {
+        "id": str(item.get("id") or secrets.token_hex(8)),
+        "vendor": _normalize_dev_spend_text(item.get("vendor"), "Untitled vendor"),
+        "category": _normalize_dev_spend_text(item.get("category"), "AI API"),
+        "kind": _normalize_dev_spend_text(item.get("kind"), "subscription"),
+        "cadence": _normalize_dev_spend_cadence(item.get("cadence")),
+        "amount": _normalize_dev_spend_amount(item.get("amount")),
+        "currency": _normalize_dev_spend_text(item.get("currency"), "USD").upper()[:8],
+        "next_due": item.get("next_due") if item.get("next_due") else None,
+        "status": _normalize_dev_spend_status(item.get("status")),
+        "source": _normalize_dev_spend_text(item.get("source"), "manual"),
+        "notes": str(item.get("notes") or ""),
+        "created_at": str(item.get("created_at") or now),
+        "updated_at": str(item.get("updated_at") or now),
+    }
+
+
+def _read_dev_spend_items() -> List[Dict[str, Any]]:
+    path = _dev_spend_path()
+    if not path.exists():
+        now = _utc_now_iso()
+        return [_serialize_dev_spend_item({**item, "id": secrets.token_hex(8), "status": "watching", "amount": 0, "created_at": now, "updated_at": now}) for item in _DEV_SPEND_SEED_ITEMS]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Development spend store is not valid JSON: {path}") from exc
+    if isinstance(data, dict):
+        raw_items = data.get("items", [])
+    else:
+        raw_items = data
+    if not isinstance(raw_items, list):
+        raise HTTPException(status_code=500, detail=f"Development spend store must contain a list: {path}")
+    return [_serialize_dev_spend_item(item) for item in raw_items if isinstance(item, dict)]
+
+
+def _write_dev_spend_items(items: List[Dict[str, Any]]) -> None:
+    path = _dev_spend_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps({"items": items}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _find_dev_spend_item(items: List[Dict[str, Any]], item_id: str) -> Tuple[int, Dict[str, Any]]:
+    for index, item in enumerate(items):
+        if item.get("id") == item_id:
+            return index, item
+    raise HTTPException(status_code=404, detail="Development spend item not found")
+
+
+def _dev_spend_source_status() -> Dict[str, Any]:
+    env_keys = {"EMAIL_ADDRESS", "EMAIL_PASSWORD", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST"}
+    email_env_configured = all(os.getenv(key) for key in env_keys)
+    gmail_keys = {"GMAIL_TOKEN", "GOOGLE_WORKSPACE_TOKEN", "GOOGLE_APPLICATION_CREDENTIALS"}
+    gmail_configured = any(os.getenv(key) for key in gmail_keys)
+    return {
+        "email_scan_available": bool(email_env_configured or gmail_configured),
+        "sources": [
+            {
+                "id": "roryjavant-gmail",
+                "label": "roryjavant@gmail.com",
+                "status": "available" if (email_env_configured or gmail_configured) else "not_configured",
+                "detail": "Gmail/IMAP credentials are not configured for this Hermes profile." if not (email_env_configured or gmail_configured) else "Mail credentials detected; scan integration can be wired to this source.",
+            },
+            {
+                "id": "manual-seeds",
+                "label": "Manual tracking + known developer vendors",
+                "status": "available",
+                "detail": "Seeded OpenAI, Claude, ElevenLabs, Supabase, AWS, and Gemini candidates for confirmation.",
+            },
+        ],
+    }
+
+
 def _reminders_path() -> Path:
     return get_hermes_home() / "dashboard_reminders.json"
 
@@ -3216,6 +3363,9 @@ def _serialize_reminder(item: Dict[str, Any]) -> Dict[str, Any]:
         "completed": bool(item.get("completed")),
         "priority": bool(item.get("priority")),
         "category": _normalize_reminder_category(item.get("category")),
+        "notify_enabled": bool(item.get("notify_enabled")),
+        "voice_enabled": bool(item.get("voice_enabled")),
+        "notified_at": item.get("notified_at") if item.get("notified_at") else None,
         "order_index": int(item.get("order_index") or 0),
         "created_at": str(item.get("created_at") or _utc_now_iso()),
         "updated_at": str(item.get("updated_at") or _utc_now_iso()),
@@ -3351,6 +3501,65 @@ def _require_private_ideas_token(request: Request) -> None:
     _private_ideas_sessions[token] = now
 
 
+@app.get("/api/dev-spend")
+async def get_dev_spend():
+    items = _read_dev_spend_items()
+    return {"items": items, "discovery": _dev_spend_source_status()}
+
+
+@app.post("/api/dev-spend")
+async def create_dev_spend_item(payload: DevSpendItemCreate):
+    vendor = payload.vendor.strip()
+    if not vendor:
+        raise HTTPException(status_code=400, detail="Vendor is required")
+    items = _read_dev_spend_items()
+    now = _utc_now_iso()
+    item = _serialize_dev_spend_item({
+        "id": secrets.token_hex(8),
+        "vendor": vendor,
+        "category": payload.category,
+        "kind": payload.kind,
+        "cadence": payload.cadence,
+        "amount": payload.amount,
+        "currency": payload.currency,
+        "next_due": payload.next_due,
+        "status": payload.status,
+        "source": payload.source,
+        "notes": payload.notes,
+        "created_at": now,
+        "updated_at": now,
+    })
+    items.append(item)
+    _write_dev_spend_items(items)
+    return {"item": item}
+
+
+@app.patch("/api/dev-spend/{item_id}")
+async def update_dev_spend_item(item_id: str, payload: DevSpendItemUpdate):
+    items = _read_dev_spend_items()
+    index, item = _find_dev_spend_item(items, item_id)
+    updates = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    for field in ("vendor", "category", "kind", "cadence", "amount", "currency", "next_due", "status", "source", "notes"):
+        if field in updates:
+            item[field] = updates[field]
+    if not str(item.get("vendor") or "").strip():
+        raise HTTPException(status_code=400, detail="Vendor is required")
+    item["updated_at"] = _utc_now_iso()
+    item = _serialize_dev_spend_item(item)
+    items[index] = item
+    _write_dev_spend_items(items)
+    return {"item": item}
+
+
+@app.delete("/api/dev-spend/{item_id}")
+async def delete_dev_spend_item(item_id: str):
+    items = _read_dev_spend_items()
+    index, _item = _find_dev_spend_item(items, item_id)
+    del items[index]
+    _write_dev_spend_items(items)
+    return {"ok": True}
+
+
 @app.get("/api/reminders")
 async def get_reminders():
     reminders = _normalize_reminders(_read_reminders())
@@ -3372,6 +3581,9 @@ async def create_reminder(payload: ReminderCreate):
         "completed": False,
         "priority": bool(payload.priority),
         "category": _normalize_reminder_category(payload.category),
+        "notify_enabled": bool(payload.notify_enabled or payload.voice_enabled),
+        "voice_enabled": bool(payload.voice_enabled),
+        "notified_at": None,
         "order_index": len(reminders),
         "created_at": now,
         "updated_at": now,
@@ -3401,6 +3613,14 @@ async def update_reminder(reminder_id: str, payload: ReminderUpdate):
         reminder["priority"] = bool(updates["priority"])
     if "category" in updates:
         reminder["category"] = _normalize_reminder_category(updates["category"])
+    if "notify_enabled" in updates:
+        reminder["notify_enabled"] = bool(updates["notify_enabled"] or updates.get("voice_enabled"))
+    if "voice_enabled" in updates:
+        reminder["voice_enabled"] = bool(updates["voice_enabled"])
+        if reminder["voice_enabled"]:
+            reminder["notify_enabled"] = True
+    if "notified_at" in updates:
+        reminder["notified_at"] = updates["notified_at"] or None
     reminder["updated_at"] = _utc_now_iso()
     reminders[index] = reminder
     _write_reminders(reminders)
