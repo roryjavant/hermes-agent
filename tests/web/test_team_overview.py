@@ -85,14 +85,14 @@ def test_mission_control_activity_sections_use_title_separators_not_gradient_car
     assert ".mission-signal-segment__rule" in css_source
 
 
-def test_mission_control_team_signals_uses_restrained_orange_status_chrome():
+def test_mission_control_team_signals_uses_restrained_palette_status_chrome():
     source = MISSION_CONTROL_SOURCE.read_text()
     timeline_source = source[source.index("function Timeline") : source.index("const EDITABLE_KANBAN_STATUSES")]
 
     assert '<Badge tone={item.tone}>{item.meta}</Badge>' not in timeline_source
     assert '<Badge tone="outline">{item.category}</Badge>' not in timeline_source
-    assert 'text-[#ff3d00]/72' in timeline_source
-    assert 'border-[#ff1200]/32' in timeline_source
+    assert 'text-[var(--mission-accent)]/72' in timeline_source
+    assert 'border-[var(--mission-alert)]/32' in timeline_source
     assert 'text-success' not in timeline_source
     assert 'text-warning' not in timeline_source
 
@@ -104,7 +104,7 @@ def test_mission_control_team_rows_keep_compact_header_chrome():
     assert 'readinessLabel(rowTone)' not in team_row_source
     assert '{allTeamItems.length} agents' not in team_row_source
     assert '<ChevronRight className={cn("mt-0.5 h-3.5 w-3.5 shrink-0' not in team_row_source
-    assert '<Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#ff3d00]/70" />' in team_row_source
+    assert '<Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--mission-accent)]/70" />' in team_row_source
 
 
 def test_team_overview_joins_profiles_tasks_workers_and_skills():
@@ -749,7 +749,7 @@ def test_mission_control_embeds_four_terminal_panes_at_bottom():
 
     assert 'import ChatPage from "@/pages/ChatPage";' in source
     assert "function MissionControlTerminalDock" in source
-    assert '<Terminal className="h-4 w-4 text-[#ff3d00]" />' in terminal_dock_source
+    assert '<Terminal className="h-4 w-4 text-[var(--mission-accent)]" />' in terminal_dock_source
     assert '<CardTitle className="text-base">Embedded terminals</CardTitle>' in terminal_dock_source
     assert "font-mondwest text-display text-sm uppercase tracking-[0.16em]" not in terminal_dock_source
     assert '<Badge tone="secondary">4 terminals</Badge>' in terminal_dock_source
@@ -821,15 +821,15 @@ def test_mission_control_collapsed_team_orbs_are_clickable_role_lights_not_fake_
     assert "aria-hidden=\"true\">\n                                      {allTeamItems.map" not in source
 
 
-def test_mission_control_working_and_starting_lights_use_orange_red_palette():
+def test_mission_control_working_and_starting_lights_use_theme_palette_vars():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
 
-    assert 'ready:    { border: "border-[#22d3ee]/38"' in source
-    assert 'ping: "bg-[#22d3ee]"' in source
-    assert 'working:  { border: "border-[#ff3d00]/58"' in source
-    assert 'starting: { border: "border-[#ff3d00]/58"' in source
-    assert 'review:   { border: "border-[#ff1200]/80"' in source
-    assert 'ping: "bg-[#ff1200]"' in source
+    assert 'ready:    { border: "border-[var(--mission-ready)]/38"' in source
+    assert 'ping: "bg-[var(--mission-ready)]"' in source
+    assert 'working:  { border: "border-[var(--mission-accent)]/58"' in source
+    assert 'starting: { border: "border-[var(--mission-accent)]/58"' in source
+    assert 'review:   { border: "border-[var(--mission-alert)]/80"' in source
+    assert 'ping: "bg-[var(--mission-alert)]"' in source
     assert 'const immediateStartPulse = item.tone === "working" && /\\bstarting\\b/i.test(item.detail);' in source
     assert 'const visualTone = immediateStartPulse ? "starting" : item.tone;' in source
     assert "border-amber-400/60" not in source

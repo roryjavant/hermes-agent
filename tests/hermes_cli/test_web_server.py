@@ -1304,6 +1304,36 @@ class TestWebServerEndpoints:
         assert mission["label"] == "Mission Control"
         assert "black/orange" in mission["description"].lower()
 
+    def test_dashboard_theme_pin_repairs_drifted_theme(self):
+        """A profile can pin its dashboard theme so generic fallback writes do not stick."""
+        from hermes_cli.config import load_config, save_config
+
+        config = load_config()
+        dashboard = config.setdefault("dashboard", {})
+        dashboard["theme"] = "mono"
+        dashboard["pinned_theme"] = "mission-control"
+        save_config(config)
+
+        resp = self.client.get("/api/dashboard/themes")
+
+        assert resp.status_code == 200
+        assert resp.json()["active"] == "mission-control"
+        assert load_config()["dashboard"]["theme"] == "mission-control"
+
+    def test_dashboard_theme_pin_blocks_non_pinned_set(self):
+        """The theme setter reports the pinned theme instead of persisting drift."""
+        from hermes_cli.config import load_config, save_config
+
+        config = load_config()
+        config.setdefault("dashboard", {})["pinned_theme"] = "mission-control"
+        save_config(config)
+
+        resp = self.client.put("/api/dashboard/theme", json={"name": "mono"})
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "theme": "mission-control", "pinned": True}
+        assert load_config()["dashboard"]["theme"] == "mission-control"
+
     def test_get_dashboard_font_defaults_to_theme(self):
         """With no override persisted, the active font is the theme sentinel."""
         resp = self.client.get("/api/dashboard/font")

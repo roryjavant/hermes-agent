@@ -477,6 +477,268 @@ select:focus-visible {
   swatchColors: ["#020202", "#ff3d00", "#fff7ed"],
 };
 
+
+type MissionAccentPreset = {
+  name: string;
+  label: string;
+  description: string;
+  accent: string;
+  accentRgb: string;
+  ready: string;
+  readyRgb: string;
+  alert: string;
+  alertRgb: string;
+  ink?: string;
+  inkRgb?: string;
+};
+
+function missionControlAccentTheme(preset: MissionAccentPreset): DashboardTheme {
+  const ink = preset.ink ?? "#f8f3ff";
+  const inkRgb = preset.inkRgb ?? "248, 243, 255";
+  return {
+    ...missionControlTheme,
+    name: preset.name,
+    label: preset.label,
+    description: preset.description,
+    palette: {
+      background: { hex: "#020202", alpha: 1 },
+      midground: { hex: ink, alpha: 1 },
+      foreground: { hex: "#ffffff", alpha: 0 },
+      warmGlow: `rgba(${preset.accentRgb}, 0.10)`,
+      noiseOpacity: 0.55,
+    },
+    colorOverrides: {
+      ...missionControlTheme.colorOverrides,
+      cardForeground: ink,
+      popoverForeground: ink,
+      primary: preset.accent,
+      primaryForeground: "#020202",
+      secondary: `rgba(${preset.accentRgb}, 0.07)`,
+      secondaryForeground: ink,
+      muted: `rgba(${inkRgb}, 0.06)`,
+      mutedForeground: `rgba(${inkRgb}, 0.62)`,
+      accent: `rgba(${preset.accentRgb}, 0.12)`,
+      accentForeground: preset.accent,
+      destructive: preset.alert,
+      success: preset.ready,
+      warning: preset.accent,
+      border: `rgba(${preset.accentRgb}, 0.22)`,
+      input: `rgba(${preset.accentRgb}, 0.24)`,
+      ring: preset.accent,
+    },
+    seriesColors: {
+      inputTokenAccent: preset.accent,
+      outputTokenAccent: preset.ready,
+    },
+    componentStyles: {
+      ...missionControlTheme.componentStyles,
+      header: {
+        background: "rgba(2, 2, 2, 0.96)",
+        borderImage: `linear-gradient(90deg, rgba(${preset.accentRgb},0.42), rgba(${preset.accentRgb},0.10)) 1`,
+      },
+      sidebar: {
+        background: "rgba(2, 2, 2, 0.97)",
+        borderImage: `linear-gradient(180deg, rgba(${preset.accentRgb},0.36), rgba(255,255,255,0.08), rgba(${preset.accentRgb},0.24)) 1`,
+      },
+    },
+    customCSS: `
+html,
+body,
+#root {
+  background: #020202;
+}
+
+body {
+  background-image:
+    linear-gradient(rgba(${preset.accentRgb}, 0.040) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(${preset.accentRgb}, 0.030) 1px, transparent 1px),
+    radial-gradient(circle at 78% 10%, rgba(${preset.accentRgb}, 0.07), transparent 28rem);
+  background-size: 48px 48px, 48px 48px, auto;
+}
+
+.mission-control-surface {
+  --mission-theme-accent: ${preset.accent};
+  --mission-theme-accent-rgb: ${preset.accentRgb};
+  --mission-theme-ready: ${preset.ready};
+  --mission-theme-ready-rgb: ${preset.readyRgb};
+  --mission-theme-running: ${preset.accent};
+  --mission-theme-alert: ${preset.alert};
+  --mission-theme-alert-rgb: ${preset.alertRgb};
+  --mission-theme-ink: ${ink};
+  --mission-theme-ink-rgb: ${inkRgb};
+}
+
+#app-sidebar {
+  box-shadow: inset -1px 0 0 rgba(${preset.accentRgb}, 0.16);
+}
+
+#app-sidebar nav a,
+#app-sidebar button {
+  font-family: var(--theme-font-mono);
+  letter-spacing: 0.14em;
+}
+
+#app-sidebar nav a[aria-current="page"] {
+  color: ${preset.accent};
+  background: rgba(${preset.accentRgb}, 0.06);
+}
+
+#app-sidebar nav a[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 9999px;
+  background: ${preset.accent};
+  transform: translateY(-50%);
+  box-shadow: 0 0 14px rgba(${preset.accentRgb}, 0.8);
+}
+
+.bg-card,
+[class*="bg-card/"],
+.bg-popover,
+.bg-background-base\/70,
+.bg-background-base\/80,
+.bg-background-base\/90,
+.bg-background-base\/95 {
+  background-color: #030303 !important;
+}
+
+.border-border,
+.border-current\/20,
+.border-current\/15,
+.border-current\/10 {
+  border-color: rgba(${preset.accentRgb}, 0.20) !important;
+}
+
+.shadow-2xl,
+.shadow-xl,
+.shadow-lg {
+  box-shadow: none !important;
+}
+
+.rounded-2xl,
+.rounded-3xl,
+.rounded-xl {
+  border-radius: 10px !important;
+}
+
+.text-success {
+  color: ${preset.ready} !important;
+}
+
+.text-warning,
+[class*="text-amber-"],
+[class*="text-yellow-"] {
+  color: ${preset.accent} !important;
+}
+
+.text-destructive {
+  color: ${preset.alert} !important;
+}
+
+[class*="border-amber-"],
+[class*="border-yellow-"] {
+  border-color: rgba(${preset.accentRgb}, 0.36) !important;
+}
+
+[class*="bg-amber-"],
+[class*="bg-yellow-"] {
+  background-color: rgba(${preset.accentRgb}, 0.10) !important;
+}
+
+.bg-success,
+.bg-success\/15,
+.bg-success\/20 {
+  background-color: rgba(${preset.readyRgb}, 0.12) !important;
+}
+
+.bg-warning,
+.bg-warning\/15,
+.bg-warning\/20 {
+  background-color: rgba(${preset.accentRgb}, 0.12) !important;
+}
+
+.bg-destructive,
+.bg-destructive\/15,
+.bg-destructive\/20 {
+  background-color: rgba(${preset.alertRgb}, 0.14) !important;
+}
+
+main,
+[role="main"] {
+  background: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-color: ${preset.accent} !important;
+  box-shadow: 0 0 0 1px rgba(${preset.accentRgb}, 0.85) !important;
+}
+`,
+    swatchColors: ["#020202", preset.accent, ink],
+  };
+}
+
+export const missionVioletTheme = missionControlAccentTheme({
+  name: "mission-violet",
+  label: "Mission Violet",
+  description: "Mission Control dark cockpit with violet command accents",
+  accent: "#a855f7",
+  accentRgb: "168, 85, 247",
+  ready: "#22d3ee",
+  readyRgb: "34, 211, 238",
+  alert: "#fb7185",
+  alertRgb: "251, 113, 133",
+});
+
+export const missionCrimsonTheme = missionControlAccentTheme({
+  name: "mission-crimson",
+  label: "Mission Crimson",
+  description: "Mission Control dark cockpit with hot red command accents",
+  accent: "#ff1744",
+  accentRgb: "255, 23, 68",
+  ready: "#fbbf24",
+  readyRgb: "251, 191, 36",
+  alert: "#ff6b00",
+  alertRgb: "255, 107, 0",
+  ink: "#fff1f2",
+  inkRgb: "255, 241, 242",
+});
+
+export const missionCyanTheme = missionControlAccentTheme({
+  name: "mission-cyan",
+  label: "Mission Cyan",
+  description: "Mission Control dark cockpit with electric cyan command accents",
+  accent: "#06b6d4",
+  accentRgb: "6, 182, 212",
+  ready: "#f97316",
+  readyRgb: "249, 115, 22",
+  alert: "#ef4444",
+  alertRgb: "239, 68, 68",
+  ink: "#ecfeff",
+  inkRgb: "236, 254, 255",
+});
+
+export const missionEmeraldTheme = missionControlAccentTheme({
+  name: "mission-emerald",
+  label: "Mission Emerald",
+  description: "Mission Control dark cockpit with green signal accents",
+  accent: "#10b981",
+  accentRgb: "16, 185, 129",
+  ready: "#38bdf8",
+  readyRgb: "56, 189, 248",
+  alert: "#fb7185",
+  alertRgb: "251, 113, 133",
+  ink: "#ecfdf5",
+  inkRgb: "236, 253, 245",
+});
+
 /**
  * Same look as ``defaultTheme`` but with a larger root font size, looser
  * line-height, and ``spacious`` density so every rem-based size in the
@@ -503,6 +765,10 @@ export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   "default-large": defaultLargeTheme,
   "nous-blue": nousBlueTheme,
   "mission-control": missionControlTheme,
+  "mission-violet": missionVioletTheme,
+  "mission-crimson": missionCrimsonTheme,
+  "mission-cyan": missionCyanTheme,
+  "mission-emerald": missionEmeraldTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,

@@ -1173,7 +1173,7 @@ function LightAgentModal({
         className="relative my-4 max-h-[calc(100dvh-2rem)] w-full max-w-3xl overflow-hidden border border-midground/30 bg-card shadow-[0_0_60px_rgba(0,0,0,0.45)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="absolute inset-x-0 top-0 h-px bg-[#ff3d00]/30" />
+        <div className="absolute inset-x-0 top-0 h-px bg-[var(--mission-accent)]/30" />
         <div className="flex items-start justify-between gap-4 border-b border-border bg-background-base/35 p-4">
           <div className="min-w-0">
             <p className="font-mondwest text-display text-xs uppercase tracking-[0.18em] text-muted-foreground">
@@ -1830,7 +1830,7 @@ function TrendSparkline({ values }: { values: number[] }) {
     .join(" ");
   const last = values[values.length - 1];
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="shrink-0 text-[#ff3d00]" aria-hidden="true">
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="shrink-0 text-[var(--mission-accent)]" aria-hidden="true">
       <polyline
         points={points}
         fill="none"
@@ -1868,23 +1868,23 @@ function MissionOrb({
   return (
     <div className="mission-orb relative ml-auto flex aspect-square w-full max-w-[16.5rem] 2xl:max-w-[18rem] items-center justify-center">
       <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 240 240" aria-hidden="true">
-        <circle cx="120" cy="120" r="96" fill="none" stroke="#ff3d00" strokeOpacity="0.22" strokeWidth="1" />
-        <circle className="mission-orb__dashes" cx="120" cy="120" r="84" fill="none" stroke="#22d3ee" strokeOpacity="0.32" strokeWidth="1" strokeDasharray="22 18" />
-        <circle cx="120" cy="120" r={radius} fill="none" stroke="#ff3d00" strokeOpacity="0.22" strokeWidth="8" />
+        <circle cx="120" cy="120" r="96" fill="none" stroke="var(--mission-accent)" strokeOpacity="0.22" strokeWidth="1" />
+        <circle className="mission-orb__dashes" cx="120" cy="120" r="84" fill="none" stroke="var(--mission-ready)" strokeOpacity="0.32" strokeWidth="1" strokeDasharray="22 18" />
+        <circle cx="120" cy="120" r={radius} fill="none" stroke="var(--mission-accent)" strokeOpacity="0.22" strokeWidth="8" />
         <circle
           cx="120"
           cy="120"
           r={radius}
           fill="none"
-          stroke={score < 70 ? "#ff1200" : "#ff3d00"}
+          stroke={score < 70 ? "var(--mission-alert)" : "var(--mission-accent)"}
           strokeLinecap="round"
           strokeWidth="8"
           strokeDasharray={circumference}
           strokeDashoffset={circumference - (score / 100) * circumference}
           className="mission-score-ring transition-[stroke-dashoffset] duration-700"
         />
-        <line x1="120" y1="20" x2="120" y2="42" stroke="#22d3ee" strokeOpacity="0.72" strokeWidth="1" />
-        <line x1="120" y1="198" x2="120" y2="220" stroke="#ff3d00" strokeOpacity="0.72" strokeWidth="1" />
+        <line x1="120" y1="20" x2="120" y2="42" stroke="var(--mission-ready)" strokeOpacity="0.72" strokeWidth="1" />
+        <line x1="120" y1="198" x2="120" y2="220" stroke="var(--mission-accent)" strokeOpacity="0.72" strokeWidth="1" />
       </svg>
       {MISSION_ORB_SECTION_LINKS.map((link) => {
         const Icon = link.icon;
@@ -1893,7 +1893,7 @@ function MissionOrb({
             key={link.href}
             href={link.href}
             className={cn(
-              "mission-orb-section-link absolute z-20 flex h-9 items-center gap-1.5 border border-[#ff3d00]/45 bg-[#050505]/95 px-2.5 font-mono-ui text-[0.56rem] uppercase tracking-[0.13em] text-[#ff3d00]/82 shadow-[0_0_18px_rgba(255,61,0,0.12)] transition-colors hover:border-[#22d3ee]/60 hover:text-[#22d3ee] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#22d3ee]/70",
+              "mission-orb-section-link absolute z-20 flex h-9 items-center gap-1.5 border border-[var(--mission-accent)]/45 bg-[#050505]/95 px-2.5 font-mono-ui text-[0.56rem] uppercase tracking-[0.13em] text-[var(--mission-accent)]/82 shadow-[0_0_18px_rgba(var(--mission-accent-rgb),0.12)] transition-colors hover:border-[var(--mission-ready)]/60 hover:text-[var(--mission-ready)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-ready)]/70",
               link.className,
             )}
             aria-label={`Jump to ${link.label} section`}
@@ -1903,10 +1903,10 @@ function MissionOrb({
           </a>
         );
       })}
-      <div className="relative z-10 flex h-32 w-32 flex-col items-center justify-center rounded-full border border-[#ff3d00]/40 bg-[#030303] text-center shadow-[0_0_26px_rgba(255, 61, 0,0.26)]">
+      <div className="relative z-10 flex h-32 w-32 flex-col items-center justify-center rounded-full border border-[var(--mission-accent)]/40 bg-[#030303] text-center shadow-[0_0_26px_rgba(var(--mission-accent-rgb),0.26)]">
         <span className="font-mono-ui text-[0.58rem] uppercase tracking-[0.22em] text-white/30">Mission score</span>
         <span className="mt-1 font-mono-ui text-4xl leading-none text-white">{score}</span>
-        <span className="mt-1 max-w-24 truncate text-[0.62rem] uppercase tracking-[0.18em] text-[#22d3ee]/75">{active.label}</span>
+        <span className="mt-1 max-w-24 truncate text-[0.62rem] uppercase tracking-[0.18em] text-[var(--mission-ready)]/75">{active.label}</span>
       </div>
     </div>
   );
@@ -1956,10 +1956,10 @@ function MissionSectionBreak({ label, eyebrow }: { label: string; eyebrow: strin
 }
 
 const METRIC_ACCENTS: Record<string, { rail: string }> = {
-  gateway:    { rail: "bg-[#ff3d00]" },
-  sessions:   { rail: "bg-[#ff3d00]" },
-  team:       { rail: "bg-[#ff3d00]" },
-  automation: { rail: "bg-[#ff3d00]" },
+  gateway:    { rail: "bg-[var(--mission-accent)]" },
+  sessions:   { rail: "bg-[var(--mission-accent)]" },
+  team:       { rail: "bg-[var(--mission-accent)]" },
+  automation: { rail: "bg-[var(--mission-accent)]" },
 };
 
 function MetricCard({
@@ -1983,8 +1983,8 @@ function MetricCard({
         "mission-metric-card group relative overflow-hidden border text-left",
         "bg-[#030303] p-6",
         selected
-          ? "border-[#ff3d00]/32"
-          : "border-white/[0.08] hover:border-[#ff3d00]/26",
+          ? "border-[var(--mission-accent)]/32"
+          : "border-white/[0.08] hover:border-[var(--mission-accent)]/26",
       )}
     >
       <div className={`absolute inset-y-0 left-0 w-[3px] ${accent.rail}`} />
@@ -2022,8 +2022,8 @@ function Timeline({
   const metaBadgeClass = (tone: BadgeTone) => cn(
     "shrink-0 border px-2 py-1 font-mondwest text-display text-[0.62rem] uppercase tracking-[0.14em]",
     tone === "destructive"
-      ? "border-[#ff1200]/32 bg-[#ff1200]/[0.045] text-[#ff1200]/80"
-      : "border-[#ff3d00]/26 bg-[#ff3d00]/[0.025] text-[#ff3d00]/72",
+      ? "border-[var(--mission-alert)]/32 bg-[var(--mission-alert)]/[0.045] text-[var(--mission-alert)]/80"
+      : "border-[var(--mission-accent)]/26 bg-[var(--mission-accent)]/[0.025] text-[var(--mission-accent)]/72",
   );
   const categoryBadgeClass = "shrink-0 border border-white/18 bg-transparent px-2 py-1 font-mondwest text-display text-[0.62rem] uppercase tracking-[0.14em] text-white/52";
 
@@ -2032,7 +2032,7 @@ function Timeline({
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-[#ff3d00]/70" />
+            <Activity className="h-5 w-5 text-[var(--mission-accent)]/70" />
             <div>
               <CardTitle className="text-base">Team signals</CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -2045,13 +2045,13 @@ function Timeline({
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
-          <div className="flex items-center gap-3 border border-[#ff3d00]/18 bg-[#ff3d00]/[0.025] p-4 text-sm text-muted-foreground">
-            <CheckCircle2 className="h-5 w-5 shrink-0 text-[#ff3d00]/75" />
+          <div className="flex items-center gap-3 border border-[var(--mission-accent)]/18 bg-[var(--mission-accent)]/[0.025] p-4 text-sm text-muted-foreground">
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-[var(--mission-accent)]/75" />
             Quiet team. No active tasks, recent matching sessions, or automation signals are surfacing for this filter.
           </div>
         ) : (
           <div className="relative">
-            <div className="absolute bottom-3 left-[1.05rem] top-3 w-px bg-[#ff3d00]/20" />
+            <div className="absolute bottom-3 left-[1.05rem] top-3 w-px bg-[var(--mission-accent)]/20" />
             <div className="space-y-3">
               {items.map((item) => {
                 const Icon = item.icon;
@@ -2059,9 +2059,9 @@ function Timeline({
                   <Link
                     key={item.id}
                     to={item.href}
-                    className="group relative flex gap-3 border border-transparent p-2 transition-colors hover:border-[#ff3d00]/18 hover:bg-[#ff3d00]/[0.025]"
+                    className="group relative flex gap-3 border border-transparent p-2 transition-colors hover:border-[var(--mission-accent)]/18 hover:bg-[var(--mission-accent)]/[0.025]"
                   >
-                    <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/18 bg-background-base text-white/50 group-hover:border-[#ff3d00]/30 group-hover:text-[#ff3d00]/75">
+                    <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/18 bg-background-base text-white/50 group-hover:border-[var(--mission-accent)]/30 group-hover:text-[var(--mission-accent)]/75">
                       <Icon className="h-4 w-4" />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -2539,8 +2539,8 @@ function MissionQueue({
                     className={cn(
                       "absolute bottom-3 right-3 z-10 inline-flex h-7 items-center gap-1.5 border px-2.5 font-mono-ui text-[0.6rem] uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-1 disabled:cursor-wait disabled:opacity-50",
                       task.status === "review"
-                        ? "border-[#22d3ee]/45 bg-[#22d3ee]/[0.06] text-[#22d3ee]/90 hover:border-[#22d3ee]/70 hover:bg-[#22d3ee]/[0.12] focus-visible:ring-[#22d3ee]/60"
-                        : "border-[#ff3d00]/45 bg-[#ff3d00]/[0.05] text-[#ff3d00]/90 hover:border-[#ff3d00]/70 hover:bg-[#ff3d00]/[0.1] focus-visible:ring-[#ff3d00]/60",
+                        ? "border-[var(--mission-ready)]/45 bg-[var(--mission-ready)]/[0.06] text-[var(--mission-ready)]/90 hover:border-[var(--mission-ready)]/70 hover:bg-[var(--mission-ready)]/[0.12] focus-visible:ring-[var(--mission-ready)]/60"
+                        : "border-[var(--mission-accent)]/45 bg-[var(--mission-accent)]/[0.05] text-[var(--mission-accent)]/90 hover:border-[var(--mission-accent)]/70 hover:bg-[var(--mission-accent)]/[0.1] focus-visible:ring-[var(--mission-accent)]/60",
                     )}
                   >
                     {quickActionTaskId === task.id
@@ -2584,7 +2584,7 @@ function SoundToggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex w-full items-center justify-between gap-3 border border-[#ff3d00]/18 bg-transparent px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-[#ff3d00]/30 hover:text-foreground">
+    <label className="flex w-full items-center justify-between gap-3 border border-[var(--mission-accent)]/18 bg-transparent px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-[var(--mission-accent)]/30 hover:text-foreground">
       <span className="font-mondwest text-display uppercase tracking-[0.12em]">{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
     </label>
@@ -2788,13 +2788,13 @@ function ActiveOperationsBoard({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Radio className="h-4 w-4 text-[#ff3d00]" />
+            <Radio className="h-4 w-4 text-[var(--mission-accent)]" />
             <CardTitle className="text-base">Live activity lights</CardTitle>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="border border-[#22d3ee]/30 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[#22d3ee]/80">{counts.ready} ready</span>
-            <span className="border border-[#ff3d00]/35 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[#ff3d00]/90">{counts.working} working</span>
-            <span className="border border-[#ff1200]/55 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[#ff1200] shadow-[0_0_12px_rgba(255,18,0,0.22)]">{counts.review} review</span>
+            <span className="border border-[var(--mission-ready)]/30 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[var(--mission-ready)]/80">{counts.ready} ready</span>
+            <span className="border border-[var(--mission-accent)]/35 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[var(--mission-accent)]/90">{counts.working} working</span>
+            <span className="border border-[var(--mission-alert)]/55 bg-transparent px-2 py-0.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] text-[var(--mission-alert)] shadow-[0_0_12px_rgba(255,18,0,0.22)]">{counts.review} review</span>
             <div className="relative" ref={audioMenuRef}>
               <button
                 type="button"
@@ -2802,10 +2802,10 @@ function ActiveOperationsBoard({
                 aria-expanded={audioMenuOpen}
                 aria-haspopup="true"
                 className={cn(
-                  "inline-flex h-6 items-center gap-1.5 border px-2.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/60",
+                  "inline-flex h-6 items-center gap-1.5 border px-2.5 font-mono-ui text-[0.62rem] uppercase tracking-[0.12em] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-accent)]/60",
                   audioMenuOpen
-                    ? "border-[#ff3d00]/60 bg-[#ff3d00]/[0.06] text-[#ff3d00]"
-                    : "border-[#ff3d00]/25 bg-transparent text-[#ff3d00]/80 hover:border-[#ff3d00]/50 hover:text-[#ff3d00]",
+                    ? "border-[var(--mission-accent)]/60 bg-[var(--mission-accent)]/[0.06] text-[var(--mission-accent)]"
+                    : "border-[var(--mission-accent)]/25 bg-transparent text-[var(--mission-accent)]/80 hover:border-[var(--mission-accent)]/50 hover:text-[var(--mission-accent)]",
                 )}
               >
                 <Volume2 className="h-3 w-3" />
@@ -2813,7 +2813,7 @@ function ActiveOperationsBoard({
                 <ChevronRight className={cn("h-3 w-3 transition-transform", audioMenuOpen && "rotate-90")} />
               </button>
               {audioMenuOpen && (
-                <div className="absolute right-0 top-full z-50 mt-2 w-72 border border-[#ff3d00]/30 bg-[#050505]/[0.98] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.6)] backdrop-blur-md">
+                <div className="absolute right-0 top-full z-50 mt-2 w-72 border border-[var(--mission-accent)]/30 bg-[#050505]/[0.98] p-3 shadow-[0_18px_50px_rgba(0,0,0,0.6)] backdrop-blur-md">
                   <p className="mb-2 font-mono-ui text-[0.58rem] uppercase tracking-[0.18em] text-white/35">Sound alerts</p>
                   <div className="grid gap-1.5">
                     <SoundToggle
@@ -2842,7 +2842,7 @@ function ActiveOperationsBoard({
                       onChange={(checked) => onSoundSettingChange("launchClip", checked)}
                     />
                   </div>
-                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#ff3d00]/15 pt-3">
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-[var(--mission-accent)]/15 pt-3">
                     <Button
                       type="button"
                       ghost
@@ -2926,10 +2926,10 @@ function ActiveOperationsBoard({
                                 : null;
 
                             const toneColors = {
-                              ready:    { border: "border-[#22d3ee]/38", bg: "bg-[#22d3ee]/[0.025]", text: "text-[#22d3ee]/75", shadow: "shadow-none", wire: "text-[#22d3ee]/48", ping: "bg-[#22d3ee]" },
-                              working:  { border: "border-[#ff3d00]/58", bg: "bg-[#ff3d00]/[0.045]", text: "text-[#ff3d00]/90", shadow: "shadow-none", wire: "text-[#ff3d00]/70", ping: "bg-[#ff3d00]" },
-                              starting: { border: "border-[#ff3d00]/58", bg: "bg-[#ff3d00]/[0.045]", text: "text-[#ff3d00]/90", shadow: "shadow-none", wire: "text-[#ff3d00]/70", ping: "bg-[#ff3d00]" },
-                              review:   { border: "border-[#ff1200]/80", bg: "bg-[#ff1200]/[0.075]", text: "text-[#ff1200]", shadow: "shadow-[0_0_14px_rgba(255,18,0,0.24)]", wire: "text-[#ff1200]/85", ping: "bg-[#ff1200]" },
+                              ready:    { border: "border-[var(--mission-ready)]/38", bg: "bg-[var(--mission-ready)]/[0.025]", text: "text-[var(--mission-ready)]/75", shadow: "shadow-none", wire: "text-[var(--mission-ready)]/48", ping: "bg-[var(--mission-ready)]" },
+                              working:  { border: "border-[var(--mission-accent)]/58", bg: "bg-[var(--mission-accent)]/[0.045]", text: "text-[var(--mission-accent)]/90", shadow: "shadow-none", wire: "text-[var(--mission-accent)]/70", ping: "bg-[var(--mission-accent)]" },
+                              starting: { border: "border-[var(--mission-accent)]/58", bg: "bg-[var(--mission-accent)]/[0.045]", text: "text-[var(--mission-accent)]/90", shadow: "shadow-none", wire: "text-[var(--mission-accent)]/70", ping: "bg-[var(--mission-accent)]" },
+                              review:   { border: "border-[var(--mission-alert)]/80", bg: "bg-[var(--mission-alert)]/[0.075]", text: "text-[var(--mission-alert)]", shadow: "shadow-[0_0_14px_rgba(var(--mission-alert-rgb),0.24)]", wire: "text-[var(--mission-alert)]/85", ping: "bg-[var(--mission-alert)]" },
                             } as const;
 
                             const buildLightElement = (item: OperationsItem, opts: { size: "sm" | "lg" | "xl"; rowLabel: string }) => {
@@ -2975,8 +2975,8 @@ function ActiveOperationsBoard({
                                         "absolute -right-1 -top-1 z-20 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 font-mono-ui text-[0.5rem] leading-none",
                                         "bg-[rgb(3,5,18)]",
                                         item.performanceRisk.level === "critical"
-                                          ? "border-[#ff1200]/85 text-[#ff1200] shadow-[0_0_10px_rgba(255,18,0,0.22)]"
-                                          : "border-[#ff3d00]/60 text-[#ff3d00]/85",
+                                          ? "border-[var(--mission-alert)]/85 text-[var(--mission-alert)] shadow-[0_0_10px_rgba(255,18,0,0.22)]"
+                                          : "border-[var(--mission-accent)]/60 text-[var(--mission-accent)]/85",
                                       )}
                                       aria-label={item.performanceRisk.detail}
                                     >
@@ -3024,7 +3024,7 @@ function ActiveOperationsBoard({
                               const buildFinalResearchOutputElement = () => (
                                 <span className="flex items-center">
                                   <span
-                                    className={cn("relative flex w-20 shrink-0 self-stretch items-center justify-center", finalOutputIsNew ? "text-[#ff3d00]/80" : "text-[#ff3d00]/60")}
+                                    className={cn("relative flex w-20 shrink-0 self-stretch items-center justify-center", finalOutputIsNew ? "text-[var(--mission-accent)]/80" : "text-[var(--mission-accent)]/60")}
                                     aria-hidden="true"
                                   >
                                     <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-dashed border-current/30" />
@@ -3036,8 +3036,8 @@ function ActiveOperationsBoard({
                                     className={cn(
                                       "relative flex h-[4.75rem] min-w-[8.5rem] flex-col items-center justify-center rounded-lg px-4 text-center transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-1",
                                       finalOutputIsNew
-                                        ? "border border-[#ff3d00]/55 bg-[#ff3d00]/[0.05] text-[#ff3d00] shadow-none focus-visible:ring-[#ff3d00]/70"
-                                        : "border border-[#ff3d00]/35 bg-[#ff3d00]/[0.03] text-[#ff3d00]/75 shadow-none focus-visible:ring-[#ff3d00]/60",
+                                        ? "border border-[var(--mission-accent)]/55 bg-[var(--mission-accent)]/[0.05] text-[var(--mission-accent)] shadow-none focus-visible:ring-[var(--mission-accent)]/70"
+                                        : "border border-[var(--mission-accent)]/35 bg-[var(--mission-accent)]/[0.03] text-[var(--mission-accent)]/75 shadow-none focus-visible:ring-[var(--mission-accent)]/60",
                                     )}
                                     title={latestKb ? `Knowledge Base added: ${latestKb.title}` : "Final research output · polished brief or saved knowledge-base artifact"}
                                     aria-label={latestKb ? `Final research output: Knowledge Base added ${latestKb.title}` : "Final research output: polished brief or saved knowledge-base artifact"}
@@ -3064,7 +3064,7 @@ function ActiveOperationsBoard({
                                     type="button"
                                     onClick={() => openLightAgent(item)}
                                     className={cn(
-                                      "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-black/20 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/70",
+                                      "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-black/20 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-accent)]/70",
                                       itemTc.border,
                                       itemTc.bg,
                                       itemTc.text,
@@ -3084,8 +3084,8 @@ function ActiveOperationsBoard({
                                         className={cn(
                                           "absolute -right-1 -top-1 z-20 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border px-0.5 font-mono-ui text-[0.45rem] leading-none bg-[rgb(3,5,18)]",
                                           item.performanceRisk.level === "critical"
-                                            ? "border-[#ff1200]/85 text-[#ff1200] shadow-[0_0_10px_rgba(255,18,0,0.22)]"
-                                            : "border-[#ff3d00]/60 text-[#ff3d00]/85",
+                                            ? "border-[var(--mission-alert)]/85 text-[var(--mission-alert)] shadow-[0_0_10px_rgba(255,18,0,0.22)]"
+                                            : "border-[var(--mission-accent)]/60 text-[var(--mission-accent)]/85",
                                         )}
                                       >
                                         {item.performanceRisk.label}
@@ -3107,7 +3107,7 @@ function ActiveOperationsBoard({
                               };
 
                               const buildCompactFan = (items: OperationsItem[], side: "in" | "out") => (
-                                <span className="relative flex h-14 w-10 shrink-0 items-center justify-center text-[#22d3ee]/42" aria-hidden="true">
+                                <span className="relative flex h-14 w-10 shrink-0 items-center justify-center text-[var(--mission-ready)]/42" aria-hidden="true">
                                   <span className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 border-t border-dashed border-current/30" />
                                   {items.map((item, itemIndex) => {
                                     const yClass = itemIndex === 0 ? "top-[0.95rem]" : itemIndex === items.length - 1 ? "bottom-[0.95rem]" : "top-1/2 -translate-y-1/2";
@@ -3141,16 +3141,16 @@ function ActiveOperationsBoard({
                                       type="button"
                                       aria-expanded={isExpanded}
                                       onClick={() => toggleTeamRow(rowKey)}
-                                      className="group flex min-w-0 items-start gap-2 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/70"
+                                      className="group flex min-w-0 items-start gap-2 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-accent)]/70"
                                     >
-                                      <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#ff3d00]/70" />
+                                      <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--mission-accent)]/70" />
                                       <span className="min-w-0">
                                         <span className="block truncate font-mono-ui text-xs font-semibold text-foreground">{rowTitle}</span>
                                         {rowMeta && <span className="mt-0.5 block truncate text-[0.68rem] text-muted-foreground">{rowMeta}</span>}
                                       </span>
                                       <span className="sr-only">{isExpanded ? "Collapse" : "Expand"} {rowTitle}</span>
                                     </button>
-                                    {!isExpanded && <span className="hidden h-5 min-w-0 items-center px-3 text-[#ff3d00]/85" aria-hidden="true">
+                                    {!isExpanded && <span className="hidden h-5 min-w-0 items-center px-3 text-[var(--mission-accent)]/85" aria-hidden="true">
                                       {teamIsRunning && <HeartbeatTrace />}
                                     </span>}
                                     {!isExpanded && <span className="flex min-w-0 items-center justify-start overflow-x-auto overflow-y-visible py-1 md:col-start-2">
@@ -3193,8 +3193,8 @@ function ActiveOperationsBoard({
                                           to={`/knowledge-base?base=${encodeURIComponent(latestKb.slug)}`}
                                           onClick={handleFinalResearchOutputClick}
                                           className={cn(
-                                            "relative flex h-7 w-7 shrink-0 items-center justify-center rounded border bg-[#ff3d00]/[0.035] text-[#ff3d00]/75 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/70",
-                                            finalOutputIsNew ? "border-[#ff3d00]/55 text-[#ff3d00]" : "border-[#ff3d00]/35",
+                                            "relative flex h-7 w-7 shrink-0 items-center justify-center rounded border bg-[var(--mission-accent)]/[0.035] text-[var(--mission-accent)]/75 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-accent)]/70",
+                                            finalOutputIsNew ? "border-[var(--mission-accent)]/55 text-[var(--mission-accent)]" : "border-[var(--mission-accent)]/35",
                                           )}
                                           title={`Final output: ${latestKb.title}`}
                                           aria-label={`Final output: ${latestKb.title}`}
@@ -3210,14 +3210,14 @@ function ActiveOperationsBoard({
                                       {visibleTeamTasks.map((task) => (
                                         <div
                                           key={`${task.boardSlug}:${task.id}`}
-                                          className="group relative border border-border/50 bg-background-base/35 text-left transition-colors hover:border-[#ff3d00]/45 hover:bg-[#ff3d00]/[0.04]"
+                                          className="group relative border border-border/50 bg-background-base/35 text-left transition-colors hover:border-[var(--mission-accent)]/45 hover:bg-[var(--mission-accent)]/[0.04]"
                                         >
                                           <Link
                                             to={`/kanban?task=${encodeURIComponent(task.id)}`}
-                                            className="block px-2.5 py-2 pr-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/60"
+                                            className="block px-2.5 py-2 pr-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-accent)]/60"
                                           >
                                             <span className="flex items-center justify-between gap-2">
-                                              <span className="font-mono-ui text-[0.55rem] uppercase tracking-[0.16em] text-[#ff3d00]/75">Kanban</span>
+                                              <span className="font-mono-ui text-[0.55rem] uppercase tracking-[0.16em] text-[var(--mission-accent)]/75">Kanban</span>
                                               <Badge tone={taskTone(task)}>{task.status}</Badge>
                                             </span>
                                             <span className="mt-1 block line-clamp-1 text-xs font-medium text-foreground group-hover:text-white">
@@ -3410,7 +3410,7 @@ function ActiveOperationsBoard({
                                     </span>
                                   ))}
                                   {rowIsRunning && (
-                                    <span className="hidden h-6 min-w-[5rem] flex-1 items-center pl-1 text-[#ff3d00]/85 sm:flex" aria-hidden="true">
+                                    <span className="hidden h-6 min-w-[5rem] flex-1 items-center pl-1 text-[var(--mission-accent)]/85 sm:flex" aria-hidden="true">
                                       <HeartbeatTrace />
                                     </span>
                                   )}
@@ -3541,7 +3541,7 @@ function MissionControlTerminalDock({ workingProfiles }: { workingProfiles: Set<
     <section id="mission-terminals" className="mission-terminal-dock scroll-mt-24 border border-border/70 bg-background-base/45 p-3 shadow-2xl shadow-black/20">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Terminal className="h-4 w-4 text-[#ff3d00]" />
+          <Terminal className="h-4 w-4 text-[var(--mission-accent)]" />
           <div>
             <CardTitle className="text-base">Embedded terminals</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">Four live Hermes panes for quick steering without leaving Mission Control.</p>
@@ -3553,14 +3553,14 @@ function MissionControlTerminalDock({ workingProfiles }: { workingProfiles: Set<
         {terminals.map((terminal) => (
           <div key={terminal.id} className="overflow-hidden border border-border/70 bg-black/40 shadow-[0_0_30px_rgba(0,0,0,0.35)]">
             <div className="flex items-center gap-2 border-b border-border/60 bg-background-base/70 px-3 py-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-[#ff3d00]/90" />
-              <span className="h-2.5 w-2.5 rounded-full bg-[#ff3d00]/65" />
-              <span className="h-2.5 w-2.5 rounded-full bg-[#ff3d00]/40" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[var(--mission-accent)]/90" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[var(--mission-accent)]/65" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[var(--mission-accent)]/40" />
               <span className="ml-2 truncate font-mono-ui text-[0.64rem] uppercase tracking-[0.12em] text-muted-foreground">
                 {terminal.label} · {terminal.profile}
               </span>
               {workingProfiles.has(terminal.profile) && (
-                <span className="ml-auto flex h-4 w-28 shrink-0 items-center text-[#ff3d00]/85" aria-hidden="true">
+                <span className="ml-auto flex h-4 w-28 shrink-0 items-center text-[var(--mission-accent)]/85" aria-hidden="true">
                   <HeartbeatTrace beats={2} />
                 </span>
               )}
@@ -3590,7 +3590,7 @@ function CommandDock() {
           <Link
             key={command.href}
             to={command.href}
-            className="group relative overflow-hidden border border-white/[0.07] bg-white/[0.03] p-6 transition-all hover:border-[#ff3d00]/24"
+            className="group relative overflow-hidden border border-white/[0.07] bg-white/[0.03] p-6 transition-all hover:border-[var(--mission-accent)]/24"
           >
             <div className="absolute inset-0 bg-black/10" />
             <div className="relative flex items-start justify-between gap-3">
@@ -3635,7 +3635,7 @@ function EmptySignal({
 }) {
   const toneClass =
     tone === "success" || tone === "warning"
-      ? "border-[#ff3d00]/22 bg-[#ff3d00]/[0.025] text-[#ff3d00]/78"
+      ? "border-[var(--mission-accent)]/22 bg-[var(--mission-accent)]/[0.025] text-[var(--mission-accent)]/78"
       : "border-border bg-muted/15 text-muted-foreground";
   return (
     <div className={cn("relative flex items-center gap-4 border p-5 text-sm", toneClass)}>
@@ -4232,7 +4232,7 @@ export default function MissionControlPage() {
             <span className="font-mono text-[0.62rem] uppercase tracking-[0.2em] text-white/25">
               {readiness.label} · Config v{data.status?.config_version ?? "—"}
             </span>
-            <span className="font-mono-ui text-[0.62rem] tabular-nums tracking-[0.2em] text-[#ff3d00]/70">
+            <span className="font-mono-ui text-[0.62rem] tabular-nums tracking-[0.2em] text-[var(--mission-accent)]/70">
               {clockText}
             </span>
           </div>
@@ -4258,11 +4258,11 @@ export default function MissionControlPage() {
                 ].map((stat) => {
                   const statBody = (
                     <>
-                      <span className="font-mono-ui text-xl leading-none text-white/70 transition-colors group-hover/stat:text-[#ff3d00]">{stat.value}</span>
+                      <span className="font-mono-ui text-xl leading-none text-white/70 transition-colors group-hover/stat:text-[var(--mission-accent)]">{stat.value}</span>
                       <span className="text-[0.58rem] uppercase tracking-[0.2em] text-white/25 transition-colors group-hover/stat:text-white/50">{stat.label}</span>
                     </>
                   );
-                  const statClass = "group/stat flex items-baseline gap-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff3d00]/60";
+                  const statClass = "group/stat flex items-baseline gap-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-accent)]/60";
                   return stat.href.startsWith("#") ? (
                     <a key={stat.label} href={stat.href} className={statClass}>{statBody}</a>
                   ) : (
@@ -4287,16 +4287,16 @@ export default function MissionControlPage() {
       </section>
 
       {error && (
-        <div className="flex items-center gap-3 border border-[#ff1200]/35 bg-[#ff1200]/[0.05] px-4 py-3 text-sm text-[#ff1200]/90 shadow-[0_0_16px_rgba(255,18,0,0.16)]">
+        <div className="flex items-center gap-3 border border-[var(--mission-alert)]/35 bg-[var(--mission-alert)]/[0.05] px-4 py-3 text-sm text-[var(--mission-alert)]/90 shadow-[0_0_16px_rgba(255,18,0,0.16)]">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           {error}
         </div>
       )}
 
       {(attention.reviewLights > 0 || attention.blockedTasks > 0) && (
-        <div className="flex flex-wrap items-center gap-3 border border-[#ff1200]/45 bg-[#ff1200]/[0.05] px-4 py-2.5 text-sm">
+        <div className="flex flex-wrap items-center gap-3 border border-[var(--mission-alert)]/45 bg-[var(--mission-alert)]/[0.05] px-4 py-2.5 text-sm">
           <span className="mission-attention-beacon" aria-hidden="true" />
-          <span className="font-mono-ui text-[0.66rem] uppercase tracking-[0.18em] text-[#ff1200]">Attention</span>
+          <span className="font-mono-ui text-[0.66rem] uppercase tracking-[0.18em] text-[var(--mission-alert)]">Attention</span>
           <span className="text-[#fff7ed]/80">
             {[
               attention.reviewLights > 0
@@ -4309,7 +4309,7 @@ export default function MissionControlPage() {
           </span>
           <a
             href={attention.reviewLights > 0 ? "#mission-live-activity" : "#mission-queue"}
-            className="ml-auto inline-flex items-center gap-1.5 border border-[#ff1200]/40 px-2.5 py-1 font-mono-ui text-[0.62rem] uppercase tracking-[0.14em] text-[#ff1200]/90 transition-colors hover:border-[#ff1200]/70 hover:text-[#ff1200] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#ff1200]/60"
+            className="ml-auto inline-flex items-center gap-1.5 border border-[var(--mission-alert)]/40 px-2.5 py-1 font-mono-ui text-[0.62rem] uppercase tracking-[0.14em] text-[var(--mission-alert)]/90 transition-colors hover:border-[var(--mission-alert)]/70 hover:text-[var(--mission-alert)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-alert)]/60"
           >
             Jump to it <ArrowRight className="h-3 w-3" />
           </a>

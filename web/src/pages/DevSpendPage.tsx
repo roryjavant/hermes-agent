@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
-  AlertCircle,
-  CheckCircle2,
-  DollarSign,
+  ChevronDown,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
-  WalletCards,
+  X,
 } from "lucide-react";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { api } from "@/lib/api";
@@ -43,6 +42,12 @@ const EMPTY_FORM: FormState = {
 const CADENCES: DevSpendCadence[] = ["monthly", "annual", "usage", "one-time"];
 const STATUSES: DevSpendStatus[] = ["active", "watching", "cancelled"];
 
+const STATUS_DOT: Record<DevSpendStatus, string> = {
+  active: "bg-success",
+  watching: "bg-warning",
+  cancelled: "bg-text-tertiary/50",
+};
+
 function monthlyEquivalent(item: DevSpendItem): number {
   if (item.status === "cancelled") return 0;
   if (item.cadence === "annual") return item.amount / 12;
@@ -55,10 +60,18 @@ function money(value: number, currency = "USD"): string {
 }
 
 function dueLabel(value: string | null): string {
-  if (!value) return "No date";
+  if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+}
+
+function dueSoon(value: string | null): boolean {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const days = (date.getTime() - Date.now()) / 86_400_000;
+  return days >= 0 && days <= 7;
 }
 
 function toForm(item: DevSpendItem): FormState {
@@ -91,16 +104,26 @@ function payloadFromForm(form: FormState) {
   };
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <label className="space-y-1 text-[11px] uppercase tracking-[0.18em] text-text-tertiary">
+    <label className={cn("space-y-1.5 text-[10px] uppercase tracking-[0.18em] text-text-tertiary", className)}>
       <span>{label}</span>
       {children}
     </label>
   );
 }
 
-const INPUT = "w-full rounded-lg border border-border/70 bg-black/30 px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-text-tertiary/70 focus:border-midground/60";
+function Stat({ label, value, hint, accent }: { label: string; value: string; hint: string; accent?: boolean }) {
+  return (
+    <div className="px-5 py-4">
+      <p className={cn("text-[10px] uppercase tracking-[0.2em]", accent ? "text-warning/80" : "text-text-tertiary")}>{label}</p>
+      <p className="mt-1.5 text-2xl font-semibold tabular-nums text-foreground">{value}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+const INPUT = "w-full rounded-lg border border-border/70 bg-black/30 px-3 py-2 text-sm normal-case tracking-normal text-foreground outline-none transition-colors placeholder:text-text-tertiary/70 focus:border-midground/60";
 
 export default function DevSpendPage() {
   const [items, setItems] = useState<DevSpendItem[]>([]);
@@ -110,6 +133,8 @@ export default function DevSpendPage() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -146,8 +171,21 @@ export default function DevSpendPage() {
       list.push(item);
       groups.set(item.category, list);
     }
+    for (const list of groups.values()) {
+      list.sort((a, b) => monthlyEquivalent(b) - monthlyEquivalent(a));
+    }
     return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [items]);
+  const availableSources = useMemo(
+    () => (discovery ? discovery.sources.filter((source) => source.status === "available").length : 0),
+    [discovery],
+  );
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+  };
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -166,8 +204,7 @@ export default function DevSpendPage() {
         const response = await api.createDevSpendItem(payload);
         setItems((current) => [...current, response.item]);
       }
-      setForm(EMPTY_FORM);
-      setEditingId(null);
+      closeForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save development spend item");
     } finally {
@@ -178,6 +215,7 @@ export default function DevSpendPage() {
   const edit = (item: DevSpendItem) => {
     setEditingId(item.id);
     setForm(toForm(item));
+    setFormOpen(true);
   };
 
   const remove = async (item: DevSpendItem) => {
@@ -185,161 +223,187 @@ export default function DevSpendPage() {
     try {
       await api.deleteDevSpendItem(item.id);
       setItems((current) => current.filter((candidate) => candidate.id !== item.id));
-      if (editingId === item.id) {
-        setEditingId(null);
-        setForm(EMPTY_FORM);
-      }
+      if (editingId === item.id) closeForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete development spend item");
     }
   };
 
   return (
-    <div className="space-y-5 p-4 lg:p-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+    <div className="mx-auto max-w-5xl space-y-4 p-4 lg:p-6">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-warning/80">Development Endeavor Spend</p>
           <h1 className="mt-1 text-2xl font-semibold text-foreground">Dev Spend</h1>
-          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-            Track AI/API subscriptions and cloud usage in one place. Seeded candidates stay in “watching” until you confirm the amount from billing or email.
+          <p className="mt-1 text-sm text-muted-foreground">
+            AI/API subscriptions and cloud usage. Seeded candidates stay in “watching” until confirmed from billing or email.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="inline-flex items-center gap-2 rounded-lg border border-border/70 bg-black/25 px-3 py-2 text-sm text-foreground hover:bg-white/8"
-        >
-          <RefreshCw className={cn("size-4", loading && "animate-spin")} />
-          Refresh
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            aria-label="Refresh"
+            className="rounded-lg border border-border/70 bg-black/25 p-2 text-foreground transition-colors hover:bg-white/8"
+          >
+            <RefreshCw className={cn("size-4", loading && "animate-spin")} />
+          </button>
+          <button
+            type="button"
+            onClick={() => (formOpen ? closeForm() : setFormOpen(true))}
+            className="inline-flex items-center gap-2 rounded-lg bg-warning px-3 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90"
+          >
+            <Plus className="size-4" />
+            Add item
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <Card className="border-warning/20 bg-warning/8">
-          <CardContent className="p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-warning/80">Monthly run rate</p>
-            <p className="mt-2 text-3xl font-semibold text-foreground">{money(totals.monthly)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Annualized: {money(totals.annual)}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/70 bg-black/20">
-          <CardContent className="p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-text-tertiary">Tracked vendors</p>
-            <p className="mt-2 text-3xl font-semibold text-foreground">{items.length}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{activeItems.length} active or watching</p>
-          </CardContent>
-        </Card>
-        <Card className="border-cyan-300/20 bg-cyan-400/8">
-          <CardContent className="p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-cyan-100/80">Needs confirmation</p>
-            <p className="mt-2 text-3xl font-semibold text-foreground">{totals.unknown}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Usage-based or $0 placeholders</p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="border-border/70 bg-black/20">
+        <CardContent className="grid grid-cols-1 divide-y divide-border/50 p-0 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <Stat accent label="Monthly run rate" value={money(totals.monthly)} hint={`${money(totals.annual)} annualized`} />
+          <Stat label="Tracked vendors" value={String(items.length)} hint={`${activeItems.length} active or watching`} />
+          <Stat label="Needs confirmation" value={String(totals.unknown)} hint="Usage-based or $0 placeholders" />
+        </CardContent>
+      </Card>
 
       {discovery && (
         <Card className="border-border/70 bg-black/20">
-          <CardContent className="space-y-3 p-4">
-            <div className="flex items-center gap-2">
-              {discovery.email_scan_available ? <CheckCircle2 className="size-4 text-success" /> : <AlertCircle className="size-4 text-warning" />}
-              <h2 className="text-sm font-semibold text-foreground">Subscription discovery sources</h2>
-            </div>
-            <div className="grid gap-2 md:grid-cols-2">
-              {discovery.sources.map((source) => (
-                <div key={source.id} className="rounded-lg border border-border/60 bg-black/25 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-foreground">{source.label}</p>
-                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]", source.status === "available" ? "bg-success/15 text-success" : "bg-warning/15 text-warning")}>{source.status.replace("_", " ")}</span>
+          <CardContent className="p-0">
+            <button
+              type="button"
+              onClick={() => setSourcesOpen((open) => !open)}
+              aria-expanded={sourcesOpen}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+            >
+              <div className="flex items-center gap-2.5">
+                <span className={cn("size-1.5 rounded-full", discovery.email_scan_available ? "bg-success" : "bg-warning")} />
+                <h2 className="text-sm font-medium text-foreground">Subscription discovery sources</h2>
+                <span className="text-xs text-muted-foreground">{availableSources} of {discovery.sources.length} connected</span>
+              </div>
+              <ChevronDown className={cn("size-4 text-text-tertiary transition-transform", sourcesOpen && "rotate-180")} />
+            </button>
+            {sourcesOpen && (
+              <div className="border-t border-border/50">
+                {discovery.sources.map((source) => (
+                  <div key={source.id} className="flex items-baseline gap-3 border-b border-border/40 px-4 py-2.5 last:border-b-0">
+                    <span className={cn("size-1.5 shrink-0 translate-y-[-1px] rounded-full", source.status === "available" ? "bg-success" : "bg-warning/70")} />
+                    <div className="min-w-0">
+                      <p className="text-sm text-foreground">
+                        {source.label}
+                        <span className={cn("ml-2 text-[10px] uppercase tracking-[0.14em]", source.status === "available" ? "text-success" : "text-warning/80")}>
+                          {source.status.replace("_", " ")}
+                        </span>
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{source.detail}</p>
+                    </div>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{source.detail}</p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
       {error && <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
 
-      <Card className="border-border/70 bg-black/20">
-        <CardContent className="p-4">
-          <form onSubmit={save} className="grid gap-3 lg:grid-cols-12">
-            <Field label="Vendor">
-              <input className={INPUT} value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} placeholder="OpenAI API" />
-            </Field>
-            <Field label="Category">
-              <input className={INPUT} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-            </Field>
-            <Field label="Kind">
-              <input className={INPUT} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} placeholder="subscription / usage" />
-            </Field>
-            <Field label="Cadence">
-              <select className={INPUT} value={form.cadence} onChange={(e) => setForm({ ...form, cadence: e.target.value as DevSpendCadence })}>
-                {CADENCES.map((cadence) => <option key={cadence}>{cadence}</option>)}
-              </select>
-            </Field>
-            <Field label="Amount">
-              <input className={INPUT} inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="20" />
-            </Field>
-            <Field label="Next due">
-              <input className={INPUT} type="date" value={form.next_due} onChange={(e) => setForm({ ...form, next_due: e.target.value })} />
-            </Field>
-            <Field label="Status">
-              <select className={INPUT} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as DevSpendStatus })}>
-                {STATUSES.map((status) => <option key={status}>{status}</option>)}
-              </select>
-            </Field>
-            <div className="lg:col-span-12">
-              <textarea className={cn(INPUT, "min-h-20")} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Billing URL, plan, API key owner, cancellation notes, or email evidence." />
-            </div>
-            <div className="flex gap-2 lg:col-span-12">
-              <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-warning px-3 py-2 text-sm font-medium text-black disabled:opacity-60">
-                {saving ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                {editingId ? "Save spend item" : "Add spend item"}
+      {formOpen && (
+        <Card className="border-warning/25 bg-black/20">
+          <CardContent className="p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-medium text-foreground">{editingId ? `Edit ${form.vendor || "item"}` : "New spend item"}</h2>
+              <button type="button" onClick={closeForm} aria-label="Close form" className="rounded-lg p-1.5 text-text-tertiary transition-colors hover:bg-white/8 hover:text-foreground">
+                <X className="size-4" />
               </button>
-              {editingId && (
-                <button type="button" onClick={() => { setEditingId(null); setForm(EMPTY_FORM); }} className="rounded-lg border border-border/70 px-3 py-2 text-sm text-foreground hover:bg-white/8">Cancel edit</button>
-              )}
             </div>
-          </form>
-        </CardContent>
-      </Card>
+            <form onSubmit={save} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="Vendor">
+                <input className={INPUT} value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} placeholder="OpenAI API" />
+              </Field>
+              <Field label="Category">
+                <input className={INPUT} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+              </Field>
+              <Field label="Kind">
+                <input className={INPUT} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} placeholder="subscription / usage" />
+              </Field>
+              <Field label="Cadence">
+                <select className={INPUT} value={form.cadence} onChange={(e) => setForm({ ...form, cadence: e.target.value as DevSpendCadence })}>
+                  {CADENCES.map((cadence) => <option key={cadence}>{cadence}</option>)}
+                </select>
+              </Field>
+              <Field label="Amount">
+                <input className={INPUT} inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="20" />
+              </Field>
+              <Field label="Next due">
+                <input className={INPUT} type="date" value={form.next_due} onChange={(e) => setForm({ ...form, next_due: e.target.value })} />
+              </Field>
+              <Field label="Status">
+                <select className={INPUT} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as DevSpendStatus })}>
+                  {STATUSES.map((status) => <option key={status}>{status}</option>)}
+                </select>
+              </Field>
+              <Field label="Notes" className="sm:col-span-2 lg:col-span-4">
+                <textarea className={cn(INPUT, "min-h-16")} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Billing URL, plan, API key owner, cancellation notes, or email evidence." />
+              </Field>
+              <div className="flex gap-2 sm:col-span-2 lg:col-span-4">
+                <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-warning px-3 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:opacity-60">
+                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                  {editingId ? "Save changes" : "Add spend item"}
+                </button>
+                <button type="button" onClick={closeForm} className="rounded-lg border border-border/70 px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/8">Cancel</button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading spend data…</div>
       ) : (
         <div className="space-y-4">
-          {byCategory.map(([category, categoryItems]) => (
-            <section key={category} className="space-y-2" aria-label={`${category} spending`}>
-              <div className="flex items-center gap-2 border-b border-border/60 pb-2">
-                <WalletCards className="size-4 text-warning" />
-                <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-foreground">{category}</h2>
-                <span className="text-xs text-muted-foreground">{categoryItems.length}</span>
-              </div>
-              <div className="overflow-hidden rounded-xl border border-border/70 bg-black/20">
-                <div className="grid grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr_1fr_auto] gap-3 border-b border-border/60 px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-text-tertiary">
-                  <span>Vendor</span><span>Status</span><span>Amount</span><span>Monthly</span><span>Next due / Source</span><span>Actions</span>
+          {byCategory.map(([category, categoryItems]) => {
+            const categoryMonthly = categoryItems.reduce((sum, item) => sum + monthlyEquivalent(item), 0);
+            return (
+              <section key={category} className="space-y-2" aria-label={`${category} spending`}>
+                <div className="flex items-baseline justify-between px-1">
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-text-tertiary">
+                    {category} <span className="ml-1 font-normal text-muted-foreground">{categoryItems.length}</span>
+                  </h2>
+                  <span className="text-xs tabular-nums text-muted-foreground">{money(categoryMonthly)}/mo</span>
                 </div>
-                {categoryItems.map((item) => (
-                  <div key={item.id} className="grid grid-cols-[1.4fr_0.8fr_0.7fr_0.7fr_1fr_auto] gap-3 border-b border-border/40 px-3 py-3 text-sm last:border-b-0">
-                    <button type="button" onClick={() => edit(item)} className="text-left">
-                      <span className="font-medium text-foreground">{item.vendor}</span>
-                      <span className="mt-1 block text-xs text-muted-foreground">{item.kind} · {item.cadence}{item.notes ? ` · ${item.notes}` : ""}</span>
-                    </button>
-                    <span className={cn("w-fit rounded-full px-2 py-1 text-[10px] uppercase tracking-[0.14em]", item.status === "active" && "bg-success/15 text-success", item.status === "watching" && "bg-warning/15 text-warning", item.status === "cancelled" && "bg-white/8 text-text-tertiary")}>{item.status}</span>
-                    <span className="text-foreground"><DollarSign className="mr-1 inline size-3 text-text-tertiary" />{money(item.amount, item.currency)}</span>
-                    <span className="text-foreground">{money(monthlyEquivalent(item), item.currency)}</span>
-                    <span className="text-xs text-muted-foreground">{dueLabel(item.next_due)}<br />{item.source}</span>
-                    <div className="flex justify-end gap-1">
-                      <button type="button" onClick={() => edit(item)} className="rounded-lg border border-border/70 px-2 py-1 text-xs text-foreground hover:bg-white/8">Edit</button>
-                      <button type="button" onClick={() => void remove(item)} aria-label={`Delete ${item.vendor}`} className="rounded-lg p-1.5 text-text-tertiary hover:bg-destructive/10 hover:text-destructive"><Trash2 className="size-4" /></button>
-                    </div>
+                <div className="overflow-hidden rounded-xl border border-border/70 bg-black/20">
+                  <div className="grid grid-cols-[1.6fr_0.9fr_0.6fr_0.6fr_0.5fr_4.5rem] items-center gap-3 border-b border-border/60 px-4 py-2 text-[10px] uppercase tracking-[0.16em] text-text-tertiary">
+                    <span>Vendor</span><span>Status</span><span className="text-right">Amount</span><span className="text-right">Monthly</span><span className="text-right">Due</span><span />
                   </div>
-                ))}
-              </div>
-            </section>
-          ))}
+                  {categoryItems.map((item) => (
+                    <div key={item.id} className="group grid grid-cols-[1.6fr_0.9fr_0.6fr_0.6fr_0.5fr_4.5rem] items-center gap-3 border-b border-border/40 px-4 py-2.5 text-sm transition-colors last:border-b-0 hover:bg-white/4">
+                      <button type="button" onClick={() => edit(item)} className="min-w-0 text-left" title={item.notes || undefined}>
+                        <span className={cn("block truncate font-medium", item.status === "cancelled" ? "text-text-tertiary line-through" : "text-foreground")}>{item.vendor}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{[item.kind, item.kind === item.cadence ? null : item.cadence, item.source].filter(Boolean).join(" · ")}</span>
+                      </button>
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className={cn("size-1.5 rounded-full", STATUS_DOT[item.status])} />
+                        {item.status}
+                      </span>
+                      <span className={cn("text-right tabular-nums", item.amount === 0 ? "text-text-tertiary" : "text-foreground")}>
+                        {item.amount === 0 ? "—" : money(item.amount, item.currency)}
+                      </span>
+                      <span className={cn("text-right tabular-nums", monthlyEquivalent(item) === 0 ? "text-text-tertiary" : "text-foreground")}>
+                        {monthlyEquivalent(item) === 0 ? "—" : money(monthlyEquivalent(item), item.currency)}
+                      </span>
+                      <span className={cn("text-right text-xs tabular-nums", dueSoon(item.next_due) ? "text-warning" : "text-muted-foreground")}>
+                        {dueLabel(item.next_due)}
+                      </span>
+                      <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                        <button type="button" onClick={() => edit(item)} aria-label={`Edit ${item.vendor}`} className="rounded-lg p-1.5 text-text-tertiary transition-colors hover:bg-white/8 hover:text-foreground"><Pencil className="size-3.5" /></button>
+                        <button type="button" onClick={() => void remove(item)} aria-label={`Delete ${item.vendor}`} className="rounded-lg p-1.5 text-text-tertiary transition-colors hover:bg-destructive/10 hover:text-destructive"><Trash2 className="size-3.5" /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
     </div>

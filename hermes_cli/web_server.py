@@ -640,7 +640,7 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
     "dashboard.theme": {
         "type": "select",
         "description": "Web dashboard visual theme",
-        "options": ["default", "default-large", "nous-blue", "mission-control", "midnight", "ember", "mono", "cyberpunk", "rose"],
+        "options": ["default", "default-large", "nous-blue", "mission-control", "mission-violet", "mission-crimson", "mission-cyan", "mission-emerald", "midnight", "ember", "mono", "cyberpunk", "rose"],
     },
     "display.resume_display": {
         "type": "select",
@@ -14454,12 +14454,51 @@ _BUILTIN_DASHBOARD_THEMES = [
     {"name": "default-large", "label": "Hermes Teal (Large)", "description": "Hermes Teal with bigger fonts and roomier spacing"},
     {"name": "nous-blue",     "label": "Nous Blue",           "description": "Light mode — vivid Nous-blue accents on cream canvas"},
     {"name": "mission-control", "label": "Mission Control",   "description": "Black/orange cockpit command center inspired by Mission Control"},
+    {"name": "mission-violet", "label": "Mission Violet",       "description": "Mission Control dark cockpit with violet command accents"},
+    {"name": "mission-crimson", "label": "Mission Crimson",     "description": "Mission Control dark cockpit with hot red command accents"},
+    {"name": "mission-cyan", "label": "Mission Cyan",           "description": "Mission Control dark cockpit with electric cyan command accents"},
+    {"name": "mission-emerald", "label": "Mission Emerald",     "description": "Mission Control dark cockpit with green signal accents"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
     {"name": "mono",      "label": "Mono",           "description": "Clean grayscale — minimal and focused"},
     {"name": "cyberpunk", "label": "Cyberpunk",      "description": "Neon green on black — matrix terminal"},
     {"name": "rose",      "label": "Rosé",           "description": "Soft pink and warm ivory — easy on the eyes"},
 ]
+
+
+def _dashboard_theme_names() -> set[str]:
+    """Return the set of selectable built-in dashboard theme names."""
+    return {theme["name"] for theme in _BUILTIN_DASHBOARD_THEMES}
+
+
+def _configured_dashboard_theme(config: Dict[str, Any], *, persist_repair: bool = False) -> str:
+    """Return the active dashboard theme, honoring an optional profile pin.
+
+    ``dashboard.pinned_theme`` is a small guardrail for profile-owned dashboards
+    that should not drift back to a generic theme after config migrations,
+    restarts, or accidental client state writes.  When set to a known theme, it
+    wins over ``dashboard.theme``; callers can request a best-effort repair so
+    the config file converges back to the pinned value too.
+    """
+    dashboard = config.get("dashboard") if isinstance(config, dict) else None
+    if not isinstance(dashboard, dict):
+        return "default"
+
+    active = dashboard.get("theme", "default")
+    if not isinstance(active, str) or not active.strip():
+        active = "default"
+
+    pinned = dashboard.get("pinned_theme")
+    if isinstance(pinned, str) and pinned in _dashboard_theme_names():
+        if active != pinned and persist_repair:
+            dashboard["theme"] = pinned
+            try:
+                save_config(config)
+            except Exception:
+                pass
+        return pinned
+
+    return active
 
 
 def _parse_theme_layer(value: Any, default_hex: str, default_alpha: float = 1.0) -> Optional[Dict[str, Any]]:
@@ -14709,7 +14748,7 @@ async def get_dashboard_themes():
     them without a stub.
     """
     config = load_config()
-    active = cfg_get(config, "dashboard", "theme", default="default")
+    active = _configured_dashboard_theme(config, persist_repair=True)
     user_themes = _discover_user_themes()
     seen = set()
     themes = []
@@ -14739,7 +14778,13 @@ async def set_dashboard_theme(body: ThemeSetBody):
     config = load_config()
     if "dashboard" not in config:
         config["dashboard"] = {}
-    config["dashboard"]["theme"] = body.name
+    dashboard = config["dashboard"]
+    pinned = dashboard.get("pinned_theme")
+    if isinstance(pinned, str) and pinned in _dashboard_theme_names() and body.name != pinned:
+        dashboard["theme"] = pinned
+        save_config(config)
+        return {"ok": True, "theme": pinned, "pinned": True}
+    dashboard["theme"] = body.name
     save_config(config)
     return {"ok": True, "theme": body.name}
 
