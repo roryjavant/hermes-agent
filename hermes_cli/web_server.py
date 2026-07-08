@@ -3293,25 +3293,183 @@ def _find_dev_spend_item(items: List[Dict[str, Any]], item_id: str) -> Tuple[int
     raise HTTPException(status_code=404, detail="Development spend item not found")
 
 
+def _dev_spend_env_values() -> Dict[str, str]:
+    """Read profile env values without exposing secrets in API responses."""
+    values = {key: value for key, value in os.environ.items() if isinstance(value, str)}
+    try:
+        env_path = get_env_path()
+    except Exception:
+        env_path = None
+    if env_path and env_path.exists():
+        for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            values[key.strip()] = value.strip().strip('"\'')
+    return values
+
+
+def _dev_spend_has_any_env(*keys: str) -> bool:
+    values = _dev_spend_env_values()
+    return any(bool(values.get(key)) for key in keys)
+
+
+def _fetch_elevenlabs_subscription() -> Optional[Dict[str, Any]]:
+    values = _dev_spend_env_values()
+    api_key = values.get("ELEVENLABS_API_KEY")
+    if not api_key:
+        return None
+    req = urllib.request.Request(
+        "https://api.elevenlabs.io/v1/user/subscription",
+        headers={"xi-api-key": api_key},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        return {"error": str(exc)}
+    if not isinstance(data, dict):
+        return {"error": "Unexpected ElevenLabs subscription response"}
+    return data
+
+
+def _format_dev_spend_date_from_unix(value: Any) -> Optional[str]:
+    try:
+        timestamp = int(value)
+    except (TypeError, ValueError):
+        return None
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).date().isoformat()
+
+
+def _apply_live_dev_spend_details(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Overlay real provider details where this profile has billing-capable credentials."""
+    now = _utc_now_iso()
+    normalized = [_serialize_dev_spend_item(item) for item in items]
+
+    eleven = _fetch_elevenlabs_subscription()
+    if eleven and not eleven.get("error"):
+        next_invoice = eleven.get("next_invoice") if isinstance(eleven.get("next_invoice"), dict) else {}
+        amount_cents = next_invoice.get("amount_due_cents") or next_invoice.get("subtotal_cents") or 0
+        try:
+            amount = round(float(amount_cents) / 100, 2)
+        except (TypeError, ValueError):
+            amount = 0.0
+        currency = str(eleven.get("currency") or next_invoice.get("currency") or "usd").upper()
+        tier = str(eleven.get("tier") or "unknown")
+        character_count = int(eleven.get("character_count") or 0)
+        character_limit = int(eleven.get("character_limit") or 0)
+        next_due = _format_dev_spend_date_from_unix(next_invoice.get("next_payment_attempt_unix"))
+        reset_date = _format_dev_spend_date_from_unix(eleven.get("next_character_count_reset_unix"))
+        notes = f"Live ElevenLabs API: {tier} plan; {character_count:,}/{character_limit:,} chars used"
+        if reset_date:
+            notes += f"; character reset {reset_date}"
+        if amount:
+            notes += f"; next invoice {currency} {amount:.2f}"
+        matched = False
+        for index, item in enumerate(normalized):
+            if "elevenlabs" in item["vendor"].lower():
+                normalized[index] = _serialize_dev_spend_item({
+                    **item,
+                    "vendor": "ElevenLabs",
+                    "category": "Voice / audio",
+                    "kind": f"{tier} subscription",
+                    "cadence": "monthly" if "monthly" in str(eleven.get("billing_period") or "") else item.get("cadence", "monthly"),
+                    "amount": amount,
+                    "currency": currency,
+                    "next_due": next_due,
+                    "status": str(eleven.get("status") or "active"),
+                    "source": "elevenlabs_api",
+                    "notes": notes,
+                    "updated_at": now,
+                })
+                matched = True
+                break
+        if not matched:
+            normalized.append(_serialize_dev_spend_item({
+                "id": secrets.token_hex(8),
+                "vendor": "ElevenLabs",
+                "category": "Voice / audio",
+                "kind": f"{tier} subscription",
+                "cadence": "monthly",
+                "amount": amount,
+                "currency": currency,
+                "next_due": next_due,
+                "status": str(eleven.get("status") or "active"),
+                "source": "elevenlabs_api",
+                "notes": notes,
+                "created_at": now,
+                "updated_at": now,
+            }))
+
+    values = _dev_spend_env_values()
+    if values.get("GEMINI_API_KEY"):
+        for index, item in enumerate(normalized):
+            if "gemini" in item["vendor"].lower() or "google ai" in item["vendor"].lower():
+                normalized[index] = _serialize_dev_spend_item({
+                    **item,
+                    "source": "gemini_api_key",
+                    "notes": "Gemini API key is configured and usable for model calls; billing/usage totals are not exposed by the Generative Language API key.",
+                    "updated_at": now,
+                })
+                break
+    return normalized
+
+
 def _dev_spend_source_status() -> Dict[str, Any]:
-    env_keys = {"EMAIL_ADDRESS", "EMAIL_PASSWORD", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST"}
-    email_env_configured = all(os.getenv(key) for key in env_keys)
-    gmail_keys = {"GMAIL_TOKEN", "GOOGLE_WORKSPACE_TOKEN", "GOOGLE_APPLICATION_CREDENTIALS"}
-    gmail_configured = any(os.getenv(key) for key in gmail_keys)
+    values = _dev_spend_env_values()
+    email_env_configured = all(values.get(key) for key in {"EMAIL_ADDRESS", "EMAIL_PASSWORD", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST"})
+    gmail_configured = any(values.get(key) for key in {"GMAIL_TOKEN", "GOOGLE_WORKSPACE_TOKEN", "GOOGLE_APPLICATION_CREDENTIALS"})
+    eleven_configured = bool(values.get("ELEVENLABS_API_KEY"))
+    gemini_configured = bool(values.get("GEMINI_API_KEY") or values.get("GOOGLE_API_KEY"))
+    openai_configured = bool(values.get("OPENAI_API_KEY") or values.get("VOICE_TOOLS_OPENAI_KEY"))
+    anthropic_configured = bool(values.get("ANTHROPIC_API_KEY"))
+    aws_configured = bool(values.get("AWS_ACCESS_KEY_ID") and values.get("AWS_SECRET_ACCESS_KEY"))
+    supabase_configured = bool(values.get("SUPABASE_ACCESS_TOKEN") or values.get("SUPABASE_SERVICE_ROLE_KEY"))
     return {
         "email_scan_available": bool(email_env_configured or gmail_configured),
         "sources": [
             {
-                "id": "roryjavant-gmail",
-                "label": "roryjavant@gmail.com",
-                "status": "available" if (email_env_configured or gmail_configured) else "not_configured",
-                "detail": "Gmail/IMAP credentials are not configured for this Hermes profile." if not (email_env_configured or gmail_configured) else "Mail credentials detected; scan integration can be wired to this source.",
+                "id": "elevenlabs",
+                "label": "ElevenLabs billing API",
+                "status": "available" if eleven_configured else "not_configured",
+                "detail": "Live subscription tier, monthly invoice, next payment, and character usage are pulled from ElevenLabs." if eleven_configured else "Set ELEVENLABS_API_KEY in this profile to pull live ElevenLabs plan and billing details.",
             },
             {
-                "id": "manual-seeds",
-                "label": "Manual tracking + known developer vendors",
-                "status": "available",
-                "detail": "Seeded OpenAI, Claude, ElevenLabs, Supabase, AWS, and Gemini candidates for confirmation.",
+                "id": "gemini",
+                "label": "Gemini / Google AI API",
+                "status": "available" if gemini_configured else "not_configured",
+                "detail": "Gemini API key is configured; Google does not expose spend totals through that key, so Cloud Billing or receipt import is still needed for dollar amounts." if gemini_configured else "Set GEMINI_API_KEY/GOOGLE_API_KEY to mark Gemini usage as connected; Cloud Billing is needed for dollar totals.",
+            },
+            {
+                "id": "openai",
+                "label": "OpenAI billing",
+                "status": "available" if openai_configured else "not_configured",
+                "detail": "OpenAI key detected; billing totals still need Admin/Billing API access or receipt import." if openai_configured else "No OPENAI_API_KEY/Admin billing credential is configured for this profile.",
+            },
+            {
+                "id": "anthropic",
+                "label": "Anthropic / Claude billing",
+                "status": "available" if anthropic_configured else "not_configured",
+                "detail": "Anthropic API key detected; subscription receipts or billing export are still needed for plan price." if anthropic_configured else "No ANTHROPIC_API_KEY or Claude subscription receipt source is configured.",
+            },
+            {
+                "id": "aws",
+                "label": "AWS Cost Explorer",
+                "status": "available" if aws_configured else "not_configured",
+                "detail": "AWS credentials detected; Cost Explorer integration can pull month-to-date spend." if aws_configured else "AWS credentials with Cost Explorer access are not configured.",
+            },
+            {
+                "id": "supabase",
+                "label": "Supabase billing",
+                "status": "available" if supabase_configured else "not_configured",
+                "detail": "Supabase token detected; project/org billing can be wired from the Management API where available." if supabase_configured else "No Supabase access token is configured for billing discovery.",
+            },
+            {
+                "id": "roryjavant-gmail",
+                "label": "roryjavant@gmail.com receipts",
+                "status": "available" if (email_env_configured or gmail_configured) else "not_configured",
+                "detail": "Receipt scanning can populate subscriptions and renewal amounts." if (email_env_configured or gmail_configured) else "Gmail/IMAP credentials are not configured for this Hermes profile, so receipts cannot be scanned yet.",
             },
         ],
     }
@@ -3503,7 +3661,7 @@ def _require_private_ideas_token(request: Request) -> None:
 
 @app.get("/api/dev-spend")
 async def get_dev_spend():
-    items = _read_dev_spend_items()
+    items = _apply_live_dev_spend_details(_read_dev_spend_items())
     return {"items": items, "discovery": _dev_spend_source_status()}
 
 
