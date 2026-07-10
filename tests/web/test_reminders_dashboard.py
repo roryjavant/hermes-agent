@@ -36,6 +36,10 @@ def test_reminders_page_preserves_drag_priority_and_compact_actions():
     assert "reorderReminders" in source
     assert "Mark reminder priority" in source
     assert "aria-label=\"Delete reminder\"" in source
+    assert "ConfirmDialog" in source
+    assert "Delete reminder?" in source
+    assert "setReminderPendingDeletion(reminder)" in source
+    assert "Number(a.completed) - Number(b.completed)" in source
 
 
 def test_mission_control_page_has_audio_and_embedded_terminal_surfaces():
