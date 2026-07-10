@@ -79,6 +79,10 @@ def test_reminders_page_supports_crud_and_due_date_light_language():
     assert 'title={reminder.completed ? "Undo done" : "Done"}' in source
     assert 'aria-label="Edit reminder"' in source
     assert 'aria-label="Delete reminder"' in source
+    assert "ConfirmDialog" in source
+    assert "Delete reminder?" in source
+    assert "setReminderPendingDeletion(reminder)" in source
+    assert "Number(a.completed) - Number(b.completed)" in source
     assert "DndContext" in source
     assert "SortableReminderRow" in source
     assert "Drag to reorder reminder" in source

@@ -29,6 +29,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { api } from "@/lib/api";
 import type { ReminderItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -398,6 +399,7 @@ export default function RemindersPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [error, setError] = useState<string | null>(null);
+  const [reminderPendingDeletion, setReminderPendingDeletion] = useState<ReminderItem | null>(null);
 
   const load = async () => {
     setError(null);
@@ -423,7 +425,13 @@ export default function RemindersPage() {
       ? reminders.filter((item) => `${item.title} ${item.notes} ${item.due_at ?? ""} ${reminderCategory(item) === "work" ? "work" : "everything else other"}`.toLowerCase().includes(needle))
       : reminders;
     if (statusFilter !== "all") filtered = filtered.filter((item) => reminderTone(item) === statusFilter);
-    return [...filtered].sort((a, b) => a.order_index - b.order_index || a.created_at.localeCompare(b.created_at) || a.title.localeCompare(b.title));
+    return [...filtered].sort(
+      (a, b) =>
+        Number(a.completed) - Number(b.completed) ||
+        a.order_index - b.order_index ||
+        a.created_at.localeCompare(b.created_at) ||
+        a.title.localeCompare(b.title),
+    );
   }, [query, statusFilter, reminders]);
 
   const remindersByCategory = useMemo(() => {
@@ -593,6 +601,7 @@ export default function RemindersPage() {
     try {
       await api.deleteReminder(reminder.id);
       setReminders((prev) => prev.filter((item) => item.id !== reminder.id));
+      setReminderPendingDeletion(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -736,7 +745,7 @@ export default function RemindersPage() {
                             onChangeEdit={setEditForm}
                             onSave={() => void saveEdit(reminder)}
                             onCancel={() => setEditingId(null)}
-                            onDelete={() => void deleteReminder(reminder)}
+                            onDelete={() => setReminderPendingDeletion(reminder)}
                             onPriorityToggle={() => void toggleReminderPriority(reminder)}
                           />
                         ))}
@@ -757,6 +766,18 @@ export default function RemindersPage() {
           </div>
         </CardContent>
       </Card>
+      <ConfirmDialog
+        open={Boolean(reminderPendingDeletion)}
+        title="Delete reminder?"
+        description={reminderPendingDeletion ? `This will permanently delete “${reminderPendingDeletion.title}”.` : undefined}
+        confirmLabel="Delete reminder"
+        destructive
+        loading={Boolean(reminderPendingDeletion && busyId === reminderPendingDeletion.id)}
+        onCancel={() => setReminderPendingDeletion(null)}
+        onConfirm={() => {
+          if (reminderPendingDeletion) void deleteReminder(reminderPendingDeletion);
+        }}
+      />
     </main>
   );
 }
