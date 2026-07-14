@@ -38,6 +38,14 @@ export interface KanbanTaskSummary {
   latest_summary?: string | null;
   skills?: string[] | null;
   current_run_id?: number | null;
+  workspace_kind?: "scratch" | "dir" | "worktree" | string;
+  workspace_path?: string | null;
+  link_counts?: { parents?: number; children?: number };
+}
+
+export interface KanbanTaskLink {
+  parent_id: string;
+  child_id: string;
 }
 
 export interface KanbanColumnSummary {
@@ -48,6 +56,7 @@ export interface KanbanColumnSummary {
 export interface KanbanBoardSummary {
   columns: KanbanColumnSummary[];
   assignees?: string[];
+  links?: KanbanTaskLink[];
   latest_event_id?: number;
   now?: number;
 }
@@ -124,7 +133,35 @@ export interface TeamOperationalCues {
   hasLatestSummaries: number;
   blocked: number;
   liveWorkers: number;
+  externalLiveWorkers: number;
   cue: string;
+}
+
+export type TeamTopologyKind = "relay" | "parallel" | "mixed" | "converging" | "idle" | "unknown";
+export type TeamTopologyPhase = "active" | "ready" | "waiting" | "blocked" | "complete" | "idle";
+
+export interface TeamExternalExecutor {
+  name: string;
+  taskId: string;
+  taskTitle: string;
+}
+
+export interface TeamTopology {
+  kind: TeamTopologyKind;
+  phase: TeamTopologyPhase;
+  label: string;
+  reason: string;
+  currentLine: string | null;
+  nextLine: string | null;
+  waitingLine: string | null;
+  activeTaskIds: string[];
+  waitingTaskIds: string[];
+  blockedTaskIds: string[];
+  nextTaskIds: string[];
+  externalExecutors: TeamExternalExecutor[];
+  verifiedSharedWorkspace: { kind: "dir"; path: string } | null;
+  evidenceComplete: boolean;
+  announcement: string;
 }
 
 export interface TeamRoleDefinition {
@@ -314,6 +351,173 @@ export function flattenBoardTasks(board: KanbanBoardSummary | null | undefined):
   return (board?.columns ?? []).flatMap((column) =>
     (column.tasks ?? []).map((task) => ({ ...task, status: task.status || column.name })),
   );
+}
+
+const NONTERMINAL_TOPOLOGY_STATUSES = new Set(["triage", "todo", "scheduled", "ready", "running", "blocked", "review"]);
+
+function topologyTaskName(task: KanbanTaskSummary, roles: TeamRoleDefinition[]): string {
+  return roles.find((role) => normalizeName(role.profileName) === normalizeName(task.assignee))?.label ?? task.title;
+}
+
+function topologyResult(
+  partial: Omit<TeamTopology, "announcement">,
+): TeamTopology {
+  return {
+    ...partial,
+    announcement: [partial.label, partial.reason, partial.currentLine, partial.nextLine, partial.waitingLine, partial.verifiedSharedWorkspace ? "Shared directory verified" : null]
+      .filter(Boolean)
+      .join(" · "),
+  };
+}
+
+function topologyUnknown(
+  reason: string,
+  tasks: KanbanTaskSummary[],
+  activeWorkers: KanbanActiveWorkerSummary[],
+  roles: TeamRoleDefinition[],
+): TeamTopology {
+  const activeTaskIds = Array.from(new Set([...tasks.filter((task) => task.status === "running").map((task) => task.id), ...activeWorkers.map((worker) => worker.task_id)])).sort();
+  const roster = new Set(roles.map((role) => normalizeName(role.profileName)));
+  const externalExecutors = activeWorkers
+    .filter((worker) => !roster.has(normalizeName(worker.profile ?? worker.task_assignee)))
+    .map((worker) => ({ name: worker.profile ?? worker.task_assignee ?? "External executor", taskId: worker.task_id, taskTitle: worker.task_title }));
+  const activeTitles = activeTaskIds.map((id) => tasks.find((task) => task.id === id)?.title ?? activeWorkers.find((worker) => worker.task_id === id)?.task_title).filter((title): title is string => Boolean(title));
+  return topologyResult({
+    kind: "unknown", phase: activeTaskIds.length > 0 ? "active" : "idle", label: "TOPOLOGY UNKNOWN", reason,
+    currentLine: activeTitles.length > 0 ? `Current: ${activeTitles.join(", ")}` : null, nextLine: null, waitingLine: null,
+    activeTaskIds, waitingTaskIds: [], blockedTaskIds: tasks.filter((task) => task.status === "blocked").map((task) => task.id), nextTaskIds: [],
+    externalExecutors, verifiedSharedWorkspace: null, evidenceComplete: false,
+  });
+}
+
+function hasDirectedCycle(ids: Set<string>, children: Map<string, string[]>): boolean {
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    for (const child of children.get(id) ?? []) if (visit(child)) return true;
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  };
+  return [...ids].some(visit);
+}
+
+function descendants(root: string, children: Map<string, string[]>): Set<string> {
+  const found = new Set<string>();
+  const queue = [...(children.get(root) ?? [])];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (found.has(id)) continue;
+    found.add(id);
+    queue.push(...(children.get(id) ?? []));
+  }
+  return found;
+}
+
+export function buildTeamTopology(
+  board: KanbanBoardSummary | null | undefined,
+  activeWorkers: KanbanActiveWorkerSummary[] = [],
+  roles: TeamRoleDefinition[] = DEFAULT_TEAM_ROLES,
+): TeamTopology {
+  const tasks = flattenBoardTasks(board);
+  if (tasks.length === 0) return topologyResult({
+    kind: "idle", phase: "idle", label: "TEAM IDLE", reason: "No current board work", currentLine: null, nextLine: null, waitingLine: null,
+    activeTaskIds: [], waitingTaskIds: [], blockedTaskIds: [], nextTaskIds: [], externalExecutors: [], verifiedSharedWorkspace: null, evidenceComplete: true,
+  });
+  if (!board?.links) return topologyUnknown("Dependency details unavailable", tasks, activeWorkers, roles);
+
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const ids = new Set(taskById.keys());
+  const parents = new Map<string, string[]>();
+  const children = new Map<string, string[]>();
+  const neighbors = new Map<string, Set<string>>();
+  for (const id of ids) { parents.set(id, []); children.set(id, []); neighbors.set(id, new Set()); }
+  for (const link of board.links) {
+    if (!ids.has(link.parent_id) || !ids.has(link.child_id) || link.parent_id === link.child_id) return topologyUnknown("Dependency data is invalid", tasks, activeWorkers, roles);
+    parents.get(link.child_id)!.push(link.parent_id);
+    children.get(link.parent_id)!.push(link.child_id);
+    neighbors.get(link.parent_id)!.add(link.child_id);
+    neighbors.get(link.child_id)!.add(link.parent_id);
+  }
+  if (hasDirectedCycle(ids, children)) return topologyUnknown("Dependency data is invalid", tasks, activeWorkers, roles);
+  for (const task of tasks) {
+    const counts = task.link_counts;
+    if (counts && ((counts.parents ?? 0) !== parents.get(task.id)!.length || (counts.children ?? 0) !== children.get(task.id)!.length)) return topologyUnknown("Dependency details unavailable", tasks, activeWorkers, roles);
+  }
+
+  const components: Set<string>[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    const component = new Set<string>();
+    const queue = [id];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (seen.has(current)) continue;
+      seen.add(current); component.add(current); queue.push(...(neighbors.get(current) ?? []));
+    }
+    components.push(component);
+  }
+  const current = components.filter((component) => [...component].some((id) => NONTERMINAL_TOPOLOGY_STATUSES.has(taskById.get(id)!.status)));
+  if (current.length > 1) return topologyUnknown("Multiple independent work graphs", tasks, activeWorkers, roles);
+  const component = current[0] ?? (components.length === 1 ? components[0] : null);
+  if (!component || component.size < 2) return topologyUnknown("Dependency details unavailable", tasks, activeWorkers, roles);
+  const componentTasks = [...component].map((id) => taskById.get(id)!);
+  const forks = componentTasks.filter((task) => (children.get(task.id) ?? []).length > 1);
+  const joins = componentTasks.filter((task) => (parents.get(task.id) ?? []).length > 1);
+  const activeTaskIds = Array.from(new Set([
+    ...componentTasks.filter((task) => task.status === "running").map((task) => task.id),
+    ...activeWorkers.filter((worker) => component.has(worker.task_id)).map((worker) => worker.task_id),
+  ])).sort();
+  const blocked = componentTasks.filter((task) => task.status === "blocked");
+  const waiting = componentTasks.filter((task) => (task.status === "todo" || task.status === "scheduled") && (parents.get(task.id) ?? []).some((id) => taskById.get(id)?.status !== "done"));
+  const frontier = componentTasks.filter((task) => ["ready", "running", "review"].includes(task.status) && (parents.get(task.id) ?? []).every((id) => taskById.get(id)?.status === "done")).map((task) => task.id);
+  const parallelBranchesReady = forks.flatMap((fork) => (children.get(fork.id) ?? []).filter((root) => {
+    const branch = new Set([root, ...descendants(root, children)]);
+    return frontier.some((id) => branch.has(id));
+  }));
+  const parallelFrontier = parallelBranchesReady.length >= 2;
+  const isChain = forks.length === 0 && joins.length === 0;
+  const kind: TeamTopologyKind = isChain ? "relay" : forks.length === 0 ? "converging" : parallelFrontier && joins.length === 0 ? "parallel" : "mixed";
+  const phase: TeamTopologyPhase = activeTaskIds.length > 0 ? "active" : blocked.length > 0 ? "blocked" : frontier.length > 0 ? "ready" : waiting.length > 0 ? "waiting" : componentTasks.every((task) => task.status === "done") ? "complete" : "idle";
+  const activeTask = activeTaskIds.map((id) => taskById.get(id)).find(Boolean) ?? null;
+  const activeJoin = activeTaskIds.some((id) => (parents.get(id) ?? []).length > 1);
+  const nextTaskIds = Array.from(new Set(activeTaskIds.flatMap((id) => children.get(id) ?? []))).sort();
+  const nextTasks = nextTaskIds.map((id) => taskById.get(id)!).filter(Boolean);
+  const blockedName = blocked[0] ? topologyTaskName(blocked[0], roles) : null;
+  const swarmNow = parallelFrontier && activeTaskIds.length >= 2;
+  const label = phase === "blocked" ? `${kind === "parallel" ? "PARALLEL SWARM" : kind.toUpperCase()} · BLOCKED`
+    : phase === "complete" ? `${kind === "parallel" ? "PARALLEL SWARM" : kind.toUpperCase()} COMPLETE · ${componentTasks.length} STAGES`
+    : kind === "relay" ? phase === "ready" ? "RELAY · READY TO DISPATCH" : "RELAY · 1 ACTIVE AT A TIME"
+    : kind === "converging" ? "CONVERGING GATES · NO FAN-OUT VERIFIED"
+    : kind === "parallel" ? phase === "active" ? `PARALLEL SWARM · ${Math.max(2, parallelBranchesReady.length)} BRANCHES ACTIVE` : `PARALLEL FAN-OUT · ${Math.max(2, parallelBranchesReady.length)} BRANCHES READY`
+    : activeJoin ? "MIXED · JOIN NOW" : swarmNow ? "MIXED · SWARM NOW, JOIN NEXT" : phase === "active" ? "MIXED · RELAY NOW, SWARM NEXT" : "MIXED · FAN-OUT VERIFIED, IDLE";
+  const reason = phase === "blocked" ? "Dependency handoff is paused by a block" : blocked.length > 0 ? "Active work continues; a separate handoff is paused" : phase === "complete" ? "Verified dependency component complete"
+    : kind === "relay" ? "Sequential by dependency" : kind === "converging" ? "Dependencies converge, but no fan-out is verified"
+    : kind === "parallel" ? `Fan-out verified from ${topologyTaskName(forks[0], roles)}`
+    : activeJoin ? "Verified branches converge at the current dependency join" : swarmNow ? "Verified branches converge at a dependency join" : "Verified fan-out follows the current relay";
+  const roster = new Set(roles.map((role) => normalizeName(role.profileName)));
+  const external = new Map<string, TeamExternalExecutor>();
+  for (const worker of activeWorkers.filter((worker) => component.has(worker.task_id))) {
+    const name = worker.profile ?? worker.task_assignee;
+    if (name && !roster.has(normalizeName(name))) external.set(worker.task_id, { name, taskId: worker.task_id, taskTitle: worker.task_title });
+  }
+  for (const task of componentTasks.filter((task) => task.status === "running" && task.assignee && !roster.has(normalizeName(task.assignee)))) {
+    external.set(task.id, { name: task.assignee!, taskId: task.id, taskTitle: task.title });
+  }
+  const unfinished = componentTasks.filter((task) => task.status !== "done");
+  const path = unfinished[0]?.workspace_path?.trim() ?? "";
+  const verifiedSharedWorkspace = unfinished.length > 0 && path && unfinished.every((task) => task.workspace_kind === "dir" && task.workspace_path?.trim() === path) ? { kind: "dir" as const, path } : null;
+  return topologyResult({
+    kind, phase, label, reason, currentLine: activeTask ? `Current: ${topologyTaskName(activeTask, roles)}` : null,
+    nextLine: blockedName ? "Next handoff paused until the block is resolved" : nextTasks.length > 0 && activeTask ? `Next: ${nextTasks.map((task) => topologyTaskName(task, roles)).join(", ")} after ${topologyTaskName(activeTask, roles)}` : null,
+    waitingLine: blocked.length === 0 && waiting.length > 0 ? `${waiting.length} stage${waiting.length === 1 ? "" : "s"} waiting — not blocked` : null,
+    activeTaskIds, waitingTaskIds: waiting.map((task) => task.id), blockedTaskIds: blocked.map((task) => task.id), nextTaskIds,
+    externalExecutors: [...external.values()], verifiedSharedWorkspace, evidenceComplete: true,
+  });
 }
 
 export function buildTeamOverview(
@@ -598,7 +802,11 @@ export function buildTeamLatestWork(
     .slice(0, limit);
 }
 
-export function buildTeamOperationalCues(team: TeamMemberOverview[]): TeamOperationalCues {
+export function buildTeamOperationalCues(
+  team: TeamMemberOverview[],
+  activeWorkers: KanbanActiveWorkerSummary[] = [],
+  roles: TeamRoleDefinition[] = DEFAULT_TEAM_ROLES,
+): TeamOperationalCues {
   const tasks = team.flatMap((member) => member.tasks);
   const readyToDispatch = tasks.filter((task) => task.status === "ready" && Boolean(task.assignee)).length;
   const needsReview = tasks.filter(
@@ -606,13 +814,16 @@ export function buildTeamOperationalCues(team: TeamMemberOverview[]): TeamOperat
   ).length;
   const hasLatestSummaries = tasks.filter((task) => Boolean(task.latest_summary?.trim())).length;
   const blocked = tasks.filter((task) => task.status === "blocked").length;
-  const liveWorkers = team.reduce((sum, member) => sum + member.activeWorkers.length, 0);
+  const roster = new Set(roles.map((role) => normalizeName(role.profileName)));
+  const externalLiveWorkers = activeWorkers.filter((worker) => !roster.has(normalizeName(worker.profile ?? worker.task_assignee))).length;
+  const liveWorkers = team.reduce((sum, member) => sum + member.activeWorkers.length, 0) + externalLiveWorkers;
 
   let cue = "No dispatchable or review-ready team work on this board.";
   if (blocked > 0) cue = `${blocked} task${blocked === 1 ? "" : "s"} blocked before more dispatch.`;
   else if (needsReview > 0) cue = `${needsReview} task${needsReview === 1 ? "" : "s"} waiting on review/readiness.`;
   else if (readyToDispatch > 0) cue = `${readyToDispatch} assigned ready task${readyToDispatch === 1 ? "" : "s"} can be dispatched safely.`;
+  else if (externalLiveWorkers > 0) cue = `${externalLiveWorkers} external live worker${externalLiveWorkers === 1 ? "" : "s"} active now.`;
   else if (liveWorkers > 0) cue = `${liveWorkers} live worker${liveWorkers === 1 ? "" : "s"} active now.`;
 
-  return { readyToDispatch, needsReview, hasLatestSummaries, blocked, liveWorkers, cue };
+  return { readyToDispatch, needsReview, hasLatestSummaries, blocked, liveWorkers, externalLiveWorkers, cue };
 }

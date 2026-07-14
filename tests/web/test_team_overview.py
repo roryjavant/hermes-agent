@@ -388,3 +388,149 @@ def test_team_page_load_error_handler_is_stable_to_avoid_fetch_loop():
     assert "const handleLoadError = useCallback(" in source
     assert "useTeamDashboardData({ onLoadError: handleLoadError })" in source
     assert "onLoadError: (error)" not in source
+
+
+def test_team_topology_classifies_graph_shape_and_truthful_copy():
+    script = textwrap.dedent(
+        """
+        import { buildTeamTopology, chooseTeamRoles } from './web/src/lib/team.ts';
+        const task = (id, status, assignee = 'jrbuilder', extra = {}) => ({ id, title: id, status, assignee, ...extra });
+        const board = (tasks, links) => ({ columns: [{ name: 'work', tasks }], ...(links === undefined ? {} : { links }) });
+        const roles = chooseTeamRoles('juror-research');
+        const chain = buildTeamTopology(board([task('Foundation', 'done'), task('Builder', 'running'), task('Proof', 'todo'), task('Synth', 'todo')], [{parent_id:'Foundation',child_id:'Builder'},{parent_id:'Builder',child_id:'Proof'},{parent_id:'Proof',child_id:'Synth'}]), [], roles);
+        const parallel = buildTeamTopology(board([task('Foundation', 'done'), task('A', 'running'), task('B', 'running')], [{parent_id:'Foundation',child_id:'A'},{parent_id:'Foundation',child_id:'B'}]), [], roles);
+        const mixed = buildTeamTopology(board([task('Foundation', 'running'), task('A', 'todo'), task('B', 'todo')], [{parent_id:'Foundation',child_id:'A'},{parent_id:'Foundation',child_id:'B'}]), [], roles);
+        const blocked = buildTeamTopology(board([task('Foundation', 'done'), task('Builder', 'blocked'), task('Proof', 'todo')], [{parent_id:'Foundation',child_id:'Builder'},{parent_id:'Builder',child_id:'Proof'}]), [], roles);
+        const activeWithSeparateBlock = buildTeamTopology(board([task('Foundation', 'done'), task('Builder', 'running'), task('This title must not appear in the topology badge because it is intentionally much longer than a concise status', 'blocked')], [{parent_id:'Foundation',child_id:'Builder'},{parent_id:'Foundation',child_id:'This title must not appear in the topology badge because it is intentionally much longer than a concise status'}]), [], roles);
+        const done = buildTeamTopology(board([task('Foundation', 'done'), task('Builder', 'done')], [{parent_id:'Foundation',child_id:'Builder'}]), [], roles);
+        const missing = buildTeamTopology(board([task('A', 'running')]), [], roles);
+        const external = buildTeamTopology(board([task('Foundation', 'running', 'rorycodex-cli', {workspace_kind:'dir',workspace_path:'/safe/shared'}), task('Builder', 'todo', 'jrbuilder', {workspace_kind:'dir',workspace_path:'/safe/shared'})], [{parent_id:'Foundation',child_id:'Builder'}]), [{run_id:1,task_id:'Foundation',task_title:'Foundation',task_status:'running',task_assignee:'rorycodex-cli',profile:'rorycodex-cli',worker_pid:1,started_at:1,last_heartbeat_at:2}], roles);
+        const selected = buildTeamTopology(board([task('Selected', 'running'), task('Foreign', 'ready')], [{parent_id:'Selected',child_id:'Foreign'}]), [], roles);
+        const orphanEdge = buildTeamTopology(board([task('A', 'running')], [{parent_id:'A',child_id:'Missing'}]), [], roles);
+        const cycle = buildTeamTopology(board([task('A', 'running'), task('B', 'ready')], [{parent_id:'A',child_id:'B'},{parent_id:'B',child_id:'A'}]), [], roles);
+        const unrelatedCurrent = buildTeamTopology(board([task('A', 'running'), task('B', 'ready'), task('C', 'ready'), task('D', 'todo')], [{parent_id:'A',child_id:'B'},{parent_id:'C',child_id:'D'}]), [], roles);
+        const missingWorkspace = buildTeamTopology(board([task('A', 'running'), task('B', 'todo')], [{parent_id:'A',child_id:'B'}]), [], roles);
+        const mixedWorkspace = buildTeamTopology(board([task('A', 'running', 'jrbuilder', {workspace_kind:'dir',workspace_path:'/safe/one'}), task('B', 'todo', 'jrbuilder', {workspace_kind:'dir',workspace_path:'/safe/two'})], [{parent_id:'A',child_id:'B'}]), [], roles);
+        const worktreeWorkspace = buildTeamTopology(board([task('A', 'running', 'jrbuilder', {workspace_kind:'worktree',workspace_path:'/safe/shared'}), task('B', 'todo', 'jrbuilder', {workspace_kind:'worktree',workspace_path:'/safe/shared'})], [{parent_id:'A',child_id:'B'}]), [], roles);
+        console.log(JSON.stringify({chain,parallel,mixed,blocked,activeWithSeparateBlock,done,missing,external,selected,orphanEdge,cycle,unrelatedCurrent,missingWorkspace,mixedWorkspace,worktreeWorkspace}));
+        """
+    )
+    result = run_node_team_script(script)
+
+    assert result["chain"]["label"] == "RELAY · 1 ACTIVE AT A TIME"
+    assert result["chain"]["nextLine"] == "Next: Builder after Builder"
+    assert result["chain"]["waitingLine"] == "2 stages waiting — not blocked"
+    assert result["parallel"]["label"] == "PARALLEL SWARM · 2 BRANCHES ACTIVE"
+    assert result["mixed"]["label"] == "MIXED · RELAY NOW, SWARM NEXT"
+    assert result["blocked"]["phase"] == "blocked"
+    assert result["blocked"]["label"] == "RELAY · BLOCKED"
+    assert result["blocked"]["waitingLine"] is None
+    assert result["activeWithSeparateBlock"]["phase"] == "active"
+    assert result["activeWithSeparateBlock"]["label"] == "MIXED · RELAY NOW, SWARM NEXT"
+    assert result["activeWithSeparateBlock"]["reason"] == "Active work continues; a separate handoff is paused"
+    assert result["activeWithSeparateBlock"]["nextLine"] == "Next handoff paused until the block is resolved"
+    assert result["activeWithSeparateBlock"]["blockedTaskIds"] == ["This title must not appear in the topology badge because it is intentionally much longer than a concise status"]
+    assert "This title must not appear" not in result["activeWithSeparateBlock"]["label"]
+    assert result["done"]["label"] == "RELAY COMPLETE · 2 STAGES"
+    assert result["missing"]["label"] == "TOPOLOGY UNKNOWN"
+    assert result["external"]["externalExecutors"][0]["name"] == "rorycodex-cli"
+    assert result["external"]["nextLine"] == "Next: Builder after Foundation"
+    assert result["external"]["verifiedSharedWorkspace"]["kind"] == "dir"
+    assert result["selected"]["activeTaskIds"] == ["Selected"]
+    for invalidGraph in ("orphanEdge", "cycle", "unrelatedCurrent"):
+        assert result[invalidGraph]["kind"] == "unknown"
+        assert result[invalidGraph]["evidenceComplete"] is False
+    assert result["orphanEdge"]["reason"] == "Dependency data is invalid"
+    assert result["cycle"]["reason"] == "Dependency data is invalid"
+    assert result["unrelatedCurrent"]["reason"] == "Multiple independent work graphs"
+    for incompleteWorkspace in ("missingWorkspace", "mixedWorkspace", "worktreeWorkspace"):
+        assert result[incompleteWorkspace]["verifiedSharedWorkspace"] is None
+
+
+def test_team_topology_is_shared_by_both_surfaces_with_visible_accessible_copy():
+    hook_source = (REPO_ROOT / "web" / "src" / "hooks" / "useTeamDashboardData.ts").read_text()
+    team_source = (REPO_ROOT / "web" / "src" / "pages" / "TeamPage.tsx").read_text()
+    present_source = (REPO_ROOT / "web" / "src" / "pages" / "TeamPresentPage.tsx").read_text()
+
+    assert "buildTeamTopology(board, activeWorkers, teamRoles)" in hook_source
+    for source in (team_source, present_source):
+        assert "Execution topology" in source
+        assert "aria-live=\"polite\"" in source
+        assert 'className="sr-only" aria-live="polite">{topology.announcement}' in source
+        assert source.count("topology.announcement") == 1
+        assert "External executor" in source
+        assert "topology.label" in source
+        assert 'text-muted-foreground">{topology.reason}</div>' in source
+
+
+def test_team_topology_distinguishes_fan_in_current_join_and_ready_only_fan_out():
+    script = textwrap.dedent(
+        """
+        import { buildTeamTopology, chooseTeamRoles } from './web/src/lib/team.ts';
+        const task = (id, status, assignee = 'jrbuilder') => ({ id, title: id, status, assignee });
+        const board = (tasks, links) => ({ columns: [{ name: 'work', tasks }], links });
+        const roles = chooseTeamRoles('juror-research');
+        const fanIn = buildTeamTopology(board(
+          [task('A', 'running'), task('B', 'ready'), task('Join', 'todo')],
+          [{ parent_id: 'A', child_id: 'Join' }, { parent_id: 'B', child_id: 'Join' }],
+        ), [], roles);
+        const currentJoin = buildTeamTopology(board(
+          [task('Fork', 'done'), task('A', 'done'), task('B', 'done'), task('Join', 'running'), task('After', 'todo')],
+          [{ parent_id: 'Fork', child_id: 'A' }, { parent_id: 'Fork', child_id: 'B' }, { parent_id: 'A', child_id: 'Join' }, { parent_id: 'B', child_id: 'Join' }, { parent_id: 'Join', child_id: 'After' }],
+        ), [], roles);
+        const readyFanOut = buildTeamTopology(board(
+          [task('Fork', 'done'), task('A', 'ready'), task('B', 'ready')],
+          [{ parent_id: 'Fork', child_id: 'A' }, { parent_id: 'Fork', child_id: 'B' }],
+        ), [], roles);
+        const readyChain = buildTeamTopology(board(
+          [task('Foundation', 'done'), task('Builder', 'ready')],
+          [{ parent_id: 'Foundation', child_id: 'Builder' }],
+        ), [], roles);
+        console.log(JSON.stringify({ fanIn, currentJoin, readyFanOut, readyChain }));
+        """
+    )
+
+    result = run_node_team_script(script)
+
+    assert result["fanIn"]["kind"] == "converging"
+    assert result["fanIn"]["label"] == "CONVERGING GATES · NO FAN-OUT VERIFIED"
+    assert "fan-out" in result["fanIn"]["reason"]
+    assert result["currentJoin"]["label"] == "MIXED · JOIN NOW"
+    assert result["currentJoin"]["reason"] == "Verified branches converge at the current dependency join"
+    assert result["readyFanOut"]["phase"] == "ready"
+    assert result["readyFanOut"]["label"] == "PARALLEL FAN-OUT · 2 BRANCHES READY"
+    assert result["readyChain"]["phase"] == "ready"
+    assert result["readyChain"]["label"] == "RELAY · READY TO DISPATCH"
+
+
+def test_external_live_worker_updates_operational_cues_without_lighting_a_roster_lane():
+    script = textwrap.dedent(
+        """
+        import { buildTeamOperationalCues, buildTeamOverview, chooseTeamRoles } from './web/src/lib/team.ts';
+        const workers = [{
+          run_id: 1, task_id: 'external', task_title: 'External current work', task_status: 'running',
+          task_assignee: 'rorycodex-cli', profile: 'rorycodex-cli', worker_pid: 10, started_at: 1, last_heartbeat_at: 2,
+        }];
+        const team = buildTeamOverview([], {
+          columns: [{ name: 'running', tasks: [{ id: 'external', title: 'External current work', assignee: 'rorycodex-cli', status: 'running' }] }],
+        }, workers, chooseTeamRoles('juror-research'));
+        const cues = buildTeamOperationalCues(team, workers, chooseTeamRoles('juror-research'));
+        console.log(JSON.stringify({
+          cues,
+          rosterActiveCounts: team.map((member) => member.activeWorkers.length),
+          rosterAssignments: team.map((member) => member.assignedTotal),
+        }));
+        """
+    )
+
+    result = run_node_team_script(script)
+
+    assert result["cues"]["liveWorkers"] == 1
+    assert result["cues"]["externalLiveWorkers"] == 1
+    assert result["cues"]["cue"] == "1 external live worker active now."
+    assert result["rosterActiveCounts"] == [0, 0, 0, 0, 0]
+    assert result["rosterAssignments"] == [0, 0, 0, 0, 0]
+
+    team_page_source = (REPO_ROOT / "web" / "src" / "pages" / "TeamPage.tsx").read_text()
+    assert "operationalCues.externalLiveWorkers > 0 ? \"External worker is active now\"" in team_page_source
+    assert "no roster lane is marked active for that worker" in team_page_source

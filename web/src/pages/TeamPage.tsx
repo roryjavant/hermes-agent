@@ -287,10 +287,12 @@ function buildRecommendedNextStep({
   if (operationalCues.liveWorkers > 0 || totals.staleHeartbeat > 0) {
     return {
       tone: totals.staleHeartbeat > 0 ? "warning" : "success",
-      title: totals.staleHeartbeat > 0 ? "Check stale worker heartbeats" : "Workers are active now",
+      title: totals.staleHeartbeat > 0 ? "Check stale worker heartbeats" : operationalCues.externalLiveWorkers > 0 ? "External worker is active now" : "Workers are active now",
       body: totals.staleHeartbeat > 0
         ? `${totals.staleHeartbeat} lane${totals.staleHeartbeat === 1 ? "" : "s"} have stale heartbeats. Use the activity feed and agent cards to decide whether to wait or intervene.`
-        : `${operationalCues.liveWorkers} worker${operationalCues.liveWorkers === 1 ? "" : "s"} are checked in. Watch the activity feed for summaries and blockers.`,
+        : operationalCues.externalLiveWorkers > 0
+          ? `${operationalCues.externalLiveWorkers} current worker${operationalCues.externalLiveWorkers === 1 ? " is" : "s are"} outside the Hermes roster. Watch the topology and activity feed; no roster lane is marked active for that worker.`
+          : `${operationalCues.liveWorkers} worker${operationalCues.liveWorkers === 1 ? "" : "s"} are checked in. Watch the activity feed for summaries and blockers.`,
       label: "Watch activity",
       to: "#team-activity",
     };
@@ -351,6 +353,7 @@ export default function TeamPage() {
     selectedBoardMeta,
     setLiveError,
     team,
+    topology,
     totals,
   } = useTeamDashboardData({ onLoadError: handleLoadError });
   const [dispatching, setDispatching] = useState(false);
@@ -683,6 +686,28 @@ export default function TeamPage() {
                 <Badge tone={operationalCues.needsReview > 0 ? "warning" : operationalCues.readyToDispatch > 0 ? "success" : "outline"}>{operationalCues.cue}</Badge>
               </div>
             </div>
+
+            <div className="mt-3 rounded-lg border border-border/70 bg-background/50 p-3" role="region" aria-labelledby="team-topology-heading">
+              <div className="flex flex-wrap items-center gap-2">
+                <div id="team-topology-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution topology</div>
+                <Badge tone={topology.phase === "blocked" ? "destructive" : topology.kind === "unknown" ? "warning" : topology.phase === "active" || topology.phase === "ready" ? "success" : "outline"}>{topology.label}</Badge>
+                {topology.verifiedSharedWorkspace && <Badge tone="secondary">Shared directory verified</Badge>}
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">{topology.reason}</div>
+              <div className="sr-only" aria-live="polite">{topology.announcement}</div>
+              {(topology.currentLine || topology.nextLine || topology.waitingLine) && (
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  {[topology.currentLine, topology.nextLine, topology.waitingLine].filter((line): line is string => Boolean(line)).map((line) => <span key={line}>{line}</span>)}
+                </div>
+              )}
+            </div>
+
+            {topology.externalExecutors.length > 0 && (
+              <div className="mt-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+                {topology.externalExecutors.slice(0, 2).map((executor) => <div key={executor.taskId}><span className="font-medium text-foreground">External executor · {executor.name}</span> · {executor.taskTitle}</div>)}
+                {topology.externalExecutors.length > 2 && <div>+{topology.externalExecutors.length - 2} additional external executors</div>}
+              </div>
+            )}
 
             <div className="mt-4 overflow-x-auto pb-1">
               <div className="grid min-w-[62rem] grid-cols-5 gap-3">

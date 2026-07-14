@@ -73,6 +73,7 @@ export default function TeamPresentPage() {
     selectedBoard,
     selectedBoardLabel,
     team,
+    topology,
     totals,
   } = useTeamDashboardData();
 
@@ -183,6 +184,17 @@ export default function TeamPresentPage() {
               <div className="flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-muted-foreground"><GitBranch className="h-4 w-4" /> Pipeline on screen</div>
               <Badge tone="outline">{team.length} lanes · {totals.running} running · {totals.blocked} blocked</Badge>
             </div>
+            <div className="mt-3 rounded-2xl border border-border bg-background/70 p-3" role="region" aria-labelledby="team-present-topology-heading">
+              <div className="flex flex-wrap items-center gap-2">
+                <div id="team-present-topology-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution topology</div>
+                <Badge tone={topology.phase === "blocked" ? "destructive" : topology.kind === "unknown" ? "warning" : topology.phase === "active" || topology.phase === "ready" ? "success" : "outline"}>{topology.label}</Badge>
+                {topology.verifiedSharedWorkspace && <Badge tone="secondary">Shared directory verified</Badge>}
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">{topology.reason}</div>
+              <div className="sr-only" aria-live="polite">{topology.announcement}</div>
+              {(topology.currentLine || topology.nextLine || topology.waitingLine) && <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">{[topology.currentLine, topology.nextLine, topology.waitingLine].filter((line): line is string => Boolean(line)).map((line) => <span key={line}>{line}</span>)}</div>}
+            </div>
+            {topology.externalExecutors.length > 0 && <div className="mt-3 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">{topology.externalExecutors.slice(0, 2).map((executor) => <div key={executor.taskId}><span className="font-medium text-foreground">External executor · {executor.name}</span> · {executor.taskTitle}</div>)}{topology.externalExecutors.length > 2 && <div>+{topology.externalExecutors.length - 2} additional external executors</div>}</div>}
             <div className="mt-5 grid gap-3 md:grid-cols-5">
               {pipeline.map((stage, index) => {
                 const readiness = readinessByRole.get(stage.key) ?? computeMemberReadiness(team[index], now);

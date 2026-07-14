@@ -2228,7 +2228,14 @@ export interface KanbanTaskSummary {
   latest_summary?: string | null;
   skills?: string[] | null;
   current_run_id?: number | null;
+  workspace_kind?: "scratch" | "dir" | "worktree" | string;
+  workspace_path?: string | null;
   link_counts?: { parents?: number; children?: number };
+}
+
+export interface KanbanTaskLink {
+  parent_id: string;
+  child_id: string;
 }
 
 export interface KanbanTaskComment {
@@ -2266,7 +2273,7 @@ export interface KanbanTaskDetailResponse {
   comments: KanbanTaskComment[];
   events: KanbanTaskEvent[];
   attachments: Array<Record<string, unknown>>;
-  links: Array<Record<string, unknown>>;
+  links: { parents: string[]; children: string[] };
   runs: KanbanTaskRun[];
 }
 
@@ -2296,6 +2303,7 @@ export interface KanbanBoardResponse {
   columns: KanbanBoardColumn[];
   tenants: string[];
   assignees: string[];
+  links?: KanbanTaskLink[];
   latest_event_id: number;
   now: number;
 }

@@ -406,15 +406,21 @@ def get_board(
             workflow_template_id=workflow_template_id,
             current_step_key=current_step_key,
         )
-        # Pre-fetch link counts per task (cheap: one query).
+        # Pre-fetch dependency edges and their per-task counts in one query.
+        # Keep only edges whose endpoints are included in this response, so a
+        # tenant/workflow/archive filter cannot leave clients with orphans.
+        task_ids = {task.id for task in tasks}
+        task_links = [
+            {"parent_id": row["parent_id"], "child_id": row["child_id"]}
+            for row in conn.execute("SELECT parent_id, child_id FROM task_links").fetchall()
+            if row["parent_id"] in task_ids and row["child_id"] in task_ids
+        ]
         link_counts: dict[str, dict[str, int]] = {}
-        for row in conn.execute(
-            "SELECT parent_id, child_id FROM task_links"
-        ).fetchall():
-            link_counts.setdefault(row["parent_id"], {"parents": 0, "children": 0})[
+        for link in task_links:
+            link_counts.setdefault(link["parent_id"], {"parents": 0, "children": 0})[
                 "children"
             ] += 1
-            link_counts.setdefault(row["child_id"], {"parents": 0, "children": 0})[
+            link_counts.setdefault(link["child_id"], {"parents": 0, "children": 0})[
                 "parents"
             ] += 1
 
@@ -503,6 +509,7 @@ def get_board(
             ],
             "tenants": tenants,
             "assignees": assignees,
+            "links": task_links,
             "latest_event_id": int(latest_event_id),
             "now": int(time.time()),
         }

@@ -153,6 +153,28 @@ def test_tenant_filter(client):
     assert total == 1
 
 
+def test_board_links_are_filtered_with_board_tasks_and_keep_workspace_fields(client):
+    parent = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "parent", "tenant": "t1", "workspace_kind": "dir", "workspace_path": "/safe/shared"},
+    ).json()["task"]
+    child = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "child", "tenant": "t1", "parents": [parent["id"]], "workspace_kind": "dir", "workspace_path": "/safe/shared"},
+    ).json()["task"]
+    foreign = client.post("/api/plugins/kanban/tasks", json={"title": "foreign", "tenant": "t2"}).json()["task"]
+
+    board = client.get("/api/plugins/kanban/board").json()
+    assert board["links"] == [{"parent_id": parent["id"], "child_id": child["id"]}]
+    tasks = {task["id"]: task for column in board["columns"] for task in column["tasks"]}
+    assert tasks[parent["id"]]["workspace_kind"] == "dir"
+    assert tasks[parent["id"]]["workspace_path"] == "/safe/shared"
+
+    filtered = client.get("/api/plugins/kanban/board?tenant=t1").json()
+    assert filtered["links"] == [{"parent_id": parent["id"], "child_id": child["id"]}]
+    assert foreign["id"] not in {task["id"] for column in filtered["columns"] for task in column["tasks"]}
+
+
 def test_board_query_param_default_overrides_current_board_pointer(client):
     """Dashboard ``?board=default`` must win even if the CLI's current-board
     pointer targets a non-default board.

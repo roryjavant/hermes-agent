@@ -14,6 +14,7 @@ import {
   buildTeamLatestWork,
   buildTeamOperationalCues,
   buildTeamOverview,
+  buildTeamTopology,
   chooseTeamBoardSlug,
   chooseTeamRoles,
   computeMemberReadiness,
@@ -206,9 +207,13 @@ export function useTeamDashboardData(options: TeamDashboardDataOptions = {}) {
     [now, team],
   );
   const pipeline = useMemo(() => buildPipelineTimeline(team, now), [now, team]);
+  const topology = useMemo(() => buildTeamTopology(board, activeWorkers, teamRoles), [activeWorkers, board, teamRoles]);
   const activity = useMemo(() => buildTeamActivity(events, board, activeWorkers, 20), [activeWorkers, board, events]);
   const latestWork = useMemo(() => buildTeamLatestWork(team, now, 6), [now, team]);
-  const operationalCues = useMemo(() => buildTeamOperationalCues(team), [team]);
+  const operationalCues = useMemo(
+    () => buildTeamOperationalCues(team, activeWorkers, teamRoles),
+    [activeWorkers, team, teamRoles],
+  );
   const selectedBoardMeta = useMemo(
     () => boards.find((candidate) => candidate.slug === selectedBoard) ?? null,
     [boards, selectedBoard],
@@ -263,6 +268,7 @@ export function useTeamDashboardData(options: TeamDashboardDataOptions = {}) {
     team,
     readinessByRole,
     pipeline,
+    topology,
     activity,
     latestWork,
     operationalCues,
