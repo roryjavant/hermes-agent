@@ -106,6 +106,17 @@ const baseProps = {
 }
 
 describe('StatusRule session count click target', () => {
+  it('renders speed and reasoning effort in the pinned model label', () => {
+    const element = StatusRule({
+      ...baseProps,
+      model: 'openai/gpt-5.5',
+      modelFast: true,
+      modelReasoningEffort: 'medium'
+    })
+
+    expect(textContent(element)).toContain('gpt-5.5 fast, medium')
+  })
+
   it('makes the live session count itself clickable', () => {
     const openSwitcher = vi.fn()
     const element = StatusRule({

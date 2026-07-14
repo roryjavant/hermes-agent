@@ -156,6 +156,8 @@ type OperationsItem = {
   workflow?: MissionControlTeamWorkflowStep[];
   workflowSummary?: string;
   isTeamLead?: boolean;
+  remoteHostName?: string;
+  remoteHostLabel?: string;
 };
 
 type PerformanceRisk = {
@@ -188,6 +190,13 @@ const MISSION_CONTROL_FINAL_OUTPUT_SEEN_KEY = "missionControl.finalOutputSeen";
 const ALL_TEAMS_FILTER = "all";
 const TEAM_FEED_RECENT_SESSION_SECONDS = 60 * 60;
 const MISSION_QUEUE_ATTENTION_STATUSES = new Set(["blocked", "review", "running"]);
+const OTHER_MACBOOK_HOST_LABEL = "Other MacBook";
+const OTHER_MACBOOK_HOST_NAME = "Rorys-MacBook-Pro.local";
+const OTHER_MACBOOK_HOST_MARKERS = [
+  "rorys-macbook-pro.local",
+  "192.168.1.121",
+  "othermac-worker",
+];
 
 type AudioContextConstructor = new () => AudioContext;
 let missionControlAudioContext: AudioContext | null = null;
@@ -1094,6 +1103,11 @@ function ActivityLightPopover({ item, rowLabel }: { item: OperationsItem; rowLab
         <span>·</span>
         <span>{readinessLabel(item.tone)}</span>
       </span>
+      {item.remoteHostLabel && item.remoteHostName && (
+        <span className="mt-2 inline-flex w-fit items-center border border-violet-300/45 bg-violet-300/[0.06] px-2 py-0.5 font-mono-ui text-[0.58rem] uppercase tracking-[0.12em] text-violet-200">
+          {item.remoteHostLabel} · {item.remoteHostName}
+        </span>
+      )}
       <span className="mt-2 block text-xs leading-relaxed text-muted-foreground">{item.detail}</span>
       {item.currentTask && (
         <span className="mt-2 block border-t border-current/10 pt-2 text-xs leading-relaxed text-foreground/90">
@@ -1520,6 +1534,18 @@ function shouldPulseLight(item: OperationsItem): boolean {
   return item.tone === "working" || item.tone === "review" || item.currentTask?.status === "ready";
 }
 
+function otherMacBookHostName(...values: Array<string | number | null | undefined>): string | undefined {
+  const marker = values
+    .filter((value) => value !== null && value !== undefined)
+    .map((value) => String(value).toLowerCase())
+    .join(" ");
+  if (!marker) return undefined;
+  if (marker.includes("192.168.1.121")) return "192.168.1.121";
+  return OTHER_MACBOOK_HOST_MARKERS.some((candidate) => marker.includes(candidate))
+    ? OTHER_MACBOOK_HOST_NAME
+    : undefined;
+}
+
 function outputPlanForTask(task: MissionTask): string {
   const childCount = linkedChildCount(task);
   const downstream = childCount > 0
@@ -1620,6 +1646,18 @@ function agentToOperationsItem(
   const visibleActive = Boolean(liveActivity) || agent.active;
   const visiblePid = liveActivity?.pid ?? agent.pid;
   const visibleSource = liveActivity?.source ?? agent.source;
+  const remoteHostName = otherMacBookHostName(
+    agent.profile,
+    agent.source,
+    agent.detail,
+    agent.cwd,
+    liveActivity?.profile,
+    liveActivity?.source,
+    liveActivity?.detail,
+    liveActivity?.cwd,
+    liveActivity?.session_id,
+    currentTask?.assignee,
+  );
   return {
     id: `team-profile:${team.team_id}:${agent.profile}`,
     kind: "Team profile",
@@ -1645,6 +1683,8 @@ function agentToOperationsItem(
     workflow: agent.is_orchestrator ? team.workflow : undefined,
     workflowSummary: agent.is_orchestrator ? team.workflow_summary : undefined,
     isTeamLead: Boolean(agent.is_orchestrator),
+    remoteHostName,
+    remoteHostLabel: remoteHostName ? OTHER_MACBOOK_HOST_LABEL : undefined,
     performanceRisk: performanceRiskFromTelemetry(liveActivity ?? agent),
   } as const;
 }
@@ -1706,17 +1746,29 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
   );
   const runtimeItems: OperationsItem[] = (activity?.activities ?? [])
     .filter((record) => record.source !== "dashboard")
-    .map((record) => ({
-      id: `activity:${record.activity_id}`,
-      kind: profileTeamProfiles.has(record.profile) ? "Profile agent" : record.source === "claude" ? "Claude Code terminal" : runtimeSourceLabel(record.source) === "Local Hermes CLI" || runtimeSourceLabel(record.source) === "Local Hermes TUI" ? "Hermes terminal" : runtimeSourceLabel(record.source),
-      title: record.detail || record.session_id || `${record.source} activity`,
-      detail: [record.profile, record.cwd].filter(Boolean).join(" · ") || "Local Hermes runtime heartbeat",
-      meta: record.pid ? `pid ${record.pid} · ${formatTime(record.last_seen)}` : formatTime(record.last_seen),
-      tone: record.status === "ready" ? "ready" : record.status === "working" ? "working" : "review",
-      href: record.source === "kanban" ? "/team" : "/sessions",
-      icon: record.source === "kanban" || record.source === "delegate" ? Users : record.source === "claude" ? Terminal : Activity,
-      performanceRisk: performanceRiskFromTelemetry(record),
-    }));
+    .map((record) => {
+      const remoteHostName = otherMacBookHostName(
+        record.profile,
+        record.source,
+        record.detail,
+        record.cwd,
+        record.session_id,
+        record.activity_id,
+      );
+      return {
+        id: `activity:${record.activity_id}`,
+        kind: profileTeamProfiles.has(record.profile) ? "Profile agent" : record.source === "claude" ? "Claude Code terminal" : runtimeSourceLabel(record.source) === "Local Hermes CLI" || runtimeSourceLabel(record.source) === "Local Hermes TUI" ? "Hermes terminal" : runtimeSourceLabel(record.source),
+        title: record.detail || record.session_id || `${record.source} activity`,
+        detail: [record.profile, record.cwd].filter(Boolean).join(" · ") || "Local Hermes runtime heartbeat",
+        meta: record.pid ? `pid ${record.pid} · ${formatTime(record.last_seen)}` : formatTime(record.last_seen),
+        tone: record.status === "ready" ? "ready" : record.status === "working" ? "working" : "review",
+        href: record.source === "kanban" ? "/team" : "/sessions",
+        icon: record.source === "kanban" || record.source === "delegate" ? Users : record.source === "claude" ? Terminal : Activity,
+        remoteHostName,
+        remoteHostLabel: remoteHostName ? OTHER_MACBOOK_HOST_LABEL : undefined,
+        performanceRisk: performanceRiskFromTelemetry(record),
+      };
+    });
 
   // PTY sessions are already projected into activity rows by the backend so
   // they can be deduped with runtime heartbeats and local process scans. Keep
@@ -1773,16 +1825,21 @@ function buildOperationsItems(data: LoadState): OperationsItem[] {
   const taskItems: OperationsItem[] = allTasks(data)
     .filter((task) => ["running", "ready", "review", "blocked"].includes(task.status))
     .slice(0, 10)
-    .map((task) => ({
-      id: `kanban:${task.id}`,
-      kind: "Kanban swarm",
-      title: task.title || task.id,
-      detail: task.latest_summary || task.body || `${task.column}${task.assignee ? ` · ${task.assignee}` : ""}`,
-      meta: task.assignee || task.status,
-      tone: task.status === "running" ? "working" : task.status === "ready" ? "ready" : "review",
-      href: "/team",
-      icon: task.status === "blocked" || task.status === "review" ? AlertTriangle : Users,
-    }));
+    .map((task) => {
+      const remoteHostName = otherMacBookHostName(task.assignee, task.title, task.body, task.latest_summary);
+      return {
+        id: `kanban:${task.id}`,
+        kind: "Kanban swarm",
+        title: task.title || task.id,
+        detail: task.latest_summary || task.body || `${task.column}${task.assignee ? ` · ${task.assignee}` : ""}`,
+        meta: task.assignee || task.status,
+        tone: task.status === "running" ? "working" : task.status === "ready" ? "ready" : "review",
+        href: "/team",
+        icon: task.status === "blocked" || task.status === "review" ? AlertTriangle : Users,
+        remoteHostName,
+        remoteHostLabel: remoteHostName ? OTHER_MACBOOK_HOST_LABEL : undefined,
+      };
+    });
 
   // Kanban tasks already have a dedicated Mission Queue below.  Keeping them
   // out of the signal board prevents task cards from masquerading as team or
@@ -2020,59 +2077,56 @@ function Timeline({
   items: TimelineItem[];
 }) {
   const metaBadgeClass = (tone: BadgeTone) => cn(
-    "shrink-0 border px-2 py-1 font-mondwest text-display text-[0.62rem] uppercase tracking-[0.14em]",
+    "mission-timeline-row__meta shrink-0 font-mono-ui text-[0.56rem] uppercase tracking-[0.14em]",
     tone === "destructive"
-      ? "border-[var(--mission-alert)]/32 bg-[var(--mission-alert)]/[0.045] text-[var(--mission-alert)]/80"
-      : "border-[var(--mission-accent)]/26 bg-[var(--mission-accent)]/[0.025] text-[var(--mission-accent)]/72",
+      ? "mission-timeline-row__meta--alert text-[var(--mission-alert)]/82"
+      : "text-[var(--mission-accent)]/72",
   );
-  const categoryBadgeClass = "shrink-0 border border-white/18 bg-transparent px-2 py-1 font-mondwest text-display text-[0.62rem] uppercase tracking-[0.14em] text-white/52";
 
   return (
-    <Card id="mission-team-signals" className="scroll-mt-24 overflow-hidden">
-      <CardHeader>
+    <Card id="mission-team-signals" className="mission-workload-panel mission-signal-panel h-full scroll-mt-24 overflow-hidden">
+      <CardHeader className="mission-workload-panel__header">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-[var(--mission-accent)]/70" />
-            <div>
-              <CardTitle className="text-base">Team signals</CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Active work, matching sessions, and automations for the selected team.
-              </p>
-            </div>
+            <Activity className="h-5 w-5 text-[var(--mission-accent)]/78" />
+            <CardTitle className="mission-workload-panel__title text-base">Team signals</CardTitle>
           </div>
-          <span className={categoryBadgeClass}>{items.length} signals</span>
+          <span className="mission-workload-count" aria-label={`${items.length} signals`}>
+            <strong>{items.length}</strong>
+            <span>signals</span>
+          </span>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="mission-workload-panel__body">
         {items.length === 0 ? (
           <div className="flex items-center gap-3 border border-[var(--mission-accent)]/18 bg-[var(--mission-accent)]/[0.025] p-4 text-sm text-muted-foreground">
             <CheckCircle2 className="h-5 w-5 shrink-0 text-[var(--mission-accent)]/75" />
             Quiet team. No active tasks, recent matching sessions, or automation signals are surfacing for this filter.
           </div>
         ) : (
-          <div className="relative">
-            <div className="absolute bottom-3 left-[1.05rem] top-3 w-px bg-[var(--mission-accent)]/20" />
-            <div className="space-y-3">
+          <div className="mission-timeline relative">
+            <div className="mission-timeline__spine" aria-hidden="true" />
+            <div>
               {items.map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link
                     key={item.id}
                     to={item.href}
-                    className="group relative flex gap-3 border border-transparent p-2 transition-colors hover:border-[var(--mission-accent)]/18 hover:bg-[var(--mission-accent)]/[0.025]"
+                    className="mission-timeline-row group relative flex gap-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--mission-accent)]/55"
                   >
-                    <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/18 bg-background-base text-white/50 group-hover:border-[var(--mission-accent)]/30 group-hover:text-[var(--mission-accent)]/75">
-                      <Icon className="h-4 w-4" />
+                    <span className="mission-timeline-row__node relative z-10 flex shrink-0 items-center justify-center rounded-full">
+                      <Icon className="h-3.5 w-3.5" />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-3">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className={categoryBadgeClass}>{item.category}</span>
-                          <span className="truncate text-sm font-medium text-foreground">{item.title}</span>
+                        <span className="flex min-w-0 items-baseline gap-2.5">
+                          <span className="mission-timeline-row__category shrink-0 font-mono-ui uppercase">{item.category}</span>
+                          <span className="truncate text-[0.78rem] font-medium text-foreground/95 transition-colors group-hover:text-white">{item.title}</span>
                         </span>
                         <span className={metaBadgeClass(item.tone)}>{item.meta}</span>
                       </span>
-                      <span className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.detail}</span>
+                      <span className="mission-timeline-row__detail mt-1 line-clamp-2 text-xs text-muted-foreground">{item.detail}</span>
                     </span>
                   </Link>
                 );
@@ -2446,24 +2500,25 @@ function MissionQueue({
 
   return (
     <>
-      <Card id="mission-queue" className="scroll-mt-24 overflow-hidden">
-      <CardHeader>
+      <Card id="mission-queue" className="mission-workload-panel mission-queue-panel h-full scroll-mt-24 overflow-hidden">
+      <CardHeader className="mission-workload-panel__header">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Gauge className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Mission queue</CardTitle>
+            <Gauge className="h-5 w-5 text-[var(--mission-accent)]/78" />
+            <CardTitle className="mission-workload-panel__title text-base">Mission queue</CardTitle>
           </div>
           <div className="flex items-center gap-2">
-            <div className="inline-flex border border-border bg-muted/10 p-0.5">
+            <div className="mission-queue-filter inline-flex" aria-label="Mission queue filter">
               {(["attention", "all"] as const).map((id) => (
                 <button
                   key={id}
                   type="button"
                   onClick={() => setFilter(id)}
                   className={cn(
-                    "px-2.5 py-1 text-xs capitalize transition-colors",
-                    filter === id ? "bg-midground text-background-base" : "text-muted-foreground hover:text-foreground",
+                    "mission-queue-filter__button px-2.5 py-1 text-xs capitalize transition-colors",
+                    filter === id ? "mission-queue-filter__button--active" : "text-muted-foreground hover:text-foreground",
                   )}
+                  aria-pressed={filter === id}
                 >
                   {id}
                 </button>
@@ -2473,7 +2528,7 @@ function MissionQueue({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="mission-workload-panel__body">
         {data.kanbanUnavailable ? (
           <EmptySignal
             icon={AlertTriangle}
@@ -2505,28 +2560,40 @@ function MissionQueue({
               return (
               <div
                 key={task.id}
-                className="group relative overflow-hidden border border-border bg-background-base/30 transition-all hover:-translate-y-0.5 hover:border-current/25 hover:bg-card/60"
+                className={cn(
+                  "mission-queue-task group relative overflow-hidden",
+                  task.status === "blocked"
+                    ? "mission-queue-task--alert"
+                    : task.status === "review"
+                      ? "mission-queue-task--review"
+                      : "mission-queue-task--active",
+                )}
               >
-                <div className="absolute inset-x-0 top-0 h-px bg-current/20" />
                 <button
                   type="button"
                   onClick={() => setSelectedTask(task)}
-                  className="block w-full p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className={cn(
+                    "mission-queue-task__body block w-full text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--mission-accent)]/60",
+                    quickAction && "mission-queue-task__body--actionable",
+                  )}
                   aria-label={`Open ${task.id} details`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{task.title || task.id}</p>
-                      <p className="mt-1 text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground">
+                  <div>
+                    <p className="mission-queue-task__title truncate text-sm font-medium text-foreground">{task.title || task.id}</p>
+                    <div className="mt-1.5 flex min-w-0 items-center gap-2">
+                      <p className="mission-queue-task__meta min-w-0 flex-1 truncate font-mono-ui text-[0.58rem] uppercase tracking-[0.12em] text-muted-foreground">
                         {task.boardName} · {task.column}{task.assignee ? ` · ${task.assignee}` : ""}
                       </p>
+                      <span className="mission-queue-task__status shrink-0 font-mono-ui text-[0.56rem] uppercase tracking-[0.15em]">
+                        <span aria-hidden="true" />
+                        {task.status}
+                      </span>
                     </div>
-                    <Badge tone={taskTone(task)}>{task.status}</Badge>
                   </div>
-                  <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                  <p className="mission-queue-task__summary mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                     {task.latest_summary || task.body || "No worker summary captured yet."}
                   </p>
-                  <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
+                  <div className="mission-queue-task__details mt-2 flex items-center gap-1.5 font-mono-ui text-[0.6rem] uppercase tracking-[0.1em] text-muted-foreground transition-colors group-hover:text-foreground">
                     Open details <ChevronRight className="h-3.5 w-3.5" />
                   </div>
                 </button>
@@ -2537,10 +2604,10 @@ function MissionQueue({
                     disabled={quickActionTaskId === task.id}
                     title={quickAction.title}
                     className={cn(
-                      "absolute bottom-3 right-3 z-10 inline-flex h-7 items-center gap-1.5 border px-2.5 font-mono-ui text-[0.6rem] uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-1 disabled:cursor-wait disabled:opacity-50",
+                      "mission-queue-task__action absolute bottom-3 right-3 z-10 inline-flex h-7 items-center gap-1.5 px-2.5 font-mono-ui text-[0.58rem] uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-1 disabled:cursor-wait disabled:opacity-50",
                       task.status === "review"
-                        ? "border-[var(--mission-ready)]/45 bg-[var(--mission-ready)]/[0.06] text-[var(--mission-ready)]/90 hover:border-[var(--mission-ready)]/70 hover:bg-[var(--mission-ready)]/[0.12] focus-visible:ring-[var(--mission-ready)]/60"
-                        : "border-[var(--mission-accent)]/45 bg-[var(--mission-accent)]/[0.05] text-[var(--mission-accent)]/90 hover:border-[var(--mission-accent)]/70 hover:bg-[var(--mission-accent)]/[0.1] focus-visible:ring-[var(--mission-accent)]/60",
+                        ? "mission-queue-task__action--review text-[var(--mission-ready)]/90 focus-visible:ring-[var(--mission-ready)]/60"
+                        : "text-[var(--mission-accent)]/90 focus-visible:ring-[var(--mission-accent)]/60",
                     )}
                   >
                     {quickActionTaskId === task.id
@@ -2925,11 +2992,14 @@ function ActiveOperationsBoard({
                                 ? (row as { orchestratorItem: OperationsItem | null }).orchestratorItem
                                 : null;
 
+                            // Standby nodes stay neutral/dim so color is reserved for live
+                            // signal: accent = actively working, ready = queued pulse,
+                            // alert = needs review. Keeps the board scannable at a glance.
                             const toneColors = {
-                              ready:    { border: "border-[var(--mission-ready)]/38", bg: "bg-[var(--mission-ready)]/[0.025]", text: "text-[var(--mission-ready)]/75", shadow: "shadow-none", wire: "text-[var(--mission-ready)]/48", ping: "bg-[var(--mission-ready)]" },
-                              working:  { border: "border-[var(--mission-accent)]/58", bg: "bg-[var(--mission-accent)]/[0.045]", text: "text-[var(--mission-accent)]/90", shadow: "shadow-none", wire: "text-[var(--mission-accent)]/70", ping: "bg-[var(--mission-accent)]" },
-                              starting: { border: "border-[var(--mission-accent)]/58", bg: "bg-[var(--mission-accent)]/[0.045]", text: "text-[var(--mission-accent)]/90", shadow: "shadow-none", wire: "text-[var(--mission-accent)]/70", ping: "bg-[var(--mission-accent)]" },
-                              review:   { border: "border-[var(--mission-alert)]/80", bg: "bg-[var(--mission-alert)]/[0.075]", text: "text-[var(--mission-alert)]", shadow: "shadow-[0_0_14px_rgba(var(--mission-alert-rgb),0.24)]", wire: "text-[var(--mission-alert)]/85", ping: "bg-[var(--mission-alert)]" },
+                              ready:    { border: "border-[rgba(var(--mission-ink-rgb),0.20)]", bg: "bg-[rgba(var(--mission-ink-rgb),0.02)]", text: "text-[rgba(var(--mission-ink-rgb),0.58)]", shadow: "shadow-none", wire: "text-[rgba(var(--mission-ink-rgb),0.34)]", ping: "border-[var(--mission-ready)]/70" },
+                              working:  { border: "border-[var(--mission-accent)]/62", bg: "bg-[var(--mission-accent)]/[0.05]", text: "text-[var(--mission-accent)]", shadow: "shadow-[0_0_16px_rgba(var(--mission-accent-rgb),0.16)]", wire: "text-[var(--mission-accent)]/75", ping: "border-[var(--mission-accent)]/75" },
+                              starting: { border: "border-[var(--mission-accent)]/62", bg: "bg-[var(--mission-accent)]/[0.05]", text: "text-[var(--mission-accent)]", shadow: "shadow-[0_0_16px_rgba(var(--mission-accent-rgb),0.16)]", wire: "text-[var(--mission-accent)]/75", ping: "border-[var(--mission-accent)]/75" },
+                              review:   { border: "border-[var(--mission-alert)]/80", bg: "bg-[var(--mission-alert)]/[0.075]", text: "text-[var(--mission-alert)]", shadow: "shadow-[0_0_14px_rgba(var(--mission-alert-rgb),0.24)]", wire: "text-[var(--mission-alert)]/85", ping: "border-[var(--mission-alert)]/85" },
                             } as const;
 
                             const buildLightElement = (item: OperationsItem, opts: { size: "sm" | "lg" | "xl"; rowLabel: string }) => {
@@ -2939,8 +3009,11 @@ function ActiveOperationsBoard({
                               const tc = toneColors[visualTone] ?? toneColors.ready;
                               const sizeClass = opts.size === "xl" ? "h-[6rem] w-[6rem]" : opts.size === "lg" ? "h-[5rem] w-[5rem]" : "h-12 w-12";
                               const riskTitle = item.performanceRisk ? ` · ${item.performanceRisk.detail}` : "";
-                              const title = `${opts.rowLabel} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}${riskTitle}`;
-                              const ariaLabel = `${opts.rowLabel} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${riskTitle}`;
+                              const remoteHostTitle = item.remoteHostLabel && item.remoteHostName
+                                ? ` · ${item.remoteHostLabel} ${item.remoteHostName}`
+                                : "";
+                              const title = `${opts.rowLabel} · ${readinessLabel(item.tone)} · ${item.kind} · ${item.title} · ${item.meta}${remoteHostTitle}${riskTitle}`;
+                              const ariaLabel = `${opts.rowLabel} ${readinessLabel(item.tone)} ${item.kind}: ${item.title}${remoteHostTitle}${riskTitle}`;
                               const shouldPulse = shouldPulseLight(item);
                               const className = cn(
                                 "agent-light group relative flex items-center justify-center rounded-full transition-all duration-300",
@@ -2951,8 +3024,14 @@ function ActiveOperationsBoard({
                               const contents = (
                                 <>
                                   <ActivityLightPopover item={item} rowLabel={opts.rowLabel} />
+                                  {item.remoteHostLabel && (
+                                    <span
+                                      className="agent-light__host-ring pointer-events-none absolute -inset-1.5 rounded-full border border-violet-300/85 shadow-[0_0_18px_rgba(167,139,250,0.55)]"
+                                      aria-hidden="true"
+                                    />
+                                  )}
                                   {shouldPulse && (
-                                    <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", tc.border)} />
+                                    <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", tc.ping)} />
                                   )}
                                   <span className="absolute inset-[5px] rounded-full border border-current/20" />
                                   {opts.size !== "sm" && <span className="absolute inset-[14px] rounded-full border border-current/12" />}
@@ -3073,8 +3152,14 @@ function ActiveOperationsBoard({
                                     title={title}
                                     aria-label={`Open ${item.roleName || item.roleGlyph || item.kind} details`}
                                   >
+                                    {item.remoteHostLabel && (
+                                      <span
+                                        className="agent-light__host-ring pointer-events-none absolute -inset-1 rounded-full border border-violet-300/80 shadow-[0_0_12px_rgba(167,139,250,0.5)]"
+                                        aria-hidden="true"
+                                      />
+                                    )}
                                     {shouldPulseLight(item) && (
-                                      <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", itemTc.border)} />
+                                      <span className={cn("agent-light__ping absolute inset-0 rounded-full border-2", itemTc.ping)} />
                                     )}
                                     <span className="absolute inset-[3px] rounded-full border border-current/20" />
                                     <span className="absolute inset-[8px] rounded-full border border-current/10" />
@@ -3107,7 +3192,7 @@ function ActiveOperationsBoard({
                               };
 
                               const buildCompactFan = (items: OperationsItem[], side: "in" | "out") => (
-                                <span className="relative flex h-14 w-10 shrink-0 items-center justify-center text-[var(--mission-ready)]/42" aria-hidden="true">
+                                <span className="relative flex h-14 w-10 shrink-0 items-center justify-center text-[rgba(var(--mission-ink-rgb),0.34)]" aria-hidden="true">
                                   <span className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 border-t border-dashed border-current/30" />
                                   {items.map((item, itemIndex) => {
                                     const yClass = itemIndex === 0 ? "top-[0.95rem]" : itemIndex === items.length - 1 ? "bottom-[0.95rem]" : "top-1/2 -translate-y-1/2";
@@ -3136,13 +3221,20 @@ function ActiveOperationsBoard({
 
                               return (
                                 <div key={row.label} className="border-t border-border/55 pt-1.5 first:border-t-0 first:pt-0">
-                                  <div className="grid w-full items-center gap-6 rounded border border-border/50 bg-background-base/25 px-2 py-1 transition-colors duration-200 md:grid-cols-[minmax(16rem,32rem)_minmax(44rem,56rem)]">
+                                  <div className="grid w-full items-center gap-6 rounded border border-border/50 bg-background-base/25 px-2 py-1 transition-colors duration-200 hover:border-[var(--mission-accent)]/30 hover:bg-[var(--mission-accent)]/[0.02] md:grid-cols-[minmax(16rem,32rem)_minmax(44rem,56rem)]">
                                     <button
                                       type="button"
                                       aria-expanded={isExpanded}
                                       onClick={() => toggleTeamRow(rowKey)}
                                       className="group flex min-w-0 items-start gap-2 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-accent)]/70"
                                     >
+                                      <ChevronRight
+                                        className={cn(
+                                          "mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:text-[var(--mission-accent)]",
+                                          isExpanded && "rotate-90 text-[var(--mission-accent)]/80",
+                                        )}
+                                        aria-hidden="true"
+                                      />
                                       <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--mission-accent)]/70" />
                                       <span className="min-w-0">
                                         <span className="block truncate font-mono-ui text-xs font-semibold text-foreground">{rowTitle}</span>
@@ -3205,40 +3297,60 @@ function ActiveOperationsBoard({
                                     </span>}
                                   </div>
 
-                                  {visibleTeamTasks.length > 0 && (
-                                    <div className="mt-2 grid gap-2 md:grid-cols-3">
-                                      {visibleTeamTasks.map((task) => (
-                                        <div
-                                          key={`${task.boardSlug}:${task.id}`}
-                                          className="group relative border border-border/50 bg-background-base/35 text-left transition-colors hover:border-[var(--mission-accent)]/45 hover:bg-[var(--mission-accent)]/[0.04]"
-                                        >
-                                          <Link
-                                            to={`/kanban?task=${encodeURIComponent(task.id)}`}
-                                            className="block px-2.5 py-2 pr-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-accent)]/60"
+                                  {isExpanded && visibleTeamTasks.length > 0 && (
+                                    <div
+                                      className="mt-2 overflow-hidden border border-border/55 bg-background-base/25"
+                                      aria-label={`Work for ${rowTitle}`}
+                                    >
+                                      <div className="flex items-center gap-2 border-b border-border/45 px-2.5 py-1">
+                                        <span className="font-mono-ui text-[0.54rem] uppercase tracking-[0.16em] text-[var(--mission-accent)]/75">Work</span>
+                                        <span className="font-mono-ui text-[0.52rem] tabular-nums text-muted-foreground">{visibleTeamTasks.length}</span>
+                                      </div>
+                                      <div role="list" className="divide-y divide-border/40">
+                                        {visibleTeamTasks.map((task) => (
+                                          <div
+                                            key={`${task.boardSlug}:${task.id}`}
+                                            role="listitem"
+                                            className="group flex min-h-8 items-center gap-2 px-2.5 transition-colors hover:bg-[var(--mission-accent)]/[0.035]"
                                           >
-                                            <span className="flex items-center justify-between gap-2">
-                                              <span className="font-mono-ui text-[0.55rem] uppercase tracking-[0.16em] text-[var(--mission-accent)]/75">Kanban</span>
-                                              <Badge tone={taskTone(task)}>{task.status}</Badge>
-                                            </span>
-                                            <span className="mt-1 block line-clamp-1 text-xs font-medium text-foreground group-hover:text-white">
-                                              {task.title || task.id}
-                                            </span>
-                                            <span className="mt-1 block truncate font-mono-ui text-[0.58rem] uppercase tracking-[0.1em] text-muted-foreground">
-                                              {task.id} · {task.assignee || "unassigned"}
-                                            </span>
-                                          </Link>
-                                          <button
-                                            type="button"
-                                            onClick={() => requestDeleteTeamTask(task)}
-                                            disabled={deletingTaskId === task.id}
-                                            className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border border-border/60 bg-black/35 text-muted-foreground opacity-85 transition-colors hover:border-destructive/55 hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60 disabled:cursor-wait disabled:opacity-50"
-                                            aria-label={`Cancel/remove Kanban task ${task.id}`}
-                                            title={`Cancel/remove ${task.id}`}
-                                          >
-                                            {deletingTaskId === task.id ? <Spinner /> : <X className="h-3.5 w-3.5" />}
-                                          </button>
-                                        </div>
-                                      ))}
+                                            <span
+                                              className={cn(
+                                                "h-1.5 w-1.5 shrink-0 rounded-full",
+                                                task.status === "running"
+                                                  ? "bg-[var(--mission-accent)] shadow-[0_0_7px_rgba(var(--mission-accent-rgb),0.7)]"
+                                                  : task.status === "ready"
+                                                    ? "bg-[var(--mission-ready)] shadow-[0_0_7px_rgba(var(--mission-ready-rgb),0.55)]"
+                                                    : "bg-[var(--mission-alert)] shadow-[0_0_7px_rgba(var(--mission-alert-rgb),0.6)]",
+                                              )}
+                                              aria-hidden="true"
+                                            />
+                                            <Link
+                                              to={`/kanban?task=${encodeURIComponent(task.id)}`}
+                                              className="flex min-w-0 flex-1 items-center gap-2 py-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--mission-accent)]/60"
+                                            >
+                                              <span className="shrink-0 font-mono-ui text-[0.52rem] uppercase tracking-[0.1em] text-muted-foreground">
+                                                {task.status}
+                                              </span>
+                                              <span className="min-w-0 flex-1 truncate text-[0.72rem] font-medium text-foreground group-hover:text-white">
+                                                {task.title || task.id}
+                                              </span>
+                                              <span className="hidden shrink-0 font-mono-ui text-[0.52rem] uppercase tracking-[0.08em] text-muted-foreground/80 lg:inline">
+                                                {task.id} · {task.assignee || "unassigned"}
+                                              </span>
+                                            </Link>
+                                            <button
+                                              type="button"
+                                              onClick={() => requestDeleteTeamTask(task)}
+                                              disabled={deletingTaskId === task.id}
+                                              className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-muted-foreground/65 transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60 disabled:cursor-wait disabled:opacity-50"
+                                              aria-label={`Cancel/remove Kanban task ${task.id}`}
+                                              title={`Cancel/remove ${task.id}`}
+                                            >
+                                              {deletingTaskId === task.id ? <Spinner /> : <X className="h-3 w-3" />}
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
                                     </div>
                                   )}
 
@@ -4348,7 +4460,7 @@ export default function MissionControlPage() {
 
       <MissionSectionBreak eyebrow="Workload" label="Mission queue + team signals" />
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+      <div className="mission-workload-grid grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
         <MissionQueue data={data} onRefresh={load} teamFilter={effectiveTeamFilter} />
         <Timeline items={timeline} />
       </div>

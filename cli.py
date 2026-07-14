@@ -3855,6 +3855,27 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         idle = max(0.0, time.time() - last_finished_at)
         return f"✓ {format_duration_compact(idle)}"
 
+    @staticmethod
+    def _status_bar_reasoning_effort_label(reasoning_config: Any) -> str:
+        """Return the compact reasoning-effort label shown beside the model."""
+        if not isinstance(reasoning_config, dict):
+            return ""
+        if reasoning_config.get("enabled") is False:
+            return "none"
+        return str(reasoning_config.get("effort", "") or "").strip().lower()
+
+    @staticmethod
+    def _status_bar_model_label(model_short: str, reasoning_effort: str = "", service_tier: str = "") -> str:
+        """Return the model segment, including always-visible routing knobs."""
+        badges = []
+        if str(service_tier or "").strip().lower() == "priority":
+            badges.append("fast")
+        if reasoning_effort:
+            badges.append(reasoning_effort)
+        if not badges:
+            return model_short.strip()
+        return f"{model_short.strip()} {', '.join(badges)}".strip()
+
     def _get_status_bar_snapshot(self) -> Dict[str, Any]:
         # Prefer the agent's model name — it updates on fallback.
         # self.model reflects the originally configured model and never
@@ -3868,10 +3889,18 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if len(model_short) > 26:
             model_short = f"{model_short[:23]}..."
 
+        reasoning_config = getattr(agent, "reasoning_config", None) if agent else getattr(self, "reasoning_config", None)
+        reasoning_effort = self._status_bar_reasoning_effort_label(reasoning_config)
+        service_tier = (getattr(agent, "service_tier", None) if agent else getattr(self, "service_tier", None)) or ""
+        model_status_short = self._status_bar_model_label(model_short, reasoning_effort, service_tier)
+
         elapsed_seconds = max(0.0, (datetime.now() - self.session_start).total_seconds())
         snapshot = {
             "model_name": model_name,
             "model_short": model_short,
+            "model_status_short": model_status_short,
+            "reasoning_effort": reasoning_effort,
+            "service_tier": service_tier,
             "duration": format_duration_compact(elapsed_seconds),
             "prompt_elapsed": self._format_prompt_elapsed(
                 getattr(self, "_prompt_start_time", None),
@@ -4152,12 +4181,12 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
             yolo_active = self._is_session_yolo_active()
             if width < 52:
-                text = f"⚕ {snapshot['model_short']} · {duration_label}"
+                text = f"⚕ {snapshot['model_status_short']} · {duration_label}"
                 if yolo_active:
                     text += " · ⚠ YOLO"
                 return self._trim_status_bar_text(text, width)
             if width < 76:
-                parts = [f"⚕ {snapshot['model_short']}", percent_label]
+                parts = [f"⚕ {snapshot['model_status_short']}", percent_label]
                 compressions = snapshot.get("compressions", 0)
                 if compressions:
                     parts.append(f"🗜️ {compressions}")
@@ -4180,7 +4209,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 context_label = "ctx --"
 
             compressions = snapshot.get("compressions", 0)
-            parts = [f"⚕ {snapshot['model_short']}", context_label, percent_label]
+            parts = [f"⚕ {snapshot['model_status_short']}", context_label, percent_label]
             if compressions:
                 parts.append(f"🗜️ {compressions}")
             bg_count = snapshot.get("active_background_tasks", 0)
@@ -4219,7 +4248,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if width < 52:
                 frags = [
                     ("class:status-bar", " ⚕ "),
-                    ("class:status-bar-strong", snapshot["model_short"]),
+                    ("class:status-bar-strong", snapshot["model_status_short"]),
                     ("class:status-bar-dim", " · "),
                     ("class:status-bar-dim", duration_label),
                 ]
@@ -4236,7 +4265,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     bg_proc_count = snapshot.get("active_background_processes", 0)
                     frags = [
                         ("class:status-bar", " ⚕ "),
-                        ("class:status-bar-strong", snapshot["model_short"]),
+                        ("class:status-bar-strong", snapshot["model_status_short"]),
                         ("class:status-bar-dim", " · "),
                         (self._status_bar_context_style(percent), percent_label),
                     ]
@@ -4271,7 +4300,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     bg_proc_count = snapshot.get("active_background_processes", 0)
                     frags = [
                         ("class:status-bar", " ⚕ "),
-                        ("class:status-bar-strong", snapshot["model_short"]),
+                        ("class:status-bar-strong", snapshot["model_status_short"]),
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", context_label),
                         ("class:status-bar-dim", " │ "),
@@ -7582,6 +7611,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._handle_agents_command()
         elif canonical == "background":
             self._handle_background_command(cmd_original)
+        elif canonical == "mac2":
+            self._handle_mac2_command(cmd_original)
         elif canonical == "queue":
             # Extract prompt after "/queue " or "/q "
             parts = cmd_original.split(None, 1)

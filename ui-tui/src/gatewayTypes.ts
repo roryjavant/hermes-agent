@@ -392,6 +392,12 @@ export interface ModelOptionsResponse {
   providers?: ModelOptionProvider[]
 }
 
+export interface RuntimeModelOptions {
+  fast: 'fast' | 'normal'
+  reasoning: string
+  showReasoning: boolean
+}
+
 // ── MCP ──────────────────────────────────────────────────────────────
 
 export interface ReloadMcpResponse {

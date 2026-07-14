@@ -56,7 +56,7 @@ def test_mission_control_major_sections_have_title_rule_separators():
     assert "function MissionSectionBreak" in page_source
     assert 'eyebrow="Workload" label="Mission queue + team signals"' in page_source
     assert 'eyebrow="Embedded panes" label="Terminal dock"' in page_source
-    assert 'className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]"' in page_source
+    assert 'className="mission-workload-grid grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]"' in page_source
     assert ".mission-section-break" in css_source
     assert ".mission-section-break__rule" in css_source
 
@@ -88,11 +88,13 @@ def test_mission_control_activity_sections_use_title_separators_not_gradient_car
 def test_mission_control_team_signals_uses_restrained_palette_status_chrome():
     source = MISSION_CONTROL_SOURCE.read_text()
     timeline_source = source[source.index("function Timeline") : source.index("const EDITABLE_KANBAN_STATUSES")]
+    css_source = (REPO_ROOT / "web" / "src" / "index.css").read_text()
 
     assert '<Badge tone={item.tone}>{item.meta}</Badge>' not in timeline_source
     assert '<Badge tone="outline">{item.category}</Badge>' not in timeline_source
     assert 'text-[var(--mission-accent)]/72' in timeline_source
-    assert 'border-[var(--mission-alert)]/32' in timeline_source
+    assert 'mission-timeline-row__meta--alert' in timeline_source
+    assert 'border-color: rgba(var(--mission-alert-rgb), 0.32);' in css_source
     assert 'text-success' not in timeline_source
     assert 'text-warning' not in timeline_source
 
@@ -730,7 +732,11 @@ def test_mission_control_profile_light_dossier_shows_current_work_and_output_pla
     assert "Cancel/remove Kanban task" in source
     assert "api.deleteKanbanTask(deleteTaskTarget.id, deleteTaskTarget.boardSlug)" in source
     assert "Remove task" in source
-    assert "Kanban</span>" in source
+    assert "aria-label={`Work for ${rowTitle}`}" in source
+    assert "isExpanded && visibleTeamTasks.length > 0" in source
+    assert 'role="list" className="divide-y divide-border/40"' in source
+    assert 'className="group flex min-h-8 items-center gap-2 px-2.5' in source
+    assert 'className="mt-2 grid gap-2 md:grid-cols-3"' not in source
     assert "feeds forward" in source
     assert "next teammate" in source
     assert "Working: {item.currentTask.title || item.currentTask.id}" in source
@@ -824,18 +830,50 @@ def test_mission_control_collapsed_team_orbs_are_clickable_role_lights_not_fake_
 def test_mission_control_working_and_starting_lights_use_theme_palette_vars():
     source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
 
-    assert 'ready:    { border: "border-[var(--mission-ready)]/38"' in source
-    assert 'ping: "bg-[var(--mission-ready)]"' in source
-    assert 'working:  { border: "border-[var(--mission-accent)]/58"' in source
-    assert 'starting: { border: "border-[var(--mission-accent)]/58"' in source
+    # Standby ("ready") lights stay neutral ink so accent/alert color is
+    # reserved for live signal; ping rings carry the tone color instead.
+    assert 'ready:    { border: "border-[rgba(var(--mission-ink-rgb),0.20)]"' in source
+    assert 'ping: "border-[var(--mission-ready)]/70"' in source
+    assert 'working:  { border: "border-[var(--mission-accent)]/62"' in source
+    assert 'starting: { border: "border-[var(--mission-accent)]/62"' in source
     assert 'review:   { border: "border-[var(--mission-alert)]/80"' in source
-    assert 'ping: "bg-[var(--mission-alert)]"' in source
+    assert 'ping: "border-[var(--mission-alert)]/85"' in source
     assert 'const immediateStartPulse = item.tone === "working" && /\\bstarting\\b/i.test(item.detail);' in source
     assert 'const visualTone = immediateStartPulse ? "starting" : item.tone;' in source
     assert "border-amber-400/60" not in source
     assert "border-sky-300/70" not in source
     assert "bg-orange-500" not in source
     assert "bg-red-500" not in source
+
+
+def test_mission_control_other_macbook_lights_use_distinct_outer_ring():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+
+    assert 'remoteHostName?: string;' in source
+    assert 'remoteHostLabel?: string;' in source
+    assert 'const OTHER_MACBOOK_HOST_LABEL = "Other MacBook";' in source
+    assert 'const OTHER_MACBOOK_HOST_NAME = "Rorys-MacBook-Pro.local";' in source
+    assert '"othermac-worker"' in source
+    assert 'function otherMacBookHostName' in source
+    assert 'agent-light__host-ring' in source
+    assert 'border-violet-300/85' in source
+    assert 'border-violet-300/80' in source
+    assert '{item.remoteHostLabel} · {item.remoteHostName}' in source
+    assert 'remoteHostLabel: remoteHostName ? OTHER_MACBOOK_HOST_LABEL : undefined' in source
+
+
+def test_mission_control_workload_deck_uses_compact_operational_chrome():
+    source = (REPO_ROOT / "web" / "src" / "pages" / "MissionControlPage.tsx").read_text()
+    styles = (REPO_ROOT / "web" / "src" / "index.css").read_text()
+
+    assert "mission-workload-grid" in source
+    assert source.count("mission-workload-panel") >= 4
+    assert "mission-queue-task__status" in source
+    assert "mission-timeline-row__category" in source
+    assert "Active work, matching sessions, and automations for the selected team." not in source
+    assert ".mission-workload-panel" in styles
+    assert ".mission-queue-task::before" in styles
+    assert ".mission-timeline__spine" in styles
 
 
 def test_mission_control_ready_kanban_role_pulses_until_worker_starts():

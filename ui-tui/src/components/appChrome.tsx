@@ -361,21 +361,27 @@ const effortLabel = (effort?: string) => {
     .trim()
     .toLowerCase()
 
-  return value && value !== 'medium' && value !== 'normal' && value !== 'default' ? value : ''
+  return value && value !== 'normal' && value !== 'default' ? value : ''
 }
 
-const shortModelLabel = (model: string) =>
-  model
-    .split('/')
-    .pop()!
-    .replace(/^claude[-_]/, '')
-    .replace(/^anthropic[-_]/, '')
+const shortModelLabel = (model: string) => {
+  const raw = model.split('/').pop()!
+  const withoutVendor = raw.replace(/^claude[-_]/, '').replace(/^anthropic[-_]/, '')
+
+  if (/^gpt[-_]/i.test(withoutVendor)) {
+    return withoutVendor.replace(/_/g, '-').trim()
+  }
+
+  return withoutVendor
     .replace(/[-_]/g, ' ')
     .replace(/\b(\d+)\s+(\d+)\b/g, '$1.$2')
     .trim()
+}
 
 const modelLabel = (model: string, effort?: string, fast?: boolean) =>
-  [shortModelLabel(model), effortLabel(effort), fast ? 'fast' : ''].filter(Boolean).join(' ')
+  [shortModelLabel(model), [fast ? 'fast' : '', effortLabel(effort)].filter(Boolean).join(', ')]
+    .filter(Boolean)
+    .join(' ')
 
 export function GoodVibesHeart({ tick, t }: { tick: number; t: Theme }) {
   const [active, setActive] = useState(false)

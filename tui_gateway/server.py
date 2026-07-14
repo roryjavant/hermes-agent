@@ -1736,6 +1736,15 @@ def _load_service_tier() -> str | None:
     return None
 
 
+def _reasoning_effort_label(reasoning_config: dict | None) -> str:
+    """Return the compact reasoning-effort label exposed to TUI chrome."""
+    if not isinstance(reasoning_config, dict):
+        return ""
+    if reasoning_config.get("enabled") is False:
+        return "none"
+    return str(reasoning_config.get("effort", "") or "").strip().lower()
+
+
 def _load_provider_routing() -> dict:
     """OpenRouter provider-routing prefs from config.yaml (``provider_routing``).
 
@@ -2385,12 +2394,7 @@ def _session_info(agent, session: dict | None = None) -> dict:
     cfg_personality = ((_load_cfg().get("display") or {}).get("personality") or "")
     personality = (session or {}).get("personality", cfg_personality)
     reasoning_config = getattr(agent, "reasoning_config", None)
-    reasoning_effort = ""
-    if (
-        isinstance(reasoning_config, dict)
-        and reasoning_config.get("enabled") is not False
-    ):
-        reasoning_effort = str(reasoning_config.get("effort", "") or "")
+    reasoning_effort = _reasoning_effort_label(reasoning_config)
     service_tier = getattr(agent, "service_tier", None) or ""
     # Effective approval-bypass state — the same three sources that
     # check_all_command_guards() ORs together: persistent config
@@ -3910,6 +3914,9 @@ def _(rid, params: dict) -> dict:
     build_timer.daemon = True
     build_timer.start()
 
+    initial_service_tier = _load_service_tier() or ""
+    initial_reasoning_effort = _reasoning_effort_label(_load_reasoning_config())
+
     return _ok(
         rid,
         {
@@ -3919,6 +3926,9 @@ def _(rid, params: dict) -> dict:
             "messages": _history_to_messages(history),
             "info": {
                 "model": _resolve_model(),
+                "reasoning_effort": initial_reasoning_effort,
+                "service_tier": initial_service_tier,
+                "fast": initial_service_tier == "priority",
                 "tools": {},
                 "skills": {},
                 "cwd": _sessions[sid]["cwd"],
@@ -7831,6 +7841,7 @@ _PENDING_INPUT_COMMANDS: frozenset[str] = frozenset(
         "queue",
         "q",
         "steer",
+        "mac2",
         "plan",
         "goal",
         "undo",
@@ -8090,6 +8101,35 @@ def _(rid, params: dict) -> dict:
     # ── Commands that queue messages onto _pending_input in the CLI ───
     # In the TUI the slash worker subprocess has no reader for that queue,
     # so we handle them here and return a structured payload.
+
+    if name == "mac2":
+        try:
+            from hermes_cli.mac2 import (
+                format_mac2_started,
+                mac2_usage,
+                start_mac2_task,
+            )
+        except Exception as exc:
+            return _err(rid, 5031, f"/mac2 unavailable: {exc}")
+
+        if not arg or not arg.strip():
+            return _err(rid, 4004, mac2_usage())
+
+        try:
+            cwd = _session_cwd(session) if session else os.getcwd()
+        except Exception:
+            cwd = os.getcwd()
+
+        try:
+            task = start_mac2_task(
+                arg,
+                session_key=session.get("session_key", "") if session else "",
+                cwd=cwd,
+            )
+        except Exception as exc:
+            return _err(rid, 5031, f"/mac2 failed to start: {exc}")
+
+        return _ok(rid, {"type": "exec", "output": format_mac2_started(task)})
 
     if name in {"queue", "q"}:
         if not arg:

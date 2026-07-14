@@ -103,6 +103,7 @@ import ProfileBuilderPage from "@/pages/ProfileBuilderPage";
 import TeamPage from "@/pages/TeamPage";
 import TeamPresentPage from "@/pages/TeamPresentPage";
 import SkillsPage from "@/pages/SkillsPage";
+import MattPocockSkillsPage from "@/pages/MattPocockSkillsPage";
 import PluginsPage from "@/pages/PluginsPage";
 import McpPage from "@/pages/McpPage";
 import PairingPage from "@/pages/PairingPage";
@@ -170,6 +171,7 @@ const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
   "/logs": LogsPage,
   "/cron": CronPage,
   "/skills": SkillsPage,
+  "/matt-pocock-skills": MattPocockSkillsPage,
   "/plugins": PluginsPage,
   "/mcp": McpPage,
   "/pairing": PairingPage,
@@ -275,6 +277,7 @@ const BUILTIN_NAV_REST: NavItem[] = [
   { path: "/logs", labelKey: "logs", label: "Logs", icon: FileText },
   { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
   { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
+  { path: "/matt-pocock-skills", label: "Matt Skills", icon: Code },
   { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
   { path: "/mcp", label: "MCP", icon: Plug },
   { path: "/channels", label: "Channels", icon: Radio },
@@ -297,6 +300,7 @@ const PRIMARY_DASHBOARD_TAB_PATHS = new Set([
   "/launchpad",
   "/team",
   "/knowledge-base",
+  "/matt-pocock-skills",
   "/marketing",
   "/audio-library",
   "/research",

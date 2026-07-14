@@ -739,6 +739,76 @@ export const missionEmeraldTheme = missionControlAccentTheme({
   inkRgb: "236, 253, 245",
 });
 
+export const missionIonTheme = missionControlAccentTheme({
+  name: "mission-ion",
+  label: "Mission Ion",
+  description: "Mission Control dark cockpit with deep-space ion blue thrust",
+  accent: "#4c8dff",
+  accentRgb: "76, 141, 255",
+  ready: "#34d399",
+  readyRgb: "52, 211, 153",
+  alert: "#fb7185",
+  alertRgb: "251, 113, 133",
+  ink: "#eaf2ff",
+  inkRgb: "234, 242, 255",
+});
+
+export const missionAuroraTheme = missionControlAccentTheme({
+  name: "mission-aurora",
+  label: "Mission Aurora",
+  description: "Mission Control dark cockpit with teal-violet northern lights",
+  accent: "#2dd4bf",
+  accentRgb: "45, 212, 191",
+  ready: "#a78bfa",
+  readyRgb: "167, 139, 250",
+  alert: "#fb7185",
+  alertRgb: "251, 113, 133",
+  ink: "#f0fdfa",
+  inkRgb: "240, 253, 250",
+});
+
+export const missionSolarTheme = missionControlAccentTheme({
+  name: "mission-solar",
+  label: "Mission Solar",
+  description: "Mission Control dark cockpit with warm gold flight-deck lights",
+  accent: "#fbbf24",
+  accentRgb: "251, 191, 36",
+  ready: "#4ade80",
+  readyRgb: "74, 222, 128",
+  alert: "#f87171",
+  alertRgb: "248, 113, 113",
+  ink: "#fffbeb",
+  inkRgb: "255, 251, 235",
+});
+
+export const missionNovaTheme = missionControlAccentTheme({
+  name: "mission-nova",
+  label: "Mission Nova",
+  description: "Mission Control dark cockpit with magenta starburst command",
+  accent: "#ec4899",
+  accentRgb: "236, 72, 153",
+  ready: "#22d3ee",
+  readyRgb: "34, 211, 238",
+  alert: "#fb923c",
+  alertRgb: "251, 146, 60",
+  ink: "#fdf2f8",
+  inkRgb: "253, 242, 248",
+});
+
+export const missionFrostTheme = missionControlAccentTheme({
+  name: "mission-frost",
+  label: "Mission Frost",
+  description: "Mission Control dark cockpit with low-glare glacier ice accents",
+  accent: "#7dd3fc",
+  accentRgb: "125, 211, 252",
+  ready: "#86efac",
+  readyRgb: "134, 239, 172",
+  alert: "#fda4af",
+  alertRgb: "253, 164, 175",
+  ink: "#f8fafc",
+  inkRgb: "248, 250, 252",
+});
+
 /**
  * Same look as ``defaultTheme`` but with a larger root font size, looser
  * line-height, and ``spacious`` density so every rem-based size in the
@@ -769,6 +839,11 @@ export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   "mission-crimson": missionCrimsonTheme,
   "mission-cyan": missionCyanTheme,
   "mission-emerald": missionEmeraldTheme,
+  "mission-ion": missionIonTheme,
+  "mission-aurora": missionAuroraTheme,
+  "mission-solar": missionSolarTheme,
+  "mission-nova": missionNovaTheme,
+  "mission-frost": missionFrostTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,

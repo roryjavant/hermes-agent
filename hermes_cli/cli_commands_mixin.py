@@ -1547,6 +1547,36 @@ class CLICommandsMixin:
         self._background_tasks[task_id] = thread
         thread.start()
 
+    def _handle_mac2_command(self, cmd: str):
+        """Handle /mac2 <prompt> — run one prompt through the other MacBook worker."""
+        from cli import _cprint  # type: ignore[import-not-found]
+        from hermes_cli.mac2 import (  # type: ignore[import-not-found]
+            format_mac2_started,
+            mac2_usage,
+            start_mac2_task,
+        )
+
+        parts = cmd.strip().split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            for line in mac2_usage().splitlines():
+                _cprint(f"  {line}")
+            _cprint("  Example: /mac2 check the host with hostname")
+            return
+
+        prompt = parts[1].strip()
+        try:
+            task = start_mac2_task(
+                prompt,
+                session_key=getattr(self, "session_id", "") or "",
+                cwd=os.getenv("TERMINAL_CWD", os.getcwd()),
+            )
+        except Exception as exc:
+            _cprint(f"  ❌ /mac2 failed to start: {exc}")
+            return
+
+        for line in format_mac2_started(task).splitlines():
+            _cprint(f"  {line}")
+
     def _handle_bundles_command(self, cmd: str) -> None:
         """In-session ``/bundles`` — show installed skill bundles.
 

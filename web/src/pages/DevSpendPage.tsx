@@ -59,17 +59,26 @@ function money(value: number, currency = "USD"): string {
   return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD", maximumFractionDigits: 2 }).format(value || 0);
 }
 
+function parseDateOnlyAsLocal(value: string | null): Date | null {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function dueLabel(value: string | null): string {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDateOnlyAsLocal(value);
+  if (!date) return value;
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
 function dueSoon(value: string | null): boolean {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
+  const date = parseDateOnlyAsLocal(value);
+  if (!date) return false;
   const days = (date.getTime() - Date.now()) / 86_400_000;
   return days >= 0 && days <= 7;
 }

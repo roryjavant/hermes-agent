@@ -14,6 +14,51 @@ from hermes_cli.active_sessions import active_session_registry_snapshot
 from tui_gateway import server
 
 
+def _clear_server_sessions_for_test():
+    for session in list(server._sessions.values()):
+        server._teardown_session(session)
+    server._sessions.clear()
+
+
+def test_session_create_initial_info_includes_statusbar_runtime_knobs(monkeypatch, tmp_path):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    (home / "config.yaml").write_text(
+        "model:\n"
+        "  default: openai/gpt-5.5\n"
+        "  provider: openai-codex\n"
+        "agent:\n"
+        "  service_tier: priority\n"
+        "  reasoning_effort: medium\n",
+        encoding="utf-8",
+    )
+    token = set_hermes_home_override(home)
+
+    try:
+        server._cfg_cache = None
+        server._cfg_mtime = None
+        server._cfg_path = None
+        _clear_server_sessions_for_test()
+        monkeypatch.setattr(server, "_start_agent_build", lambda *args, **kwargs: None)
+        monkeypatch.setattr(server, "_completion_cwd", lambda params=None: str(tmp_path))
+        monkeypatch.setattr(server, "_resolve_model", lambda: "openai/gpt-5.5")
+
+        resp = server._methods["session.create"]("r1", {"cols": 80})
+
+        assert "result" in resp
+        info = resp["result"]["info"]
+        assert info["model"] == "openai/gpt-5.5"
+        assert info["fast"] is True
+        assert info["service_tier"] == "priority"
+        assert info["reasoning_effort"] == "medium"
+    finally:
+        _clear_server_sessions_for_test()
+        server._cfg_cache = None
+        server._cfg_mtime = None
+        server._cfg_path = None
+        reset_hermes_home_override(token)
+
+
 def test_session_create_rejects_at_active_session_limit(monkeypatch, tmp_path):
     home = tmp_path / ".hermes"
     home.mkdir()
@@ -3531,6 +3576,111 @@ def test_commands_catalog_includes_tui_mouse_command():
 
     assert "/mouse" in pairs
     assert "/mouse" in tui_pairs
+
+
+def test_commands_catalog_includes_mac2_command():
+    resp = server.handle_request(
+        {"id": "1", "method": "commands.catalog", "params": {}}
+    )
+    assert resp is not None
+    assert "result" in resp
+    result = resp["result"]
+
+    pairs = dict(result["pairs"])
+    session_cat = next(c for c in result["categories"] if c["name"] == "Session")
+    session_pairs = dict(session_cat["pairs"])
+
+    assert "/mac2" in pairs
+    assert "/mac2" in session_pairs
+    assert "other MacBook" in pairs["/mac2"]
+    assert result["canon"]["/mac2"] == "/mac2"
+
+
+def test_command_dispatch_mac2_requires_prompt():
+    resp = server.handle_request(
+        {
+            "id": "1",
+            "method": "command.dispatch",
+            "params": {"name": "mac2", "arg": ""},
+        }
+    )
+    assert resp is not None
+    assert "error" in resp
+    error = resp["error"]
+
+    assert error["code"] == 4004
+    assert "usage: /mac2 <prompt>" in error["message"]
+
+
+def test_slash_exec_routes_mac2_through_command_dispatch():
+    server._sessions["sid"] = _session()
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "slash.exec",
+                "params": {"command": "mac2 run hostname", "session_id": "sid"},
+            }
+        )
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert resp is not None
+    assert "error" in resp
+    assert resp["error"]["code"] == 4018
+    assert "use command.dispatch for /mac2" in resp["error"]["message"]
+
+
+def test_command_dispatch_mac2_starts_othermac_worker(monkeypatch, tmp_path):
+    from hermes_cli.mac2 import Mac2Task
+
+    captured = {}
+
+    def fake_start_mac2_task(prompt, *, session_key="", cwd=None, profile="othermac-worker"):
+        captured.update(
+            {"prompt": prompt, "session_key": session_key, "cwd": cwd, "profile": profile}
+        )
+        return Mac2Task(
+            session_id="proc_mac2test",
+            pid=4242,
+            profile=profile,
+            host_label="Rorys-MacBook-Pro.local",
+            prompt_preview=prompt,
+            command="python -m hermes_cli.main -p othermac-worker chat -q ...",
+        )
+
+    import hermes_cli.mac2 as mac2
+
+    monkeypatch.setattr(mac2, "start_mac2_task", fake_start_mac2_task)
+    monkeypatch.setattr(server, "_session_cwd", lambda _session: str(tmp_path))
+    server._sessions["sid"] = _session()
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "command.dispatch",
+                "params": {
+                    "name": "mac2",
+                    "arg": "run hostname",
+                    "session_id": "sid",
+                },
+            }
+        )
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert resp is not None
+    assert "result" in resp
+    result = resp["result"]
+    assert result["type"] == "exec"
+    assert "proc_mac2test" in result["output"]
+    assert "Rorys-MacBook-Pro.local" in result["output"]
+    assert captured == {
+        "prompt": "run hostname",
+        "session_key": "session-key",
+        "cwd": str(tmp_path),
+        "profile": "othermac-worker",
+    }
 
 
 def test_commands_catalog_filters_gateway_only_commands_and_keeps_status_visible():

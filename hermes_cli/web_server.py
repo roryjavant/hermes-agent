@@ -12,12 +12,14 @@ Usage:
 from contextlib import asynccontextmanager, contextmanager
 
 import asyncio
+import email as email_lib
 import base64
 import binascii
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import hashlib
 import hmac
+import imaplib
 import importlib.util
 import json
 import logging
@@ -27,6 +29,7 @@ import re
 import secrets
 import shutil
 import signal
+import ssl
 import stat
 import subprocess
 import sys
@@ -3203,6 +3206,7 @@ def _sync_dev_repo(repo: Path) -> Dict[str, Any]:
 
 _DEV_SPEND_ALLOWED_CADENCES = {"monthly", "annual", "usage", "one-time"}
 _DEV_SPEND_ALLOWED_STATUSES = {"active", "watching", "cancelled"}
+_DEV_SPEND_SUPABASE_PLAN_BASE_MONTHLY = {"free": 0.0, "pro": 25.0}
 _DEV_SPEND_SEED_ITEMS: List[Dict[str, Any]] = [
     {"vendor": "OpenAI API", "category": "AI API", "kind": "usage", "cadence": "usage", "source": "seed", "notes": "Usage-based API calls; confirm from billing/email."},
     {"vendor": "ChatGPT / OpenAI subscription", "category": "AI subscription", "kind": "subscription", "cadence": "monthly", "source": "seed", "notes": "Personal OpenAI subscription candidate."},
@@ -3315,23 +3319,222 @@ def _dev_spend_has_any_env(*keys: str) -> bool:
     return any(bool(values.get(key)) for key in keys)
 
 
+def _dev_spend_fetch_json(url: str, headers: Dict[str, str], timeout: int = 15) -> Dict[str, Any]:
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        return {"error": body or str(exc), "status_code": exc.code}
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        return {"error": str(exc)}
+    return data if isinstance(data, dict) else {"data": data}
+
+
 def _fetch_elevenlabs_subscription() -> Optional[Dict[str, Any]]:
     values = _dev_spend_env_values()
     api_key = values.get("ELEVENLABS_API_KEY")
     if not api_key:
         return None
-    req = urllib.request.Request(
+    data = _dev_spend_fetch_json(
         "https://api.elevenlabs.io/v1/user/subscription",
-        headers={"xi-api-key": api_key},
+        {"xi-api-key": api_key},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-        return {"error": str(exc)}
+    if data.get("error"):
+        return data
     if not isinstance(data, dict):
         return {"error": "Unexpected ElevenLabs subscription response"}
     return data
+
+
+def _fetch_openai_monthly_costs() -> Optional[Dict[str, Any]]:
+    values = _dev_spend_env_values()
+    api_key = values.get("OPENAI_BILLING_API_KEY") or values.get("OPENAI_ADMIN_KEY") or values.get("OPENAI_API_KEY") or values.get("VOICE_TOOLS_OPENAI_KEY")
+    if not api_key:
+        return None
+    now = datetime.now(timezone.utc)
+    start = int((now - timedelta(days=30)).timestamp())
+    end = int(now.timestamp())
+    params = urllib.parse.urlencode({"start_time": start, "end_time": end, "bucket_width": "1d"})
+    data = _dev_spend_fetch_json(
+        f"https://api.openai.com/v1/organization/costs?{params}",
+        {"Authorization": f"Bearer {api_key}"},
+    )
+    if data.get("error"):
+        return data
+    total = 0.0
+    currency = "USD"
+    buckets = data.get("data") if isinstance(data.get("data"), list) else []
+    for bucket in buckets:
+        if not isinstance(bucket, dict):
+            continue
+        results = bucket.get("results") if isinstance(bucket.get("results"), list) else []
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            amount = result.get("amount") if isinstance(result.get("amount"), dict) else {}
+            try:
+                total += float(amount.get("value") or 0)
+            except (TypeError, ValueError):
+                pass
+            if amount.get("currency"):
+                currency = str(amount.get("currency")).upper()
+    return {"amount": round(total, 2), "currency": currency, "bucket_count": len(buckets), "start_time": start, "end_time": end}
+
+
+def _fetch_supabase_management_details() -> Optional[Dict[str, Any]]:
+    values = _dev_spend_env_values()
+    token = values.get("SUPABASE_ACCESS_TOKEN")
+    if not token:
+        return None
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "User-Agent": "Hermes Dev Spend Dashboard",
+    }
+    projects_response = _dev_spend_fetch_json("https://api.supabase.com/v1/projects", headers)
+    if projects_response.get("error"):
+        return projects_response
+    projects_raw = projects_response.get("data")
+    projects = projects_raw if isinstance(projects_raw, list) else []
+    org_ids = sorted({str(project.get("organization_id")) for project in projects if isinstance(project, dict) and project.get("organization_id")})
+    orgs: List[Dict[str, Any]] = []
+    errors: List[str] = []
+    for org_id in org_ids[:5]:
+        org_response = _dev_spend_fetch_json(f"https://api.supabase.com/v1/organizations/{urllib.parse.quote(org_id)}", headers)
+        if org_response.get("error"):
+            errors.append(str(org_response.get("error")))
+        else:
+            orgs.append(org_response)
+    return {"projects": projects, "organizations": orgs, "errors": errors}
+
+
+def _replace_or_append_dev_spend_item(items: List[Dict[str, Any]], vendor_predicate: Any, replacement: Dict[str, Any]) -> None:
+    for index, item in enumerate(items):
+        if vendor_predicate(str(item.get("vendor") or "").lower()):
+            items[index] = _serialize_dev_spend_item({**item, **replacement})
+            return
+    items.append(_serialize_dev_spend_item({"id": secrets.token_hex(8), **replacement}))
+
+
+def _dev_spend_strip_html(html: str) -> str:
+    text = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
+    text = re.sub(r"<p[^>]*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</p>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"&nbsp;", " ", text)
+    text = re.sub(r"&amp;", "&", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _dev_spend_email_text(message: email_lib.message.Message) -> str:
+    chunks: List[str] = []
+    parts = message.walk() if message.is_multipart() else [message]
+    for part in parts:
+        content_type = part.get_content_type()
+        disposition = str(part.get("Content-Disposition") or "").lower()
+        if "attachment" in disposition or content_type not in {"text/plain", "text/html"}:
+            continue
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+        text = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+        chunks.append(_dev_spend_strip_html(text) if content_type == "text/html" else re.sub(r"\s+", " ", text).strip())
+    return re.sub(r"\s+", " ", " ".join(chunks)).strip()
+
+
+def _dev_spend_parse_money(value: str) -> float:
+    return _normalize_dev_spend_amount(str(value or "").replace("$", "").replace(",", ""))
+
+
+def _dev_spend_parse_receipt_date(value: str) -> Optional[str]:
+    match = re.search(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),\s+(20\d{2})", value or "", re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(" ".join(match.groups()), "%b %d %Y").date().isoformat()
+    except ValueError:
+        return None
+
+
+def _dev_spend_parse_anthropic_receipt(text: str, date_header: str) -> Optional[Dict[str, Any]]:
+    if "Claude Pro" not in text or "Amount paid" not in text:
+        return None
+    amount_match = re.search(r"Amount paid\s+\$\s?([0-9][0-9,]*(?:\.\d{2})?)", text, re.IGNORECASE)
+    if not amount_match:
+        amount_match = re.search(r"Total\s+\$\s?([0-9][0-9,]*(?:\.\d{2})?)", text, re.IGNORECASE)
+    period_match = re.search(r"([A-Z][a-z]{2,8}\s+\d{1,2})\s*[–-]\s*([A-Z][a-z]{2,8}\s+\d{1,2},\s+20\d{2})", text)
+    paid_match = re.search(r"Paid\s+([A-Z][a-z]+\s+\d{1,2},\s+20\d{2})", text)
+    return {
+        "vendor": "Claude",
+        "plan": "Claude Pro",
+        "amount": _dev_spend_parse_money(amount_match.group(1)) if amount_match else 0.0,
+        "next_due": _dev_spend_parse_receipt_date(period_match.group(2)) if period_match else None,
+        "paid_at": _dev_spend_parse_receipt_date(paid_match.group(1)) if paid_match else _dev_spend_parse_receipt_date(date_header),
+    }
+
+
+def _dev_spend_parse_google_ai_cancellation(text: str) -> Optional[Dict[str, Any]]:
+    if "Google One subscription" not in text or "will be canceled" not in text:
+        return None
+    cancel_match = re.search(r"will be canceled on\s+([A-Z][a-z]+\s+\d{1,2},\s+20\d{2})", text)
+    return {
+        "vendor": "Google AI Pro / Google One",
+        "status": "cancelled",
+        "cancelled_at": _dev_spend_parse_receipt_date(cancel_match.group(1)) if cancel_match else None,
+    }
+
+
+def _fetch_dev_spend_receipts() -> Dict[str, Any]:
+    values = _dev_spend_env_values()
+    address = values.get("EMAIL_ADDRESS")
+    password = str(values.get("EMAIL_PASSWORD") or "").replace(" ", "")
+    host = values.get("EMAIL_IMAP_HOST")
+    if not (address and password and host):
+        return {}
+    try:
+        imap = imaplib.IMAP4_SSL(host, int(values.get("EMAIL_IMAP_PORT") or 993), ssl_context=ssl.create_default_context())
+        imap.login(address, password)
+        selected = False
+        for mailbox in ('"[Gmail]/All Mail"', 'INBOX'):
+            typ, _data = imap.select(mailbox, readonly=True)
+            if typ == "OK":
+                selected = True
+                break
+        if not selected:
+            imap.logout()
+            return {"error": "No readable Gmail mailbox found"}
+        queries = {
+            "anthropic": 'newer_than:18m from:(mail.anthropic.com) "Your receipt from Anthropic"',
+            "google_ai_cancelled": 'newer_than:18m from:(googleplay-noreply@google.com) "Google One subscription will be canceled"',
+        }
+        found: Dict[str, Any] = {}
+        for key, query in queries.items():
+            raw_query = '"' + query.replace('\\', '\\\\').replace('"', '\\"') + '"'
+            typ, data = imap.uid("SEARCH", "X-GM-RAW", raw_query)
+            ids = data[0].split() if typ == "OK" and data and data[0] else []
+            for uid in reversed(ids[-10:]):
+                typ, msg_data = imap.uid("FETCH", uid, "(RFC822)")
+                if typ != "OK" or not msg_data or not msg_data[0]:
+                    continue
+                msg = email_lib.message_from_bytes(msg_data[0][1])
+                text = _dev_spend_email_text(msg)
+                if key == "anthropic":
+                    receipt = _dev_spend_parse_anthropic_receipt(text, str(msg.get("Date") or ""))
+                else:
+                    receipt = _dev_spend_parse_google_ai_cancellation(text)
+                if receipt:
+                    receipt["email_uid"] = uid.decode("ascii", errors="ignore")
+                    found[key] = receipt
+                    break
+        imap.logout()
+        return found
+    except Exception as exc:  # noqa: BLE001 - receipt scanning is best-effort for dashboard reads.
+        return {"error": str(exc)}
 
 
 def _format_dev_spend_date_from_unix(value: Any) -> Optional[str]:
@@ -3366,55 +3569,180 @@ def _apply_live_dev_spend_details(items: List[Dict[str, Any]]) -> List[Dict[str,
             notes += f"; character reset {reset_date}"
         if amount:
             notes += f"; next invoice {currency} {amount:.2f}"
-        matched = False
-        for index, item in enumerate(normalized):
-            if "elevenlabs" in item["vendor"].lower():
-                normalized[index] = _serialize_dev_spend_item({
-                    **item,
-                    "vendor": "ElevenLabs",
-                    "category": "Voice / audio",
-                    "kind": f"{tier} subscription",
-                    "cadence": "monthly" if "monthly" in str(eleven.get("billing_period") or "") else item.get("cadence", "monthly"),
-                    "amount": amount,
-                    "currency": currency,
-                    "next_due": next_due,
-                    "status": str(eleven.get("status") or "active"),
-                    "source": "elevenlabs_api",
-                    "notes": notes,
-                    "updated_at": now,
-                })
-                matched = True
-                break
-        if not matched:
-            normalized.append(_serialize_dev_spend_item({
-                "id": secrets.token_hex(8),
+        _replace_or_append_dev_spend_item(
+            normalized,
+            lambda vendor: "elevenlabs" in vendor,
+            {
                 "vendor": "ElevenLabs",
                 "category": "Voice / audio",
                 "kind": f"{tier} subscription",
-                "cadence": "monthly",
+                "cadence": "monthly" if "monthly" in str(eleven.get("billing_period") or "") else "monthly",
                 "amount": amount,
                 "currency": currency,
                 "next_due": next_due,
                 "status": str(eleven.get("status") or "active"),
                 "source": "elevenlabs_api",
                 "notes": notes,
-                "created_at": now,
                 "updated_at": now,
-            }))
+            },
+        )
+    elif eleven and eleven.get("error"):
+        _replace_or_append_dev_spend_item(
+            normalized,
+            lambda vendor: "elevenlabs" in vendor,
+            {
+                "vendor": "ElevenLabs",
+                "category": "Voice / audio",
+                "source": "elevenlabs_api",
+                "notes": f"ElevenLabs API key is configured, but subscription fetch failed: {str(eleven.get('error'))[:180]}",
+                "updated_at": now,
+            },
+        )
 
     values = _dev_spend_env_values()
-    if values.get("GEMINI_API_KEY"):
+    if values.get("GEMINI_API_KEY") or values.get("GOOGLE_API_KEY"):
+        _replace_or_append_dev_spend_item(
+            normalized,
+            lambda vendor: "gemini" in vendor or "google ai" in vendor,
+            {
+                "vendor": "Gemini / Google AI",
+                "category": "AI API",
+                "kind": "usage",
+                "cadence": "usage",
+                "source": "gemini_api_key",
+                "notes": "Gemini API key is configured and usable for model calls; billing/usage totals are not exposed by the Generative Language API key.",
+                "updated_at": now,
+            },
+        )
+
+    openai_costs = _fetch_openai_monthly_costs()
+    if openai_costs:
+        if openai_costs.get("error"):
+            detail = str(openai_costs.get("error") or "")
+            if "api.usage.read" in detail:
+                detail = "Costs endpoint needs an OpenAI admin key or restricted key with api.usage.read scope."
+            else:
+                detail = detail[:180]
+            _replace_or_append_dev_spend_item(
+                normalized,
+                lambda vendor: "openai api" in vendor,
+                {
+                    "vendor": "OpenAI API",
+                    "category": "AI API",
+                    "kind": "usage",
+                    "cadence": "usage",
+                    "source": "openai_api_key",
+                    "notes": f"OpenAI key is configured and model access works; no dollar total yet: {detail}",
+                    "updated_at": now,
+                },
+            )
+        else:
+            amount = _normalize_dev_spend_amount(openai_costs.get("amount"))
+            _replace_or_append_dev_spend_item(
+                normalized,
+                lambda vendor: "openai api" in vendor,
+                {
+                    "vendor": "OpenAI API",
+                    "category": "AI API",
+                    "kind": "30-day API usage",
+                    "cadence": "usage",
+                    "amount": amount,
+                    "currency": str(openai_costs.get("currency") or "USD").upper(),
+                    "status": "active" if amount else "watching",
+                    "source": "openai_costs_api",
+                    "notes": f"Live OpenAI Costs API: last 30 days across {int(openai_costs.get('bucket_count') or 0)} daily buckets.",
+                    "updated_at": now,
+                },
+            )
+
+    supabase = _fetch_supabase_management_details()
+    if supabase:
+        if supabase.get("error"):
+            _replace_or_append_dev_spend_item(
+                normalized,
+                lambda vendor: "supabase" in vendor,
+                {
+                    "vendor": "Supabase",
+                    "category": "Backend / database",
+                    "kind": "subscription",
+                    "cadence": "monthly",
+                    "source": "supabase_management_api",
+                    "notes": f"Supabase token is configured, but Management API discovery failed: {str(supabase.get('error'))[:180]}",
+                    "updated_at": now,
+                },
+            )
+        else:
+            orgs = [org for org in supabase.get("organizations", []) if isinstance(org, dict)]
+            projects = [project for project in supabase.get("projects", []) if isinstance(project, dict)]
+            paid_orgs = [org for org in orgs if str(org.get("plan") or "").lower() not in {"", "free"}]
+            base_amount = sum(_DEV_SPEND_SUPABASE_PLAN_BASE_MONTHLY.get(str(org.get("plan") or "").lower(), 0.0) for org in orgs)
+            active_projects = [str(project.get("name") or project.get("ref") or "project") for project in projects if str(project.get("status") or "").upper().startswith("ACTIVE")]
+            plan_summary = ", ".join(f"{org.get('name') or org.get('slug')}: {org.get('plan') or 'unknown'}" for org in orgs) or "no organizations returned"
+            notes = f"Live Supabase Management API: {plan_summary}; {len(active_projects)} active project(s)"
+            if active_projects:
+                notes += f" ({', '.join(active_projects[:3])})"
+            if base_amount:
+                notes += "; amount is base plan only—invoice still needed for add-ons/taxes"
+            _replace_or_append_dev_spend_item(
+                normalized,
+                lambda vendor: "supabase" in vendor,
+                {
+                    "vendor": "Supabase",
+                    "category": "Backend / database",
+                    "kind": "org plan" if paid_orgs else "subscription",
+                    "cadence": "monthly",
+                    "amount": base_amount,
+                    "currency": "USD",
+                    "status": "active" if paid_orgs or active_projects else "watching",
+                    "source": "supabase_management_api",
+                    "notes": notes,
+                    "updated_at": now,
+                },
+            )
+
+    receipts = _fetch_dev_spend_receipts()
+    anthropic_receipt = receipts.get("anthropic") if isinstance(receipts.get("anthropic"), dict) else None
+    if anthropic_receipt and anthropic_receipt.get("amount"):
+        next_due = anthropic_receipt.get("next_due")
+        paid_at = anthropic_receipt.get("paid_at")
+        notes = f"Gmail receipt scan: {anthropic_receipt.get('plan') or 'Claude'} amount paid USD {float(anthropic_receipt.get('amount') or 0):.2f}"
+        if paid_at:
+            notes += f"; paid {paid_at}"
+        if next_due:
+            notes += f"; covers through {next_due}"
+        _replace_or_append_dev_spend_item(
+            normalized,
+            lambda vendor: "claude" in vendor or "anthropic" in vendor,
+            {
+                "vendor": "Claude",
+                "category": "AI subscription",
+                "kind": f"{anthropic_receipt.get('plan') or 'Claude'} subscription",
+                "cadence": "monthly",
+                "amount": anthropic_receipt.get("amount"),
+                "currency": "USD",
+                "next_due": next_due,
+                "status": "active",
+                "source": "gmail_receipt",
+                "notes": notes,
+                "updated_at": now,
+            },
+        )
+    google_cancelled = receipts.get("google_ai_cancelled") if isinstance(receipts.get("google_ai_cancelled"), dict) else None
+    if google_cancelled:
         for index, item in enumerate(normalized):
-            if "gemini" in item["vendor"].lower() or "google ai" in item["vendor"].lower():
+            vendor = str(item.get("vendor") or "").lower()
+            if "google ai pro" in vendor or "google one" in vendor:
                 normalized[index] = _serialize_dev_spend_item({
                     **item,
-                    "source": "gemini_api_key",
-                    "notes": "Gemini API key is configured and usable for model calls; billing/usage totals are not exposed by the Generative Language API key.",
+                    "status": "cancelled",
+                    "amount": 0,
+                    "source": "gmail_receipt",
+                    "notes": f"Gmail receipt scan found Google One cancellation notice; cancels {google_cancelled.get('cancelled_at') or 'soon'}. Not counted per Rory.",
                     "updated_at": now,
                 })
                 break
-    return normalized
 
+    return normalized
 
 def _dev_spend_source_status() -> Dict[str, Any]:
     values = _dev_spend_env_values()
@@ -3445,7 +3773,7 @@ def _dev_spend_source_status() -> Dict[str, Any]:
                 "id": "openai",
                 "label": "OpenAI billing",
                 "status": "available" if openai_configured else "not_configured",
-                "detail": "OpenAI key detected; billing totals still need Admin/Billing API access or receipt import." if openai_configured else "No OPENAI_API_KEY/Admin billing credential is configured for this profile.",
+                "detail": "OpenAI key detected; live Costs API is attempted, but dollar totals require api.usage.read/Admin billing scope or receipt import." if openai_configured else "No OPENAI_API_KEY/Admin billing credential is configured for this profile.",
             },
             {
                 "id": "anthropic",
@@ -3463,7 +3791,7 @@ def _dev_spend_source_status() -> Dict[str, Any]:
                 "id": "supabase",
                 "label": "Supabase billing",
                 "status": "available" if supabase_configured else "not_configured",
-                "detail": "Supabase token detected; project/org billing can be wired from the Management API where available." if supabase_configured else "No Supabase access token is configured for billing discovery.",
+                "detail": "Supabase token detected; Management API pulls org plan/project status and base plan amount where recognizable." if supabase_configured else "No Supabase access token is configured for billing discovery.",
             },
             {
                 "id": "roryjavant-gmail",
@@ -7758,7 +8086,7 @@ def _start_xai_loopback_flow() -> Dict[str, Any]:
 
 def _xai_loopback_worker(session_id: str) -> None:
     """Wait for the xAI loopback callback, exchange the code, persist tokens."""
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
 
     from hermes_cli import auth as hauth
 
@@ -7905,7 +8233,7 @@ def _nous_poller(session_id: str) -> None:
         _poll_for_token,
         refresh_nous_oauth_from_state,
     )
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     import httpx
     with _oauth_sessions_lock:
         sess = _oauth_sessions.get(session_id)
@@ -7980,7 +8308,7 @@ def _minimax_poller(session_id: str) -> None:
         MINIMAX_OAUTH_GLOBAL_INFERENCE,
         MINIMAX_OAUTH_SCOPE,
     )
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     import httpx
     with _oauth_sessions_lock:
         sess = _oauth_sessions.get(session_id)
@@ -14458,6 +14786,11 @@ _BUILTIN_DASHBOARD_THEMES = [
     {"name": "mission-crimson", "label": "Mission Crimson",     "description": "Mission Control dark cockpit with hot red command accents"},
     {"name": "mission-cyan", "label": "Mission Cyan",           "description": "Mission Control dark cockpit with electric cyan command accents"},
     {"name": "mission-emerald", "label": "Mission Emerald",     "description": "Mission Control dark cockpit with green signal accents"},
+    {"name": "mission-ion", "label": "Mission Ion",             "description": "Mission Control dark cockpit with deep-space ion blue thrust"},
+    {"name": "mission-aurora", "label": "Mission Aurora",       "description": "Mission Control dark cockpit with teal-violet northern lights"},
+    {"name": "mission-solar", "label": "Mission Solar",         "description": "Mission Control dark cockpit with warm gold flight-deck lights"},
+    {"name": "mission-nova", "label": "Mission Nova",           "description": "Mission Control dark cockpit with magenta starburst command"},
+    {"name": "mission-frost", "label": "Mission Frost",         "description": "Mission Control dark cockpit with low-glare glacier ice accents"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
     {"name": "mono",      "label": "Mono",           "description": "Clean grayscale — minimal and focused"},

@@ -46,3 +46,22 @@ def test_dev_spend_page_tracks_subscription_categories_and_email_status():
     assert "usage" in page_source
     assert "dashboard_dev_spend.json" in server_source
     assert "Gmail/IMAP credentials are not configured" in server_source
+
+
+def test_dev_spend_live_sources_overlay_provider_rows():
+    server_source = read("hermes_cli/web_server.py")
+
+    assert "_fetch_openai_monthly_costs" in server_source
+    assert "OPENAI_BILLING_API_KEY" in server_source
+    assert "OPENAI_ADMIN_KEY" in server_source
+    assert "organization/costs" in server_source
+    assert "api.usage.read" in server_source
+    assert "_fetch_supabase_management_details" in server_source
+    assert "api.supabase.com/v1/projects" in server_source
+    assert "supabase_management_api" in server_source
+    assert "_fetch_dev_spend_receipts" in server_source
+    assert "gmail_receipt" in server_source
+    assert "Your receipt from Anthropic" in server_source
+    assert "Google One subscription will be canceled" in server_source
+    assert "_replace_or_append_dev_spend_item" in server_source
+    assert "openai_costs_api" in server_source

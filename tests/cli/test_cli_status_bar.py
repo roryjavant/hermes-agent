@@ -29,11 +29,15 @@ def _attach_agent(
     context_tokens: int,
     context_length: int,
     compressions: int = 0,
+    reasoning_config=None,
+    service_tier: str | None = None,
 ):
     cli_obj.agent = SimpleNamespace(
         model=cli_obj.model,
         provider="anthropic" if cli_obj.model.startswith("anthropic/") else None,
         base_url="",
+        reasoning_config=reasoning_config,
+        service_tier=service_tier,
         session_input_tokens=input_tokens if input_tokens is not None else prompt_tokens,
         session_output_tokens=output_tokens if output_tokens is not None else completion_tokens,
         session_cache_read_tokens=cache_read_tokens,
@@ -80,6 +84,26 @@ class TestCLIStatusBar:
         assert "6%" in text
         assert "$0.06" not in text  # cost hidden by default
         assert "15m" in text
+
+    def test_build_status_bar_text_includes_speed_and_reasoning_badges(self):
+        cli_obj = _attach_agent(
+            _make_cli("openai/gpt-5.5"),
+            prompt_tokens=10_230,
+            completion_tokens=2_220,
+            total_tokens=12_450,
+            api_calls=7,
+            context_tokens=12_450,
+            context_length=200_000,
+            reasoning_config={"enabled": True, "effort": "medium"},
+            service_tier="priority",
+        )
+
+        snapshot = cli_obj._get_status_bar_snapshot()
+        text = cli_obj._build_status_bar_text(width=120)
+
+        assert snapshot["model_short"] == "gpt-5.5"
+        assert snapshot["model_status_short"] == "gpt-5.5 fast, medium"
+        assert "gpt-5.5 fast, medium" in text
 
     def test_post_compression_sentinel_does_not_render_negative(self):
         """Right after a compression, last_prompt_tokens is parked at the -1
