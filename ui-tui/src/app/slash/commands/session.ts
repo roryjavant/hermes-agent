@@ -17,7 +17,7 @@ import type { PanelSection } from '../../../types.js'
 import { DEFAULT_INDICATOR_STYLE, INDICATOR_STYLES, type IndicatorStyle } from '../../interfaces.js'
 import { patchOverlayState } from '../../overlayStore.js'
 import { patchUiState } from '../../uiStore.js'
-import type { SlashCommand } from '../types.js'
+import type { SlashCommand, SlashRunCtx } from '../types.js'
 
 const TUI_SESSION_MODEL_RE = new RegExp(`(?:^|\\s)${TUI_SESSION_MODEL_FLAG}(?:\\s|$)`)
 const TUI_SESSION_STRIP_RE = new RegExp(`\\s*${TUI_SESSION_MODEL_FLAG}\\b\\s*`, 'g')
@@ -36,6 +36,76 @@ const modelValueForConfigSet = (arg: string) => {
   }
 
   return trimmed
+}
+
+const runModelSwitch = (arg: string, ctx: SlashRunCtx) => {
+  if (ctx.session.guardBusySessionSwitch('change models')) {
+    return
+  }
+
+  if (!arg.trim()) {
+    return patchOverlayState({ modelPicker: true })
+  }
+
+  if (arg.trim() === '--refresh') {
+    return patchOverlayState({ modelPicker: { refresh: true } })
+  }
+
+  const switchModel = (confirmExpensiveModel = false) =>
+    ctx.gateway
+      .rpc<ConfigSetResponse>('config.set', {
+        confirm_expensive_model: confirmExpensiveModel,
+        key: 'model',
+        session_id: ctx.sid,
+        value: modelValueForConfigSet(arg)
+      })
+      .then(
+        ctx.guarded<ConfigSetResponse>(r => {
+          if (r.confirm_required) {
+            patchOverlayState({
+              confirm: {
+                cancelLabel: 'Cancel',
+                confirmLabel: 'Switch anyway',
+                danger: true,
+                detail: r.confirm_message || r.warning || 'This model has unusually high known pricing.',
+                onConfirm: () => switchModel(true),
+                title: 'Expensive model selection'
+              }
+            })
+
+            return
+          }
+
+          if (!r.value) {
+            return ctx.transcript.sys('error: invalid response: model switch')
+          }
+
+          ctx.transcript.sys(`model → ${r.value}`)
+          ctx.local.maybeWarn(r)
+
+          patchUiState(state => ({
+            ...state,
+            info: state.info ? { ...state.info, model: r.value! } : { model: r.value!, skills: {}, tools: {} }
+          }))
+        })
+      )
+
+  switchModel()
+}
+
+const MODEL_SHORTCUT_TARGETS = {
+  '5.5': 'gpt-5.5 --provider openai-codex',
+  sol: 'gpt-5.6-sol --provider openai-codex',
+  terra: 'gpt-5.6-terra --provider openai-codex'
+} as const
+
+const hasExplicitModelScope = (arg: string) => /(?:^|\s)--(?:global|session)(?:\s|$)/.test(arg)
+
+const shortcutModelArgs = (name: keyof typeof MODEL_SHORTCUT_TARGETS, arg: string) => {
+  const tail = arg.trim()
+  const scopedTail = tail && hasExplicitModelScope(tail) ? tail : `${tail ? `${tail} ` : ''}--session`
+
+  return `${MODEL_SHORTCUT_TARGETS[name]} ${scopedTail}`.trim()
 }
 
 export const sessionCommands: SlashCommand[] = [
@@ -64,60 +134,25 @@ export const sessionCommands: SlashCommand[] = [
   {
     help: 'change or show model',
     name: 'model',
-    run: (arg, ctx) => {
-      if (ctx.session.guardBusySessionSwitch('change models')) {
-        return
-      }
+    run: runModelSwitch
+  },
 
-      if (!arg.trim()) {
-        return patchOverlayState({ modelPicker: true })
-      }
+  {
+    help: 'switch this session to GPT 5.5',
+    name: '5.5',
+    run: (arg, ctx) => runModelSwitch(shortcutModelArgs('5.5', arg), ctx)
+  },
 
-      if (arg.trim() === '--refresh') {
-        return patchOverlayState({ modelPicker: { refresh: true } })
-      }
+  {
+    help: 'switch this session to GPT 5.6 Sol',
+    name: 'sol',
+    run: (arg, ctx) => runModelSwitch(shortcutModelArgs('sol', arg), ctx)
+  },
 
-      const switchModel = (confirmExpensiveModel = false) =>
-        ctx.gateway
-          .rpc<ConfigSetResponse>('config.set', {
-            confirm_expensive_model: confirmExpensiveModel,
-            key: 'model',
-            session_id: ctx.sid,
-            value: modelValueForConfigSet(arg)
-          })
-          .then(
-            ctx.guarded<ConfigSetResponse>(r => {
-              if (r.confirm_required) {
-                patchOverlayState({
-                  confirm: {
-                    cancelLabel: 'Cancel',
-                    confirmLabel: 'Switch anyway',
-                    danger: true,
-                    detail: r.confirm_message || r.warning || 'This model has unusually high known pricing.',
-                    onConfirm: () => switchModel(true),
-                    title: 'Expensive model selection'
-                  }
-                })
-
-                return
-              }
-
-              if (!r.value) {
-                return ctx.transcript.sys('error: invalid response: model switch')
-              }
-
-              ctx.transcript.sys(`model → ${r.value}`)
-              ctx.local.maybeWarn(r)
-
-              patchUiState(state => ({
-                ...state,
-                info: state.info ? { ...state.info, model: r.value! } : { model: r.value!, skills: {}, tools: {} }
-              }))
-            })
-          )
-
-      switchModel()
-    }
+  {
+    help: 'switch this session to GPT 5.6 Terra',
+    name: 'terra',
+    run: (arg, ctx) => runModelSwitch(shortcutModelArgs('terra', arg), ctx)
   },
 
   {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { providerDisplayNames } from '../domain/providers.js'
 import { TUI_SESSION_MODEL_FLAG } from '../domain/slash.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import type { ModelOptionProvider, ModelOptionsResponse } from '../gatewayTypes.js'
+import type { ModelOptionProvider, ModelOptionsResponse, RuntimeModelOptions } from '../gatewayTypes.js'
 import { fuzzyRank } from '../lib/fuzzy.js'
 import { asRpcResult, rpcErrorMessage } from '../lib/rpc.js'
 import type { Theme } from '../theme.js'
@@ -15,7 +15,15 @@ const VISIBLE = 12
 const MIN_WIDTH = 40
 const MAX_WIDTH = 90
 
-type Stage = 'provider' | 'key' | 'model' | 'disconnect'
+type Stage = 'provider' | 'key' | 'model' | 'disconnect' | 'runtime'
+
+export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
+
+export function nextReasoningEffort(current: string) {
+  const index = REASONING_EFFORTS.indexOf(current as (typeof REASONING_EFFORTS)[number])
+
+  return REASONING_EFFORTS[(index + 1 + REASONING_EFFORTS.length) % REASONING_EFFORTS.length]!
+}
 
 type ProviderRow = { name: string; provider: ModelOptionProvider }
 
@@ -47,6 +55,16 @@ export function ModelPicker({
   const [keyInput, setKeyInput] = useState('')
   const [keySaving, setKeySaving] = useState(false)
   const [keyError, setKeyError] = useState('')
+
+  const [runtime, setRuntime] = useState<RuntimeModelOptions>({
+    fast: 'normal',
+    reasoning: 'medium',
+    showReasoning: false
+  })
+
+  const [runtimeIdx, setRuntimeIdx] = useState(0)
+  const [runtimeSaving, setRuntimeSaving] = useState(false)
+  const [runtimeError, setRuntimeError] = useState('')
   // Type-to-filter query, scoped per stage (cleared on stage change).
   const [filter, setFilter] = useState('')
 
@@ -94,6 +112,31 @@ export function ModelPicker({
       .catch((e: unknown) => {
         setErr(rpcErrorMessage(e))
         setLoading(false)
+      })
+
+    Promise.all([
+      gw.request<{ display?: string; value?: string }>('config.get', {
+        key: 'reasoning',
+        ...(sessionId ? { session_id: sessionId } : {})
+      }),
+      gw.request<{ value?: string }>('config.get', {
+        key: 'fast',
+        ...(sessionId ? { session_id: sessionId } : {})
+      })
+    ])
+      .then(([reasoningRaw, fastRaw]) => {
+        const reasoning = asRpcResult<{ display?: string; value?: string }>(reasoningRaw)
+        const fast = asRpcResult<{ value?: string }>(fastRaw)
+
+        setRuntime({
+          fast: fast?.value === 'fast' ? 'fast' : 'normal',
+          reasoning: reasoning?.value || 'medium',
+          showReasoning: reasoning?.display === 'show'
+        })
+      })
+      .catch(() => {
+        // Keep model selection usable when the runtime settings endpoints
+        // are unavailable on an older backend.
       })
   }, [gw, initialRefresh, sessionId])
 
@@ -166,7 +209,7 @@ export function ModelPicker({
       return
     }
 
-    if (stage === 'model' || stage === 'key' || stage === 'disconnect') {
+    if (stage === 'model' || stage === 'key' || stage === 'disconnect' || stage === 'runtime') {
       setStage('provider')
       setModelIdx(0)
       setKeyInput('')
@@ -303,6 +346,66 @@ export function ModelPicker({
       return
     }
 
+    if (stage === 'runtime') {
+      if (runtimeSaving) {
+        return
+      }
+
+      if (key.upArrow) {
+        setRuntimeIdx(index => Math.max(0, index - 1))
+
+        return
+      }
+
+      if (key.downArrow) {
+        setRuntimeIdx(index => Math.min(2, index + 1))
+
+        return
+      }
+
+      if (!key.return) {
+        return
+      }
+
+      const option = runtimeIdx
+
+      const next =
+        option === 0
+          ? { key: 'reasoning', value: nextReasoningEffort(runtime.reasoning) }
+          : option === 1
+            ? { key: 'reasoning', value: runtime.showReasoning ? 'hide' : 'show' }
+            : { key: 'fast', value: runtime.fast === 'fast' ? 'normal' : 'fast' }
+
+      setRuntimeSaving(true)
+      setRuntimeError('')
+      gw.request<{ value?: string }>('config.set', {
+        key: next.key,
+        value: next.value,
+        ...(sessionId ? { session_id: sessionId } : {})
+      })
+        .then(raw => {
+          const result = asRpcResult<{ value?: string }>(raw)
+
+          if (!result) {
+            setRuntimeError(`could not update ${next.key}`)
+
+            return
+          }
+
+          setRuntime(current =>
+            option === 0
+              ? { ...current, reasoning: result.value || next.value }
+              : option === 1
+                ? { ...current, showReasoning: (result.value || next.value) === 'show' }
+                : { ...current, fast: (result.value || next.value) === 'fast' ? 'fast' : 'normal' }
+          )
+        })
+        .catch(error => setRuntimeError(rpcErrorMessage(error)))
+        .finally(() => setRuntimeSaving(false))
+
+      return
+    }
+
     // List-stage Esc/q handling (overlay keys are disabled while on a list
     // stage so 'q' can be typed into the filter).
     if (key.escape) {
@@ -410,6 +513,15 @@ export function ModelPicker({
       return
     }
 
+    if (key.ctrl && ch === 'o') {
+      setStage('runtime')
+      setRuntimeIdx(0)
+      setRuntimeError('')
+      setFilter('')
+
+      return
+    }
+
     // Disconnect (Ctrl+D): only in provider stage, only for authenticated providers.
     if (key.ctrl && ch === 'd' && stage === 'provider' && provider?.authenticated !== false) {
       const fullProviderIdx = providerIndexAfterClearingFilter(providerRows, provider)
@@ -449,6 +561,46 @@ export function ModelPicker({
       <Box flexDirection="column">
         <Text color={t.color.muted}>no providers available</Text>
         <OverlayHint t={t}>Esc/q cancel</OverlayHint>
+      </Box>
+    )
+  }
+
+  if (stage === 'runtime') {
+    const rows = [
+      `Reasoning effort: ${runtime.reasoning}`,
+      `Show reasoning: ${runtime.showReasoning ? 'on' : 'off'}`,
+      `Speed / priority: ${runtime.fast}`
+    ]
+
+    return (
+      <Box flexDirection="column" width={width}>
+        <Text bold color={t.color.accent} wrap="truncate-end">
+          Runtime options
+        </Text>
+        <Text color={t.color.muted} wrap="truncate-end">
+          {currentModel || 'Current model'} · applies to this session and profile
+        </Text>
+        <Text color={runtimeError ? t.color.label : t.color.muted} wrap="truncate-end">
+          {runtimeError || ' '}
+        </Text>
+        {rows.map((row, index) => (
+          <Text
+            bold={runtimeIdx === index}
+            color={runtimeIdx === index ? t.color.accent : t.color.muted}
+            inverse={runtimeIdx === index}
+            key={row}
+            wrap="truncate-end"
+          >
+            {runtimeIdx === index ? '▸ ' : '  '}
+            {row}
+          </Text>
+        ))}
+        <Text color={t.color.muted} wrap="truncate-end">
+          {' '}
+        </Text>
+        <OverlayHint t={t}>
+          {runtimeSaving ? 'saving…' : '↑/↓ select · Enter change · Esc back · q close'}
+        </OverlayHint>
       </Box>
     )
   }
@@ -615,7 +767,7 @@ export function ModelPicker({
           persist: {allowPersistGlobal ? (persistGlobal ? 'global' : 'session') : 'session'}
           {allowPersistGlobal ? ' · ^g toggle' : ' only'}
         </Text>
-        <OverlayHint t={t}>↑/↓ select · Enter choose · ^d disconnect · Esc clear/back · q close</OverlayHint>
+        <OverlayHint t={t}>↑/↓ select · Enter choose · ^o runtime options · ^d disconnect · Esc clear/back · q close</OverlayHint>
       </Box>
     )
   }
@@ -684,7 +836,9 @@ export function ModelPicker({
         {allowPersistGlobal ? ' · ^g toggle' : ' only'}
       </Text>
       <OverlayHint t={t}>
-        {models.length ? '↑/↓ select · Enter switch · Esc clear/back · q close' : 'Esc back · q close'}
+        {models.length
+          ? '↑/↓ select · Enter switch · ^o runtime options · Esc clear/back · q close'
+          : '^o runtime options · Esc back · q close'}
       </OverlayHint>
     </Box>
   )

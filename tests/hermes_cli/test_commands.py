@@ -99,6 +99,9 @@ class TestResolveCommand:
         assert resolve_command("help").name == "help"
         assert resolve_command("background").name == "background"
         assert resolve_command("copy").name == "copy"
+        cp = resolve_command("cp")
+        assert cp is not None
+        assert cp.name == "cp"
         assert resolve_command("agents").name == "agents"
 
     def test_alias_resolves_to_canonical(self):

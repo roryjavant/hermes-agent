@@ -2555,6 +2555,15 @@ def _load_service_tier() -> str | None:
     return None
 
 
+def _reasoning_effort_label(reasoning_config: dict | None) -> str:
+    """Return the compact reasoning-effort label exposed to TUI chrome."""
+    if not isinstance(reasoning_config, dict):
+        return ""
+    if reasoning_config.get("enabled") is False:
+        return "none"
+    return str(reasoning_config.get("effort", "") or "").strip().lower()
+
+
 def _load_provider_routing() -> dict:
     """OpenRouter provider-routing prefs from config.yaml (``provider_routing``).
 
@@ -2821,6 +2830,9 @@ def _apply_model_switch(
     pin_session_override: bool = True,
     parsed_flags: tuple[str, str, bool, bool, bool] | None = None,
     persist_override: bool | None = None,
+    persist_session_runtime: bool = True,
+    record_switch_marker: bool = True,
+    emit_session_info: bool = True,
 ) -> dict:
     from hermes_cli.model_switch import (
         parse_model_flags,
@@ -2965,12 +2977,15 @@ def _apply_model_switch(
                 f"staying on {getattr(agent, 'model', current_model)}."
             ) from exc
         _restart_slash_worker(sid, session)
-        _persist_live_session_runtime(session)
-        _persist_live_session_system_prompt(session)
-        _append_model_switch_marker(
-            session, model=result.new_model, provider=result.target_provider
-        )
-        _emit("session.info", sid, _session_info(agent, session))
+        if persist_session_runtime:
+            _persist_live_session_runtime(session)
+            _persist_live_session_system_prompt(session)
+        if record_switch_marker:
+            _append_model_switch_marker(
+                session, model=result.new_model, provider=result.target_provider
+            )
+        if emit_session_info:
+            _emit("session.info", sid, _session_info(agent, session))
 
     # Record the switch as a PER-SESSION override so a later rebuild of THIS
     # session (e.g. /new via _reset_session_agent, or resume) re-derives the
@@ -3002,13 +3017,97 @@ def _apply_model_switch(
     }
 
 
+def _snapshot_one_shot_model_restore(session: dict) -> dict:
+    """Capture the session/runtime identity to restore after a /use-* turn."""
+    import copy
+
+    agent = session.get("agent")
+    override = session.get("model_override")
+    return {
+        "override": copy.deepcopy(override),
+        "model": getattr(agent, "model", None) if agent else None,
+        "provider": getattr(agent, "provider", None) if agent else None,
+    }
+
+
+def _apply_one_shot_model_shortcut(sid: str, session: dict, shortcut) -> dict:
+    """Switch the live agent for exactly one queued prompt without persistence."""
+    agent = session.get("agent")
+    if agent is None:
+        raise ValueError("agent is not ready")
+    if session.get("running"):
+        raise ValueError("session busy — wait for the current turn or /interrupt first")
+    if session.get("model_one_shot_restore"):
+        raise ValueError("a one-shot model prompt is already queued")
+
+    restore = _snapshot_one_shot_model_restore(session)
+    result = _apply_model_switch(
+        sid,
+        session,
+        shortcut.target_args,
+        confirm_expensive_model=True,
+        pin_session_override=False,
+        persist_override=False,
+        persist_session_runtime=False,
+        record_switch_marker=False,
+        emit_session_info=False,
+    )
+    session["model_one_shot_restore"] = restore
+    session["model_one_shot_target"] = {
+        "model": result.get("value") or shortcut.model,
+        "provider": shortcut.provider,
+    }
+    return result
+
+
+def _restore_one_shot_model_if_needed(sid: str, session: dict) -> None:
+    """Restore the pre-/use-* model after the one-shot turn completes."""
+    restore = session.pop("model_one_shot_restore", None)
+    session.pop("model_one_shot_target", None)
+    if not isinstance(restore, dict):
+        return
+
+    prev_override = restore.get("override")
+    prev_model = str(restore.get("model") or "").strip()
+    prev_provider = str(restore.get("provider") or "").strip()
+
+    if not prev_model:
+        if prev_override is None:
+            session.pop("model_override", None)
+        else:
+            session["model_override"] = prev_override
+        return
+
+    raw = f"{prev_model} --provider {prev_provider}" if prev_provider else prev_model
+    try:
+        _apply_model_switch(
+            sid,
+            session,
+            raw,
+            confirm_expensive_model=True,
+            pin_session_override=False,
+            persist_override=False,
+            persist_session_runtime=False,
+            record_switch_marker=False,
+            emit_session_info=False,
+        )
+    finally:
+        # Restore the exact override identity the chat had before /use-*.
+        # _apply_model_switch intentionally resolved the live agent only; this
+        # keeps the session/default model unchanged for future rebuilds/resumes.
+        if prev_override is None:
+            session.pop("model_override", None)
+        else:
+            session["model_override"] = prev_override
+
+
 def _sync_agent_model_with_config(sid: str, session: dict) -> None:
     """Adopt a config.yaml model change at turn start, like gateways do per
     message. Sessions pinned with /model keep their choice; a failed switch
     keeps the current model and never blocks the turn.
     """
     agent = session.get("agent")
-    if agent is None or session.get("model_override"):
+    if agent is None or session.get("model_override") or session.get("model_one_shot_restore"):
         return
     target = _config_model_target()
     if not target[0]:
@@ -3326,16 +3425,7 @@ def _session_info(agent, session: dict | None = None) -> dict:
     cfg_personality = ((_load_cfg().get("display") or {}).get("personality") or "")
     personality = (session or {}).get("personality", cfg_personality)
     reasoning_config = getattr(agent, "reasoning_config", None)
-    reasoning_effort = ""
-    if isinstance(reasoning_config, dict):
-        if reasoning_config.get("enabled") is False:
-            # Disabled must be distinguishable from unset ("" = provider
-            # default). Reporting "" here made the desktop adopt the empty
-            # value after the first turn, wiping its sticky "thinking off"
-            # pick and re-creating every later chat at the default effort.
-            reasoning_effort = "none"
-        else:
-            reasoning_effort = str(reasoning_config.get("effort", "") or "")
+    reasoning_effort = _reasoning_effort_label(reasoning_config)
     service_tier = getattr(agent, "service_tier", None) or ""
     # Effective approval-bypass state — the same three sources that
     # check_all_command_guards() ORs together: persistent config
@@ -5257,6 +5347,9 @@ def _(rid, params: dict) -> dict:
     _schedule_agent_build(sid)
     _schedule_session_cap_enforcement()  # trim detached idle sessions over the cap
 
+    initial_service_tier = _load_service_tier() or ""
+    initial_reasoning_effort = _reasoning_effort_label(_load_reasoning_config())
+
     return _ok(
         rid,
         {
@@ -5279,6 +5372,9 @@ def _(rid, params: dict) -> dict:
                     if session_model_override and session_model_override.get("provider")
                     else {}
                 ),
+                "reasoning_effort": initial_reasoning_effort,
+                "service_tier": initial_service_tier,
+                "fast": initial_service_tier == "priority",
                 "tools": {},
                 "skills": {},
                 "cwd": _sessions[sid]["cwd"],
@@ -9291,6 +9387,15 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     reset_current_session_key(approval_token)
             except Exception:
                 pass
+            try:
+                _restore_one_shot_model_if_needed(sid, session)
+            except Exception as _restore_exc:
+                logger.warning("one-shot model restore failed: %s", _restore_exc)
+                _emit(
+                    "error",
+                    sid,
+                    {"message": f"One-shot model restore failed: {_restore_exc}"},
+                )
             if home_token is not None:
                 reset_hermes_home_override(home_token)
             _clear_session_context(session_tokens)
@@ -11605,10 +11710,18 @@ _PENDING_INPUT_COMMANDS: frozenset[str] = frozenset(
         "retry",
         "queue",
         "q",
+        "cp",
         "steer",
+        "mac2",
         "plan",
         "goal",
         "moa",
+        "5.5",
+        "sol",
+        "terra",
+        "use-5.5",
+        "use-sol",
+        "use-terra",
         "undo",
         "learn",
         "compress",
@@ -11881,10 +11994,42 @@ def _(rid, params: dict) -> dict:
     # In the TUI the slash worker subprocess has no reader for that queue,
     # so we handle them here and return a structured payload.
 
+    if name == "mac2":
+        try:
+            from hermes_cli.mac2 import (
+                format_mac2_started,
+                mac2_usage,
+                start_mac2_task,
+            )
+        except Exception as exc:
+            return _err(rid, 5031, f"/mac2 unavailable: {exc}")
+
+        if not arg or not arg.strip():
+            return _err(rid, 4004, mac2_usage())
+
+        try:
+            cwd = _session_cwd(session) if session else os.getcwd()
+        except Exception:
+            cwd = os.getcwd()
+
+        try:
+            task = start_mac2_task(
+                arg,
+                session_key=session.get("session_key", "") if session else "",
+                cwd=cwd,
+            )
+        except Exception as exc:
+            return _err(rid, 5031, f"/mac2 failed to start: {exc}")
+
+        return _ok(rid, {"type": "exec", "output": format_mac2_started(task)})
+
     if name in {"queue", "q"}:
         if not arg:
             return _err(rid, 4004, "usage: /queue <prompt>")
         return _ok(rid, {"type": "send", "message": arg})
+
+    if name == "cp":
+        return _ok(rid, {"type": "send", "message": "commit and push"})
 
     if name == "learn":
         # Open-ended: build the standards-guided prompt and submit it as a
@@ -11894,6 +12039,92 @@ def _(rid, params: dict) -> dict:
         from agent.learn_prompt import build_learn_prompt
 
         return _ok(rid, {"type": "send", "message": build_learn_prompt(arg)})
+
+    _model_shortcut_args = None
+    try:
+        from hermes_cli.model_shortcuts import (
+            model_shortcut_args as _model_shortcut_args,
+            model_shortcut_for_name,
+        )
+
+        switch_shortcut = model_shortcut_for_name(name)
+    except Exception:
+        switch_shortcut = None
+
+    if switch_shortcut is not None and _model_shortcut_args is not None:
+        if not session:
+            return _err(rid, 4001, "no active session")
+        if session.get("running"):
+            return _err(
+                rid,
+                4009,
+                "session busy — /interrupt the current turn before switching models",
+            )
+        sid = params.get("session_id", "")
+        raw_args = _model_shortcut_args(name, str(arg or ""), default_session=True)
+        if not raw_args:
+            return _err(rid, 4004, f"unknown model shortcut: /{name}")
+        try:
+            result = _apply_model_switch(
+                sid,
+                session,
+                raw_args,
+                confirm_expensive_model=bool(params.get("confirm_expensive_model", True)),
+            )
+        except Exception as exc:
+            return _err(rid, 5030, f"/{name} unavailable: {exc}")
+        output = f"model → {result.get('value') or switch_shortcut.model}"
+        if result.get("warning"):
+            output = f"warning: {result['warning']}\n{output}"
+        return _ok(rid, {"type": "exec", "output": output})
+
+    try:
+        from hermes_cli.model_shortcuts import use_model_shortcut_for_name
+
+        one_shot_shortcut = use_model_shortcut_for_name(name)
+    except Exception:
+        one_shot_shortcut = None
+
+    if one_shot_shortcut is not None:
+        import shlex
+
+        prompt = str(arg or "").strip()
+        if prompt[:1] in {"'", '"'} and prompt[-1:] == prompt[:1]:
+            try:
+                parsed_prompt = shlex.split(prompt)
+                if len(parsed_prompt) == 1:
+                    prompt = parsed_prompt[0]
+            except ValueError:
+                prompt = prompt[1:-1]
+        if not prompt:
+            return _err(rid, 4004, f"usage: /{name} <prompt>")
+        if not session:
+            return _err(rid, 4001, "no active session")
+        sid = params.get("session_id", "")
+        try:
+            result = _apply_one_shot_model_shortcut(sid, session, one_shot_shortcut)
+        except Exception as exc:
+            return _err(rid, 5030, f"/{name} unavailable: {exc}")
+        active_agent = session.get("agent")
+        restore_model = (
+            (session.get("model_one_shot_restore") or {}).get("model")
+            if isinstance(session.get("model_one_shot_restore"), dict)
+            else None
+        )
+        restore_label = restore_model or getattr(active_agent, "model", "the previous model")
+        target_model = result.get("value") or one_shot_shortcut.model
+        return _ok(
+            rid,
+            {
+                "type": "send",
+                "notice": (
+                    f"One-shot model queued: {target_model}; "
+                    f"session model will restore to {restore_label} after this turn."
+                ),
+                "message": prompt,
+            },
+        )
+
     if name == "moa":
         # /moa is one-shot sugar only: run a single prompt through the default
         # MoA preset, then restore the prior model. To *switch* to a MoA preset
@@ -13051,6 +13282,7 @@ def _(rid, params: dict) -> dict:
     session, err = _sess(params, rid)
     if err:
         return err
+    assert session is not None
 
     cmd = params.get("command", "").strip()
     if not cmd:

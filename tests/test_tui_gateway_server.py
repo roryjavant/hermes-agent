@@ -1401,6 +1401,99 @@ def _patch_config_model(monkeypatch, model, provider=""):
     monkeypatch.setattr(server, "_load_cfg", lambda: {"model": cfg_model})
 
 
+def test_commands_catalog_includes_bare_model_shortcuts(monkeypatch):
+    monkeypatch.setattr(server, "_load_cfg", lambda: {})
+
+    resp = server._methods["commands.catalog"]("r1", {})
+    result = resp["result"]
+    pairs = dict(result["pairs"])
+
+    assert pairs["/5.5"].startswith("Switch this terminal/TUI session")
+    assert pairs["/sol"].startswith("Switch this terminal/TUI session")
+    assert pairs["/terra"].startswith("Switch this terminal/TUI session")
+    assert result["canon"]["/5.5"] == "/5.5"
+    assert result["canon"]["/sol"] == "/sol"
+    assert result["canon"]["/terra"] == "/terra"
+
+
+def test_commands_catalog_includes_cp_commit_push_shortcut(monkeypatch):
+    monkeypatch.setattr(server, "_load_cfg", lambda: {})
+
+    resp = server._methods["commands.catalog"]("r1", {})
+    result = resp["result"]
+    pairs = dict(result["pairs"])
+    session_pairs = dict(
+        next(c for c in result["categories"] if c["name"] == "Session")["pairs"]
+    )
+
+    assert pairs["/cp"] == "Send 'commit and push' to the agent"
+    assert session_pairs["/cp"] == "Send 'commit and push' to the agent"
+    assert result["canon"]["/cp"] == "/cp"
+
+
+def test_command_dispatch_bare_model_shortcut_switches_session(monkeypatch):
+    sid = "shortcut-switch"
+    session = _sync_test_session()
+    server._sessions[sid] = session
+    calls = []
+
+    def fake_apply(sid_arg, sess, raw, **kwargs):
+        calls.append((sid_arg, sess, raw, kwargs))
+        return {"value": "gpt-5.6-sol", "warning": "", "confirm_required": False}
+
+    monkeypatch.setattr(server, "_apply_model_switch", fake_apply)
+    try:
+        resp = server._methods["command.dispatch"](
+            "r1", {"session_id": sid, "name": "sol", "arg": ""}
+        )
+    finally:
+        server._sessions.pop(sid, None)
+
+    assert resp["result"] == {"type": "exec", "output": "model → gpt-5.6-sol"}
+    assert calls == [
+        (
+            sid,
+            session,
+            "gpt-5.6-sol --provider openai-codex --session",
+            {"confirm_expensive_model": True},
+        )
+    ]
+
+
+def test_slash_exec_routes_bare_model_shortcut_without_worker(monkeypatch):
+    sid = "shortcut-slash"
+    session = _sync_test_session()
+    server._sessions[sid] = session
+    calls = []
+
+    def fake_apply(sid_arg, sess, raw, **kwargs):
+        calls.append(raw)
+        return {"value": "gpt-5.6-terra", "warning": "", "confirm_required": False}
+
+    monkeypatch.setattr(server, "_apply_model_switch", fake_apply)
+    try:
+        resp = server._methods["slash.exec"](
+            "r1", {"session_id": sid, "command": "terra"}
+        )
+    finally:
+        server._sessions.pop(sid, None)
+
+    assert resp["result"] == {"type": "exec", "output": "model → gpt-5.6-terra"}
+    assert calls == ["gpt-5.6-terra --provider openai-codex --session"]
+
+
+def test_slash_exec_routes_cp_to_commit_push_send():
+    server._sessions["sid"] = _session()
+    try:
+        resp = server._methods["slash.exec"](
+            "r1", {"session_id": "sid", "command": "cp"}
+        )
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert resp["result"] == {"type": "send", "message": "commit and push"}
+
+
 def test_config_sync_switches_unpinned_session(monkeypatch):
     _patch_config_model(monkeypatch, "new/model", provider="nous")
     session = _sync_test_session(config_model_seen=("old/model", "nous"))
@@ -4454,6 +4547,129 @@ def test_commands_catalog_filters_gateway_only_commands_and_keeps_status_visible
     assert "/approve" not in canon
     assert "/deny" not in canon
     assert "/set-home" not in canon
+
+
+def test_commands_catalog_includes_one_shot_model_shortcuts():
+    resp = server.handle_request(
+        {"id": "1", "method": "commands.catalog", "params": {}}
+    )
+
+    assert resp is not None
+    pairs = dict(resp["result"]["pairs"])
+    session_cat = next(c for c in resp["result"]["categories"] if c["name"] == "Session")
+    session_pairs = dict(session_cat["pairs"])
+
+    assert "GPT 5.5" in pairs["/use-5.5"]
+    assert "GPT 5.6 Sol" in pairs["/use-sol"]
+    assert "GPT 5.6 Terra" in pairs["/use-terra"]
+    assert "/use-5.5" in session_pairs
+    assert "/use-sol" in session_pairs
+    assert "/use-terra" in session_pairs
+    config_cat = next(c for c in resp["result"]["categories"] if c["name"] == "Configuration")
+    config_pairs = dict(config_cat["pairs"])
+
+    assert "/5.5" in pairs
+    assert "/sol" in pairs
+    assert "/terra" in pairs
+    assert "/5.5" in config_pairs
+    assert "/sol" in config_pairs
+    assert "/terra" in config_pairs
+
+
+def test_slash_exec_routes_use_model_shortcut_to_one_shot_send(monkeypatch):
+    calls = {}
+
+    def fake_apply_one_shot(sid, session, shortcut):
+        calls["one_shot"] = (sid, shortcut.name, shortcut.target_args)
+        session["model_one_shot_restore"] = {"model": "gpt-5.6-terra"}
+        return {"warning": "", "value": shortcut.model, "confirm_required": False}
+
+    server._sessions["sid"] = _session(agent=types.SimpleNamespace(model="gpt-5.6-terra"))
+    monkeypatch.setattr(server, "_apply_one_shot_model_shortcut", fake_apply_one_shot)
+
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "slash.exec",
+                "params": {"command": "use-5.5 \"some task\"", "session_id": "sid"},
+            }
+        )
+    finally:
+        server._sessions.pop("sid", None)
+
+    assert resp is not None
+    assert resp["result"]["type"] == "send"
+    assert resp["result"]["message"] == "some task"
+    assert "One-shot model queued: gpt-5.5" in resp["result"]["notice"]
+    assert calls["one_shot"] == (
+        "sid",
+        "5.5",
+        "gpt-5.5 --provider openai-codex",
+    )
+
+
+def test_one_shot_model_restore_preserves_session_override_without_persisting(monkeypatch):
+    calls = []
+    agent = types.SimpleNamespace(model="gpt-5.6-terra", provider="openai-codex")
+    previous_override = {
+        "api_key": "old-key",
+        "api_mode": "chat_completions",
+        "base_url": "https://example.invalid/v1",
+        "model": "gpt-5.6-terra",
+        "provider": "openai-codex",
+    }
+    session = _session(agent=agent, model_override=dict(previous_override))
+    shortcut = types.SimpleNamespace(
+        model="gpt-5.5",
+        provider="openai-codex",
+        target_args="gpt-5.5 --provider openai-codex",
+    )
+
+    def fake_apply_model_switch(sid, sess, raw, **kwargs):
+        calls.append((sid, raw, kwargs))
+        if raw.startswith("gpt-5.5"):
+            agent.model = "gpt-5.5"
+            return {"confirm_required": False, "value": "gpt-5.5", "warning": ""}
+        agent.model = "gpt-5.6-terra"
+        return {"confirm_required": False, "value": "gpt-5.6-terra", "warning": ""}
+
+    monkeypatch.setattr(server, "_apply_model_switch", fake_apply_model_switch)
+
+    server._apply_one_shot_model_shortcut("sid", session, shortcut)
+    assert agent.model == "gpt-5.5"
+    assert session["model_override"] == previous_override
+    assert session["model_one_shot_restore"]["override"] == previous_override
+
+    server._restore_one_shot_model_if_needed("sid", session)
+
+    assert agent.model == "gpt-5.6-terra"
+    assert session["model_override"] == previous_override
+    assert "model_one_shot_restore" not in session
+    assert calls[0] == (
+        "sid",
+        "gpt-5.5 --provider openai-codex",
+        {
+            "confirm_expensive_model": True,
+            "emit_session_info": False,
+            "persist_override": False,
+            "persist_session_runtime": False,
+            "pin_session_override": False,
+            "record_switch_marker": False,
+        },
+    )
+    assert calls[1] == (
+        "sid",
+        "gpt-5.6-terra --provider openai-codex",
+        {
+            "confirm_expensive_model": True,
+            "emit_session_info": False,
+            "persist_override": False,
+            "persist_session_runtime": False,
+            "pin_session_override": False,
+            "record_switch_marker": False,
+        },
+    )
 
 
 def test_session_status_reads_live_gateway_agent(monkeypatch):

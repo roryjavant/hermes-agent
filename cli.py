@@ -4531,6 +4531,27 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         idle = max(0.0, time.time() - last_finished_at)
         return f"✓ {format_duration_compact(idle)}"
 
+    @staticmethod
+    def _status_bar_reasoning_effort_label(reasoning_config: Any) -> str:
+        """Return the compact reasoning-effort label shown beside the model."""
+        if not isinstance(reasoning_config, dict):
+            return ""
+        if reasoning_config.get("enabled") is False:
+            return "none"
+        return str(reasoning_config.get("effort", "") or "").strip().lower()
+
+    @staticmethod
+    def _status_bar_model_label(model_short: str, reasoning_effort: str = "", service_tier: str = "") -> str:
+        """Return the model segment, including always-visible runtime settings."""
+        badges = []
+        if str(service_tier or "").strip().lower() == "priority":
+            badges.append("fast")
+        if reasoning_effort:
+            badges.append(reasoning_effort)
+        if not badges:
+            return model_short.strip()
+        return f"{model_short.strip()} {', '.join(badges)}".strip()
+
     def _get_status_bar_snapshot(self) -> Dict[str, Any]:
         # Prefer the agent's model name — it updates on fallback.
         # self.model reflects the originally configured model and never
@@ -4544,10 +4565,18 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if len(model_short) > 26:
             model_short = f"{model_short[:23]}..."
 
+        reasoning_config = getattr(agent, "reasoning_config", None) if agent else getattr(self, "reasoning_config", None)
+        reasoning_effort = self._status_bar_reasoning_effort_label(reasoning_config)
+        service_tier = (getattr(agent, "service_tier", None) if agent else getattr(self, "service_tier", None)) or ""
+        model_status_short = self._status_bar_model_label(model_short, reasoning_effort, service_tier)
+
         elapsed_seconds = max(0.0, (datetime.now() - self.session_start).total_seconds())
         snapshot = {
             "model_name": model_name,
             "model_short": model_short,
+            "model_status_short": model_status_short,
+            "reasoning_effort": reasoning_effort,
+            "service_tier": service_tier,
             "duration": format_duration_compact(elapsed_seconds),
             "prompt_elapsed": self._format_prompt_elapsed(
                 getattr(self, "_prompt_start_time", None),
@@ -5051,12 +5080,12 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
             yolo_active = self._is_session_yolo_active()
             if width < 52:
-                text = f"⚕ {snapshot['model_short']} · {duration_label}"
+                text = f"⚕ {snapshot['model_status_short']} · {duration_label}"
                 if yolo_active:
                     text += " · ⚠ YOLO"
                 return self._trim_status_bar_text(text, width)
             if width < 76:
-                parts = [f"⚕ {snapshot['model_short']}", percent_label]
+                parts = [f"⚕ {snapshot['model_status_short']}", percent_label]
                 compressions = snapshot.get("compressions", 0)
                 if compressions:
                     parts.append(f"🗜️ {compressions}")
@@ -5082,7 +5111,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 context_label = "ctx --"
 
             compressions = snapshot.get("compressions", 0)
-            parts = [f"⚕ {snapshot['model_short']}", context_label, percent_label]
+            parts = [f"⚕ {snapshot['model_status_short']}", context_label, percent_label]
             if compressions:
                 parts.append(f"🗜️ {compressions}")
             bg_count = snapshot.get("active_background_tasks", 0)
@@ -5124,7 +5153,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if width < 52:
                 frags = [
                     ("class:status-bar", " ⚕ "),
-                    ("class:status-bar-strong", snapshot["model_short"]),
+                    ("class:status-bar-strong", snapshot["model_status_short"]),
                     ("class:status-bar-dim", " · "),
                     ("class:status-bar-dim", duration_label),
                 ]
@@ -5142,7 +5171,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     bg_subagent_count = snapshot.get("active_background_subagents", 0)
                     frags = [
                         ("class:status-bar", " ⚕ "),
-                        ("class:status-bar-strong", snapshot["model_short"]),
+                        ("class:status-bar-strong", snapshot["model_status_short"]),
                         ("class:status-bar-dim", " · "),
                         (self._status_bar_context_style(percent), percent_label),
                     ]
@@ -5181,7 +5210,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     bg_subagent_count = snapshot.get("active_background_subagents", 0)
                     frags = [
                         ("class:status-bar", " ⚕ "),
-                        ("class:status-bar-strong", snapshot["model_short"]),
+                        ("class:status-bar-strong", snapshot["model_status_short"]),
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", context_label),
                         ("class:status-bar-dim", " │ "),
@@ -7677,6 +7706,22 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         }
         self._invalidate(min_interval=0.0)
 
+    def _model_picker_runtime_values(self) -> tuple[str, str, str]:
+        """Return the current reasoning effort, display, and speed labels."""
+        effort = self._status_bar_reasoning_effort_label(getattr(self, "reasoning_config", None)) or "medium"
+        display = "on" if getattr(self, "show_reasoning", False) else "off"
+        speed = "fast" if getattr(self, "service_tier", None) == "priority" else "normal"
+        return effort, display, speed
+
+    def _cycle_model_picker_reasoning(self) -> None:
+        levels = ("none", "minimal", "low", "medium", "high", "xhigh")
+        effort, _, _ = self._model_picker_runtime_values()
+        try:
+            index = levels.index(effort)
+        except ValueError:
+            index = levels.index("medium")
+        self._handle_reasoning_command(f"/reasoning {levels[(index + 1) % len(levels)]}")
+
     def _confirm_expensive_model_switch(self, result) -> bool:
         """Ask for explicit confirmation before applying costly model switches."""
         if not getattr(result, "success", False):
@@ -7880,7 +7925,12 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         stage = state.get("stage")
         if stage == "provider":
             providers = state.get("providers") or []
-            if selected >= len(providers):
+            if selected == len(providers):
+                state["stage"] = "runtime"
+                state["selected"] = 0
+                self._invalidate(min_interval=0.0)
+                return
+            if selected > len(providers):
                 self._close_model_picker()
                 return
             provider_data = providers[selected]
@@ -7901,6 +7951,26 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             state["provider_data"] = provider_data
             state["model_list"] = model_list
             state["selected"] = 0
+            self._invalidate(min_interval=0.0)
+            return
+        if stage == "runtime":
+            if selected == 0:
+                self._cycle_model_picker_reasoning()
+            elif selected == 1:
+                command = "/reasoning hide" if getattr(self, "show_reasoning", False) else "/reasoning show"
+                self._handle_reasoning_command(command)
+            elif selected == 2:
+                command = "/fast normal" if getattr(self, "service_tier", None) == "priority" else "/fast fast"
+                self._handle_fast_command(command)
+            elif selected == 3:
+                state["stage"] = "provider"
+                state["selected"] = next(
+                    (i for i, provider in enumerate(state.get("providers") or []) if provider.get("is_current")),
+                    0,
+                )
+            else:
+                self._close_model_picker()
+                return
             self._invalidate(min_interval=0.0)
             return
         if stage == "model":
@@ -8230,6 +8300,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             return False
         try:
             from hermes_cli.commands import resolve_command
+
             base = text.split(None, 1)[0].lower().lstrip('/')
             cmd = resolve_command(base)
             return bool(cmd and cmd.name == "model")
@@ -8550,6 +8621,16 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._handle_sessions_command(cmd_original)
         elif canonical == "model":
             self._handle_model_switch(cmd_original)
+        elif canonical in {"5.5", "sol", "terra"}:
+            from hermes_cli.model_shortcuts import model_shortcut_args
+
+            parts = cmd_original.split(None, 1)
+            shortcut_tail = parts[1].strip() if len(parts) > 1 else ""
+            shortcut_args = model_shortcut_args(canonical, shortcut_tail, default_session=True)
+            if shortcut_args:
+                self._handle_model_switch(f"/model {shortcut_args}")
+            else:
+                _cprint(f"  Unknown model shortcut: /{canonical}")
         elif canonical == "codex-runtime":
             self._handle_codex_runtime(cmd_original)
 
@@ -8750,6 +8831,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._handle_journey_command(cmd_original)
         elif canonical == "background":
             self._handle_background_command(cmd_original)
+        elif canonical == "mac2":
+            self._handle_mac2_command(cmd_original)
         elif canonical == "queue":
             # Extract prompt after "/queue " or "/q "
             parts = cmd_original.split(None, 1)
@@ -8762,6 +8845,13 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     _cprint(f"  Queued for the next turn: {payload[:80]}{'...' if len(payload) > 80 else ''}")
                 else:
                     _cprint(f"  Queued: {payload[:80]}{'...' if len(payload) > 80 else ''}")
+        elif canonical == "cp":
+            payload = "commit and push"
+            self._pending_input.put(payload)
+            if self._agent_running:
+                _cprint("  Queued for the next turn: commit and push")
+            else:
+                _cprint("  Queued: commit and push")
         elif canonical == "steer":
             # Inject a message after the next tool call without interrupting.
             # If the agent is actively running, push the text into the agent's
@@ -8788,6 +8878,45 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 _cprint(f"  No agent running; queued as next turn: {payload[:80]}{'...' if len(payload) > 80 else ''}")
         elif canonical == "goal":
             self._handle_goal_command(cmd_original)
+        elif canonical in {"use-5.5", "use-sol", "use-terra"}:
+            from hermes_cli.model_shortcuts import use_model_shortcut_for_name
+            import shlex
+
+            shortcut = use_model_shortcut_for_name(canonical)
+            parts = cmd_original.split(None, 1)
+            payload = parts[1].strip() if len(parts) > 1 else ""
+            if payload[:1] in {"'", '"'} and payload[-1:] == payload[:1]:
+                try:
+                    parsed_payload = shlex.split(payload)
+                    if len(parsed_payload) == 1:
+                        payload = parsed_payload[0]
+                except ValueError:
+                    payload = payload[1:-1]
+            if shortcut is None:
+                _cprint(f"  Unknown one-shot model command: /{canonical}")
+            elif not payload:
+                _cprint(f"  Usage: /{canonical} <prompt>")
+            elif self._agent_running:
+                _cprint("  Session busy — wait for the current turn or /interrupt first")
+            else:
+                self._pending_model_one_shot_restore = {
+                    "requested_provider": getattr(self, "requested_provider", None),
+                    "provider": getattr(self, "provider", None),
+                    "model": getattr(self, "model", None),
+                    "api_key": getattr(self, "api_key", None),
+                    "base_url": getattr(self, "base_url", None),
+                    "api_mode": getattr(self, "api_mode", None),
+                }
+                self._handle_model_switch(f"/model {shortcut.target_args} --session")
+                # This is not a durable model switch; do not prepend the usual
+                # cross-turn switch note to the prompt/history.
+                self._pending_model_switch_note = None
+                self._pending_model_one_shot_disable_after_turn = True
+                self._pending_agent_seed = payload
+                _cprint(
+                    f"  One-shot model queued: {shortcut.model}; "
+                    "previous model will be restored after this turn."
+                )
         elif canonical == "moa":
             # /moa is one-shot sugar only: run a single prompt through the
             # default MoA preset, then restore the prior model. To *switch* to a
@@ -12288,6 +12417,21 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         "error": _summary,
                     }
                 finally:
+                    if getattr(self, "_pending_model_one_shot_disable_after_turn", False):
+                        _restore = getattr(self, "_pending_model_one_shot_restore", None) or {}
+                        for _key in (
+                            "requested_provider",
+                            "provider",
+                            "model",
+                            "api_key",
+                            "base_url",
+                            "api_mode",
+                        ):
+                            if _key in _restore:
+                                setattr(self, _key, _restore.get(_key))
+                        self.agent = None
+                        self._pending_model_one_shot_restore = None
+                        self._pending_model_one_shot_disable_after_turn = False
                     # Surface any credit notices queued during the turn (cold-start
                     # seed / per-turn capture) now that the response is done — printing
                     # at this boundary paints cleanly above the prompt instead of being
@@ -13640,9 +13784,11 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if not state:
                 return
             if state.get("stage") == "provider":
-                max_idx = len(state.get("providers") or [])
-            else:
+                max_idx = len(state.get("providers") or []) + 1
+            elif state.get("stage") == "model":
                 max_idx = len(state.get("model_list") or []) + 1
+            else:
+                max_idx = 4
             state["selected"] = min(max_idx, state.get("selected", 0) + 1)
             event.app.invalidate()
 
@@ -14726,9 +14872,11 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     if p.get("is_current"):
                         label += "  ← current"
                     choices.append(label)
+                effort, display, speed = cli_ref._model_picker_runtime_values()
+                choices.append(f"Runtime options — reasoning {effort} · display {display} · speed {speed}")
                 choices.append("Cancel")
                 hint = f"Current: {state.get('current_model', 'unknown')} on {state.get('current_provider', 'unknown')}"
-            else:
+            elif stage == "model":
                 provider_data = state.get("provider_data") or {}
                 model_list = state.get("model_list") or []
                 title = f"⚙ Model Picker — {provider_data.get('name', provider_data.get('slug', 'Provider'))}"
@@ -14737,6 +14885,17 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     hint = f"Select a model ({len(model_list)} available)"
                 else:
                     hint = "No models listed for this provider. Use Back or Cancel."
+            else:
+                effort, display, speed = cli_ref._model_picker_runtime_values()
+                title = "⚙ Model Picker — Runtime Options"
+                choices = [
+                    f"Reasoning effort: {effort}",
+                    f"Show reasoning: {display}",
+                    f"Speed / priority: {speed}",
+                    "← Back",
+                    "Cancel",
+                ]
+                hint = "Enter changes the selected option"
 
             box_width = _panel_box_width(title, [hint] + choices, min_width=46, max_width=84)
             inner_text_width = max(8, box_width - 6)

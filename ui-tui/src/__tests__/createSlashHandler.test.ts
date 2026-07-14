@@ -183,6 +183,53 @@ describe('createSlashHandler', () => {
     })
   })
 
+  it('routes one-shot /use-* model commands through slash.exec send responses', async () => {
+    patchUiState({ sid: 'sid-abc' })
+
+    const ctx = buildCtx({
+      gateway: {
+        ...buildGateway(),
+        gw: {
+          ...buildGateway().gw,
+          request: vi.fn(() =>
+            Promise.resolve({
+              message: 'some task',
+              notice: 'One-shot model queued: gpt-5.5; session model will restore after this turn.',
+              type: 'send'
+            })
+          )
+        }
+      }
+    })
+
+    expect(createSlashHandler(ctx)('/use-5.5 "some task"')).toBe(true)
+    expect(ctx.gateway.rpc).not.toHaveBeenCalled()
+    expect(ctx.gateway.gw.request).toHaveBeenCalledWith('slash.exec', {
+      command: 'use-5.5 "some task"',
+      session_id: 'sid-abc'
+    })
+    await vi.waitFor(() => {
+      expect(ctx.transcript.sys).toHaveBeenCalledWith(
+        'One-shot model queued: gpt-5.5; session model will restore after this turn.'
+      )
+      expect(ctx.transcript.send).toHaveBeenCalledWith('some task')
+    })
+  })
+
+  it('treats bare model aliases as session-scoped TUI model switches', () => {
+    patchUiState({ sid: 'sid-abc' })
+    const ctx = buildCtx()
+
+    expect(createSlashHandler(ctx)('/terra')).toBe(true)
+    expect(ctx.gateway.rpc).toHaveBeenCalledWith('config.set', {
+      confirm_expensive_model: false,
+      key: 'model',
+      session_id: 'sid-abc',
+      value: 'gpt-5.6-terra --provider openai-codex --session'
+    })
+    expect(ctx.gateway.gw.request).not.toHaveBeenCalled()
+  })
+
   it('opens the model picker with refresh for /model --refresh', () => {
     patchUiState({ sid: 'sid-abc' })
     const ctx = buildCtx()
