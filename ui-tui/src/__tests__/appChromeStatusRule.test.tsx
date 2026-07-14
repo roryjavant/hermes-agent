@@ -105,6 +105,17 @@ const baseProps = {
 }
 
 describe('StatusRule background-subagent indicator', () => {
+  it('renders speed and reasoning effort in the pinned model label', () => {
+    const element = StatusRule({
+      ...baseProps,
+      model: 'openai/gpt-5.5',
+      modelFast: true,
+      modelReasoningEffort: 'medium'
+    })
+
+    expect(textContent(element)).toContain('gpt-5.5 fast, medium')
+  })
+
   it('renders ⛓ N on a wide terminal when subagents are running', () => {
     const element = StatusRule({
       ...baseProps,
