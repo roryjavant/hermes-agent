@@ -550,6 +550,28 @@ class TestSlashCommandCompleter:
     def test_no_completions_for_empty_input(self):
         assert _completions(SlashCommandCompleter(), "") == []
 
+    # -- user-defined quick commands via provider -------------------------
+
+    def test_quick_commands_are_completed_from_provider(self):
+        completer = SlashCommandCompleter(
+            quick_commands_provider=lambda: {
+                "angelloz": {
+                    "type": "exec",
+                    "command": "open '/tmp/angelloz.pdf'",
+                    "description": "Open the Angelloz competitor face-sheet packet",
+                },
+            }
+        )
+
+        completions = _completions(completer, "/ang")
+
+        assert len(completions) == 1
+        assert completions[0].text == "angelloz"
+        assert completions[0].display_text == "/angelloz"
+        assert completions[0].display_meta_text == (
+            "⚡ Open the Angelloz competitor face-sheet packet"
+        )
+
     # -- skill commands via provider ------------------------------------
 
     def test_skill_commands_are_completed_from_provider(self):
@@ -960,6 +982,19 @@ class TestGhostText:
 
     def test_no_suggestion_for_complete_command(self):
         assert _suggestion("/help") is None
+
+    def test_quick_command_name_suggestion(self):
+        completer = SlashCommandCompleter(
+            quick_commands_provider=lambda: {
+                "angelloz": {
+                    "type": "exec",
+                    "command": "open '/tmp/angelloz.pdf'",
+                    "description": "Open the Angelloz competitor face-sheet packet",
+                },
+            }
+        )
+
+        assert _suggestion("/ang", completer=completer) == "elloz"
 
     def test_subcommand_suggestion(self):
         """/reasoning h → 'igh'"""

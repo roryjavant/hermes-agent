@@ -14290,6 +14290,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             skill_commands_provider=lambda: get_skill_commands(),
             command_filter=cli_ref._command_available,
             skill_bundles_provider=lambda: get_skill_bundles(),
+            quick_commands_provider=lambda: cli_ref.config.get("quick_commands", {}),
         )
         input_area = TextArea(
             height=Dimension(min=1, max=8, preferred=1),

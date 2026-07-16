@@ -1338,10 +1338,12 @@ class SlashCommandCompleter(Completer):
         skill_commands_provider: Callable[[], Mapping[str, dict[str, Any]]] | None = None,
         command_filter: Callable[[str], bool] | None = None,
         skill_bundles_provider: Callable[[], Mapping[str, dict[str, Any]]] | None = None,
+        quick_commands_provider: Callable[[], Mapping[str, dict[str, Any]]] | None = None,
     ) -> None:
         self._skill_commands_provider = skill_commands_provider
         self._command_filter = command_filter
         self._skill_bundles_provider = skill_bundles_provider
+        self._quick_commands_provider = quick_commands_provider
         # Cached project file list for fuzzy @ completions
         self._file_cache: list[str] = []
         self._file_cache_time: float = 0.0
@@ -1368,6 +1370,14 @@ class SlashCommandCompleter(Completer):
             return {}
         try:
             return self._skill_bundles_provider() or {}
+        except Exception:
+            return {}
+
+    def _iter_quick_commands(self) -> Mapping[str, dict[str, Any]]:
+        if self._quick_commands_provider is None:
+            return {}
+        try:
+            return self._quick_commands_provider() or {}
         except Exception:
             return {}
 
@@ -2043,6 +2053,23 @@ class SlashCommandCompleter(Completer):
                     display_meta=f"▣ {short_desc} ({skill_count} skills)",
                 )
 
+        for name, info in self._iter_quick_commands().items():
+            cmd_name = str(name).lstrip("/").lower()
+            if not cmd_name.startswith(word):
+                continue
+            description = (
+                str(info.get("description") or info.get("type") or "Quick command")
+                if isinstance(info, Mapping)
+                else "Quick command"
+            )
+            short_desc = description[:50] + ("..." if len(description) > 50 else "")
+            yield Completion(
+                self._completion_text(cmd_name, word),
+                start_position=-len(word),
+                display=f"/{cmd_name}",
+                display_meta=f"⚡ {short_desc}",
+            )
+
         for cmd, info in self._iter_skill_commands().items():
             cmd_name = cmd[1:]
             if cmd_name.startswith(word):
@@ -2113,6 +2140,11 @@ class SlashCommandAutoSuggest(AutoSuggest):
                 cmd_name = cmd[1:]  # strip leading /
                 if cmd_name.startswith(word) and cmd_name != word:
                     return Suggestion(cmd_name[len(word):])
+            if self._completer is not None:
+                for name in self._completer._iter_quick_commands():
+                    cmd_name = str(name).lstrip("/").lower()
+                    if cmd_name.startswith(word) and cmd_name != word:
+                        return Suggestion(cmd_name[len(word):])
             return None
 
         # Command is complete — suggest subcommands
